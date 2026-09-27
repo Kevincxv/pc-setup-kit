@@ -1,0 +1,121 @@
+# PC Setup Kit - uninstaller. Removes Claude (Admin) and its zero-maintenance system: tray icon, hidden session,
+# background maintenance, shortcuts, the no-shutdown block and the maintenance scripts/skills. Your conversations,
+# Claude account/settings and installed apps stay. Nothing is deleted outright: the removed files are moved to
+# %USERPROFILE%\.claude\pc-setup-kit-removed-<date> so it can be put back by hand.
+#   -RevertTweaks     also put back every Windows setting the kit changed (from C:\PCSetupKit\tweaks-backup.json),
+#                     the Balanced power plan and hibernation. Removed Windows apps are listed (reinstall from the Store).
+#   -RemoveClaudeCode also remove Claude Code itself.
+#   -Yes              don't ask for confirmation.   -WhatIf  only list what would be done.
+# Run as administrator: right-click > Run with PowerShell (it asks for admin), or from an admin PowerShell.
+param([switch]$RevertTweaks, [switch]$RemoveClaudeCode, [switch]$Yes, [switch]$WhatIf,
+    [string]$BackupFile = 'C:\PCSetupKit\tweaks-backup.json', [switch]$RevertOnly)   # -RevertOnly: tests / revert without removing
+$ErrorActionPreference = 'Continue'
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"") + $(foreach ($k in $PSBoundParameters.Keys) { "-$k" })
+    Start-Process powershell -Verb RunAs -ArgumentList $a; exit
+}
+# Running from C:\PCSetupKit (which gets moved at the end): continue from a temporary copy instead
+if (-not $WhatIf -and -not $RevertOnly -and $PSCommandPath -like 'C:\PCSetupKit\*') {
+    $tmp = Join-Path $env:TEMP 'pc-setup-kit-uninstall.ps1'; Copy-Item $PSCommandPath $tmp -Force
+    & $tmp @PSBoundParameters; return
+}
+$cl = "$env:USERPROFILE\.claude"
+$stash = "$cl\pc-setup-kit-removed-$(Get-Date -Format yyyyMMdd-HHmmss)"
+$done = New-Object System.Collections.Generic.List[string]
+function Do-It([string]$What, [scriptblock]$Action) { if ($WhatIf) { "  would: $What" } else { try { & $Action; $done.Add($What) } catch { "  FAILED: $What - $($_.Exception.Message)" } } }
+function Stash([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    Do-It "move $Path to the removed-files folder" { New-Item $stash -ItemType Directory -Force | Out-Null
+        $dest = Join-Path $stash ((Split-Path $Path -Leaf)); if (Test-Path $dest) { $dest += "-$(Get-Random)" }; Move-Item -LiteralPath $Path $dest -Force }
+}
+
+if (-not $Yes -and -not $WhatIf) {
+    Write-Host "This removes Claude (Admin), its tray icon and the hidden maintenance from this PC." -ForegroundColor Yellow
+    if ($RevertTweaks) { Write-Host 'It also puts back the Windows settings the kit changed.' -ForegroundColor Yellow }
+    if ($RemoveClaudeCode) { Write-Host 'It also removes Claude Code itself.' -ForegroundColor Yellow }
+    if ((Read-Host 'Type YES to continue') -ne 'YES') { 'Cancelled - nothing was changed.'; return }
+}
+
+if (-not $RevertOnly) {
+    Write-Host "`n=== Stopping Claude (Admin)" -ForegroundColor Cyan
+    # ourselves and our parents stay alive (the uninstaller may be run from inside a Claude (Admin) session)
+    $keep = @(); $p = $PID; while ($p) { $keep += $p; $p = (Get-CimInstance Win32_Process -Filter "ProcessId=$p").ParentProcessId; if ($p -in $keep) { break } }
+    foreach ($pr in Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -notin $keep -and ($_.CommandLine -match 'Claude Admin Tray\.ahk|claude-admin-launch\.ps1|claude-bg-maint\.ps1|claude-unattended\.ps1') }) {
+        Do-It "stop $($pr.Name) $($pr.ProcessId)" { Stop-Process -Id $pr.ProcessId -Force }
+    }
+    Write-Host "`n=== Scheduled tasks" -ForegroundColor Cyan
+    foreach ($t in 'Claude Admin Tray', 'Claude Background Maintenance', 'Claude Resume After Restart') {
+        if (Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue) { Do-It "remove task '$t'" { Unregister-ScheduledTask -TaskName $t -Confirm:$false } }
+    }
+    Write-Host "`n=== Shortcuts and tray icon" -ForegroundColor Cyan
+    foreach ($l in "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk", "$env:USERPROFILE\Desktop\Claude (Admin).lnk",
+        "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Claude (Admin).lnk", "$env:USERPROFILE\Documents\Claude Admin Tray") { Stash $l }
+
+    Write-Host "`n=== No-shutdown block (Claude settings)" -ForegroundColor Cyan
+    $sf = "$cl\settings.json"
+    if (Test-Path $sf) {
+        $s = Get-Content $sf -Raw | ConvertFrom-Json
+        $pre = @($s.hooks.PreToolUse | Where-Object { -not ($_.hooks | Where-Object { $_.command -match 'no-power-off\.ps1' }) })
+        if (@($s.hooks.PreToolUse).Count -ne $pre.Count) {
+            Do-It 'remove the no-shutdown hook from Claude settings (other settings kept)' {
+                Copy-Item $sf "$sf.before-uninstall" -Force
+                if ($pre) { $s.hooks.PreToolUse = $pre } else { $s.hooks.PSObject.Properties.Remove('PreToolUse') }
+                if (-not @($s.hooks.PSObject.Properties).Count) { $s.PSObject.Properties.Remove('hooks') }
+                [IO.File]::WriteAllText($sf, ($s | ConvertTo-Json -Depth 10), (New-Object Text.UTF8Encoding $false)) }
+        }
+    }
+    Write-Host "`n=== Maintenance scripts, skills and their data" -ForegroundColor Cyan
+    $files = 'claude-admin-launch.ps1', 'claude-bg-maint.ps1', 'claude-maint.ps1', 'claude-unattended.ps1', 'crash-analyze.ps1', 'driver-check.ps1',
+        'health-check.ps1', 'maint-due.ps1', 'maint-watch.ps1', 'periodic-maint.ps1', 'resume-after-restart.ps1', 'restart-check.ps1', 'session-lib.ps1',
+        'refresh-session.ps1', 'status.ps1', 'rehearse-login.ps1', 'game-check.ps1', 'kit-update.ps1', 'tweaks-local.ps1',
+        'maint-report.txt', 'maint-state.json', 'maint-todo.txt', 'maint-todo.shown', 'maint-requests.txt', 'maint-claude-running', 'maint-claude-session',
+        'maint-history', 'maint-claude-log', 'restart-ledger.json', 'restart-canary.txt', 'admin-sessions.txt', 'resume-after-login.txt', 'rehearsal.txt',
+        'games.txt', 'tray-notified.ini', 'selfimprove-last', 'selfimprove-journal.md', 'selfimprove-backup', 'session-refresh.log', 'benchmarks.json',
+        'health-check.last', 'health-ignore.txt', 'startup-baseline.txt', 'kit-version.txt', 'hooks\no-power-off.ps1', 'skills\maintain', 'skills\pc-optimize', 'skills\self-improve'
+    foreach ($f in $files) { Stash "$cl\$f" }
+}
+
+if ($RevertTweaks) {
+    Write-Host "`n=== Putting Windows settings back" -ForegroundColor Cyan
+    $bk = $null; try { $bk = Get-Content $BackupFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch {}
+    if (-not $bk) { '  No backup of the original settings was found (the kit was set up before backups existed) - nothing to put back.' }
+    $apps = @()
+    foreach ($e in @($bk.PSObject.Properties)) {
+        $k = $e.Name -split '\|'; $v = $e.Value
+        switch ($k[0]) {
+            'reg' {
+                if ($v.Existed) { Do-It "setting $($k[2]) back to '$($v.Value)'" { Set-ItemProperty -Path $k[1] -Name $k[2] -Value $v.Value -Type $(if ($v.Kind) { $v.Kind } else { 'DWord' }) } }
+                elseif ($null -ne (Get-ItemProperty -Path $k[1] -Name $k[2] -ErrorAction SilentlyContinue)) { Do-It "setting $($k[2]) removed (wasn't set before)" { Remove-ItemProperty -Path $k[1] -Name $k[2] } }
+            }
+            'service' { Do-It "service $($k[1]) back to $($v.StartType)" { Set-Service $k[1] -StartupType $v.StartType } }
+            'task' { $tp = $k[1].Substring(0, $k[1].LastIndexOf('\') + 1); $tn = $k[1].Substring($k[1].LastIndexOf('\') + 1)
+                Do-It "task $tn back on" { Enable-ScheduledTask -TaskPath $tp -TaskName $tn | Out-Null } }
+            'nic' { Do-It "network adapter $($k[1]) '$($k[2])' back to $($v.DisplayValue)" { Set-NetAdapterAdvancedProperty -Name $k[1] -DisplayName $k[2] -DisplayValue $v.DisplayValue -NoRestart } }
+            'power' { $d = Get-CimInstance -Namespace root\wmi MSPower_DeviceEnable | Where-Object InstanceName -eq $k[1]
+                if ($d) { Do-It "USB/network power-saving back on ($($k[1].Split('\')[1]))" { Set-CimInstance -InputObject $d -Property @{ Enable = $true } } } }
+            'app' { $apps += $k[1] }
+        }
+    }
+    if (-not $RevertOnly) {
+        Do-It 'power plan back to Balanced' { powercfg /setactive 381b4222-f694-41f0-9685-ff5bb260df2e }
+        Do-It 'hibernation (and fast startup) back on' { powercfg /hibernate on }
+    }
+    if ($apps) { "  Windows apps the kit removed (reinstall any you want from the Microsoft Store): $($apps -join ', ')" }
+}
+
+if ($RemoveClaudeCode -and -not $RevertOnly) {
+    Write-Host "`n=== Claude Code" -ForegroundColor Cyan
+    foreach ($p in "$env:USERPROFILE\.local\bin\claude.exe", "$env:USERPROFILE\.local\share\claude") { Stash $p }
+}
+if (-not $RevertOnly -and (Test-Path 'C:\PCSetupKit')) {
+    Stash 'C:\PCSetupKit'   # its setup.log and tweaks-backup.json end up in the removed-files folder too
+}
+
+Write-Host ''
+if ($WhatIf) { 'Nothing was changed (-WhatIf).' }
+else {
+    "Done: $($done.Count) step(s)."
+    if (Test-Path $stash) { "Removed files were moved to $stash (delete that folder when you're sure)." }
+    if (-not $RevertOnly) { 'Apps the kit installed (Git, Steam, Discord, Chrome, WinDbg, AutoHotkey, NVIDIA App) are still there - uninstall any you don''t want in Settings > Apps.' }
+    if ($RevertTweaks -and -not $RevertOnly) { 'Restart the PC when convenient so every setting takes effect.' }
+}

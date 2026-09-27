@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PC Setup Kit answer file. Put this file and the PCSetupKit folder in the ROOT of a Windows 11 USB made with
+  Microsoft's Media Creation Tool. Windows Setup reads it automatically.
+  - Still asks: language/keyboard, product key/edition, WHICH DISK to install to (nothing is wiped automatically),
+    username/password for a local account.
+  - Skips: license page, Microsoft account screens, OEM/ad screens, privacy page (all data sharing off).
+  - First login: runs PCSetupKit\setup.ps1 from the USB (tweaks, apps, Claude Code + Claude (Admin)).
+-->
+<unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+  <settings pass="windowsPE">
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <UserData>
+        <AcceptEula>true</AcceptEula>
+      </UserData>
+    </component>
+  </settings>
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Description>Allow local account setup</Description>
+          <Path>reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE" /v BypassNRO /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+    </component>
+  </settings>
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <ProtectYourPC>3</ProtectYourPC>
+      </OOBE>
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Description>PC Setup Kit</Description>
+          <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$k = Get-PSDrive -PSProvider FileSystem | ForEach-Object { Join-Path $_.Root 'PCSetupKit\setup.ps1' } | Where-Object { Test-Path $_ } | Select-Object -First 1; if ($k) { &amp; $k } else { Write-Host 'PC Setup Kit USB not found. Plug it in and run PCSetupKit\setup.ps1'; Read-Host 'Press Enter' }"</CommandLine>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+    </component>
+  </settings>
+</unattend>
