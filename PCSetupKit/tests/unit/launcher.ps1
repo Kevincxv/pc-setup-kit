@@ -12,7 +12,8 @@ function Reset([hashtable]$state, [string[]]$report, [string[]]$todo) {
     Get-ChildItem $cl -File | Remove-Item -Force
     Get-ChildItem $proj -File | Remove-Item -Force
     Copy-Item "$real\claude-admin-launch.ps1", "$real\maint-due.ps1", "$real\resume-after-restart.ps1", "$real\session-lib.ps1" $cl
-    'New-Item "$PSScriptRoot\bgmaint-was-kicked" -Force | Out-Null' | Set-Content "$cl\claude-bg-maint.ps1"
+    # the stub records WHICH launch started it: a late one from an earlier launch must not count for the next
+    '$env:PCKIT_LAUNCH_TOKEN | Set-Content "$PSScriptRoot\bgmaint-was-kicked"' | Set-Content "$cl\claude-bg-maint.ps1"
     $now = (Get-Date).ToString('o')
     $s = @{ 'claude-quarterly' = $now; 'claude-halfyear' = $now; 'claude-yearly' = $now }
     if ($state) { foreach ($k in $state.Keys) { if ($null -eq $state[$k]) { $s.Remove($k) } else { $s[$k] = $state[$k] } } }
@@ -31,11 +32,15 @@ function Launch([switch]$Auto, [string[]]$LaunchArgs) {
     $psi.Arguments = $a; $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
     $psi.EnvironmentVariables['USERPROFILE'] = $home2; $psi.EnvironmentVariables['FAKE_LOG'] = $log
+    $token = [guid]::NewGuid().ToString(); $psi.EnvironmentVariables['PCKIT_LAUNCH_TOKEN'] = $token
     if ($Auto) { $psi.EnvironmentVariables['CLAUDE_ADMIN_AUTOSTART'] = '1' } else { $psi.EnvironmentVariables.Remove('CLAUDE_ADMIN_AUTOSTART') }
     $p = [Diagnostics.Process]::Start($psi); $out = $p.StandardOutput.ReadToEnd(); $err = $p.StandardError.ReadToEnd(); [void]$p.WaitForExit(30000)
     $r = [pscustomobject]@{ Args = @(); Env = $null; Out = $out; Err = $err }
     # bg-maint is fire-and-forget: its marker can appear a moment later - only the checks that ask wait for it (up to 2 s)
-    $r | Add-Member ScriptProperty Kicked { $w = [Diagnostics.Stopwatch]::StartNew(); while (-not (Test-Path "$cl\bgmaint-was-kicked") -and $w.ElapsedMilliseconds -lt 2000) { Start-Sleep -Milliseconds 50 }; Test-Path "$cl\bgmaint-was-kicked" }
+    $r | Add-Member NoteProperty Token $token
+    $r | Add-Member ScriptProperty Kicked { $m = "$cl\bgmaint-was-kicked"; $w = [Diagnostics.Stopwatch]::StartNew()
+        while (-not ((Test-Path $m) -and (Get-Content $m -ErrorAction SilentlyContinue) -eq $this.Token) -and $w.ElapsedMilliseconds -lt 3000) { Start-Sleep -Milliseconds 50 }
+        (Test-Path $m) -and (Get-Content $m -ErrorAction SilentlyContinue) -eq $this.Token }
     if (Test-Path $log) { $l = Get-Content $log -Encoding UTF8; $r.Args = @($l | ? { $_ -like 'ARG=*' } | % { $_.Substring(4) }); $r.Env = ($l | ? { $_ -like 'AUTOSTART_ENV=*' }).Substring(14) }
     $r
 }
