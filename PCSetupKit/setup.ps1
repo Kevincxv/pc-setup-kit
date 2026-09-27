@@ -13,6 +13,7 @@ $Host.UI.RawUI.WindowTitle = 'PC Setup Kit - setting up this PC (do not close)'
 $src = Split-Path -Parent $PSCommandPath
 $kit = 'C:\PCSetupKit'
 if ($src -ne $kit) { New-Item $kit -ItemType Directory -Force | Out-Null; Copy-Item "$src\*" $kit -Recurse -Force }
+if ((Test-Path "$kit\kit-version.txt") -and (Test-Path "$kit\tests")) { Copy-Item "$kit\kit-version.txt" "$kit\tests\tests-version.txt" -Force }   # tests match this release (self-test.ps1)
 Start-Transcript "$kit\setup.log" -Append | Out-Null
 function Step($msg) { Write-Host "`n=== $msg" -ForegroundColor Cyan }
 

@@ -2,7 +2,7 @@
 # maintenance. Does nothing on the PC where the kit is developed (its folder is a git repo) or without kit-source.txt.
 # A new release is downloaded, checked (all files present, every script parses) and only then installed.
 # Test overrides: -KitDir -ClaudeDir -TrayDir -Force (skip the developer-PC check).
-param([string]$KitDir = 'C:\PCSetupKit', [string]$ClaudeDir = $PSScriptRoot, [string]$TrayDir = "$env:USERPROFILE\Documents\Messiah Tray", [switch]$Force)
+param([string]$KitDir = 'C:\PCSetupKit', [string]$ClaudeDir = $PSScriptRoot, [string]$TrayDir = "$env:USERPROFILE\Documents\Messiah Tray", [switch]$Force, [switch]$Reinstall)   # -Reinstall: install the current release again (self-test.ps1: its test suite is missing or stale)
 $ErrorActionPreference = 'Stop'
 $srcFile = "$KitDir\kit-source.txt"
 if (-not (Test-Path $srcFile)) { return }
@@ -13,7 +13,7 @@ $verFile = "$KitDir\kit-version.txt"; $cur = if (Test-Path $verFile) { (Get-Cont
 try { $rel = Invoke-RestMethod "https://api.github.com/repos/$($cfg.repo)/releases/latest" -Headers @{ 'User-Agent' = 'pc-setup-kit' } -TimeoutSec 20 }
 catch { return }   # offline or rate-limited: quietly try again next time
 $tag = $rel.tag_name
-if (-not $tag -or $tag -eq $cur) { return }
+if (-not $tag -or ($tag -eq $cur -and -not $Reinstall)) { return }
 
 $tmp = Join-Path $env:TEMP "pc-setup-kit-update"; if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
 New-Item $tmp -ItemType Directory -Force | Out-Null
@@ -33,6 +33,7 @@ try {
     Copy-Item "$k\*.ps1" $KitDir -Force                                   # setup / tweaks / uninstall
     # the kit copy's tests and scripts (self-test.ps1 runs these tests weekly): replaced whole, so removed files don't linger
     foreach ($d in 'tests', 'claude') { if (Test-Path "$k\$d") { Remove-Item "$KitDir\$d" -Recurse -Force -ErrorAction SilentlyContinue; Copy-Item "$k\$d" $KitDir -Recurse -Force } }
+    if (Test-Path "$KitDir\tests") { $tag | Set-Content "$KitDir\tests\tests-version.txt" }   # which release these tests belong to (self-test.ps1)
     Copy-Item "$k\claude\*.ps1" $ClaudeDir -Force                         # maintenance scripts
     New-Item "$ClaudeDir\hooks", "$ClaudeDir\skills" -ItemType Directory -Force | Out-Null
     Copy-Item "$k\claude\hooks\*" "$ClaudeDir\hooks" -Force

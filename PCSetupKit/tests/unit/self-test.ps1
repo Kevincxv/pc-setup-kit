@@ -59,4 +59,19 @@ Check 'a game is running: held, no run, no WARNING' ($o -eq 'Self-test held: NBA
 Clear-Path "$C\game.txt"
 $o = @(Run @() @{ PCKIT_TESTS_DIR = $null })
 Check 'inside a test run without a stand-in suite: does nothing (no suite-in-suite)' ($o.Count -eq 0 -and @(Calls).Count -eq $n) ($o -join ' / ')
+Section 'the installed kit''s own tests must belong to the installed release'
+# (an older updater installed new scripts but kept the old tests: those must not run against the new scripts)
+$KT = "$K\tests"; New-Item $KT -ItemType Directory -Force | Out-Null; Copy-Item "$S\run-tests.ps1" $KT; Mode pass; Copy-Item "$S\mode.txt" $KT
+'v2026.10.02' | Set-Content "$K\kit-version.txt"
+function RunKit { Clear-Path "$C\self-test.json"; @(Run @() @{ PCKIT_TESTS_DIR = $KT }) }
+'v2026.10.02' | Set-Content "$KT\tests-version.txt"; $o = RunKit
+Check 'tests match the installed release: they run' ($o -match 'Self-test \(first run\): 40 passed') ($o -join ' / ')
+'v2026.09.27.3' | Set-Content "$KT\tests-version.txt"
+'param([string]$KitDir, [switch]$Reinstall) "reinstall=$Reinstall" | Add-Content "$PSScriptRoot\kitupdate-calls.txt"; "v2026.10.02" | Set-Content "$KitDir\tests\tests-version.txt"' | Set-Content "$C\kit-update.ps1"
+$o = RunKit
+Check 'old tests left by an older updater: the release is reinstalled first, then the right tests run' ((Get-Content "$C\kitupdate-calls.txt") -contains 'reinstall=True' -and $o -match 'Self-test \(first run\): 40 passed') ($o -join ' / ')
+'v2026.09.27.3' | Set-Content "$KT\tests-version.txt"; 'param([string]$KitDir, [switch]$Reinstall)' | Set-Content "$C\kit-update.ps1"
+$n = @(Calls).Count; $o = RunKit
+Check '... reinstall not possible (offline): held quietly, no run, no WARNING, retried next login' ($o -eq "Self-test held: the test suite of v2026.10.02 isn't installed yet (next login)" -and @(Calls).Count -eq $n -and -not (Test-Path "$C\self-test.json")) ($o -join ' / ')
+Clear-Path "$C\kit-update.ps1"
 Finish

@@ -19,6 +19,17 @@ $why = if ($Force) { 'requested' } elseif (-not $state) { 'first run' } elseif (
 if (-not $why) { return }
 if (-not $Force -and (Test-Path "$dir\game-check.ps1") -and ($g = & "$dir\game-check.ps1")) { "Self-test held: $g is running (next login)"; return }
 
+# The installed kit's tests must belong to the installed release: an update by an older updater (before 2026-09-27)
+# brought new scripts but kept the old tests - those would "fail" against the new scripts. Get the right ones first.
+if ($tests -eq "$KitDir\tests" -and $kit) {
+    function TestsVersion { if (Test-Path "$tests\tests-version.txt") { (Get-Content "$tests\tests-version.txt" -Raw).Trim() } else { '' } }
+    if ((TestsVersion) -ne $kit -and (Test-Path "$dir\kit-update.ps1")) {
+        [void](& "$dir\kit-update.ps1" -KitDir $KitDir -Reinstall)
+        $kit = if (Test-Path "$KitDir\kit-version.txt") { (Get-Content "$KitDir\kit-version.txt" -Raw).Trim() } else { $kit }   # it may bring a newer release
+    }
+    if ((TestsVersion) -ne $kit) { "Self-test held: the test suite of $kit isn't installed yet (next login)"; return }
+}
+
 $log = "$dir\self-test.log"
 $tray = "$env:USERPROFILE\Documents\Messiah Tray\Messiah Tray.ahk"
 $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$tests\run-tests.ps1`"", '-Suite', 'unit', '-Src', "`"$dir`"") + $(if (Test-Path $tray) { '-TrayFile', "`"$tray`"" })

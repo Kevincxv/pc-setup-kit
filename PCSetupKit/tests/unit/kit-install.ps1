@@ -70,6 +70,9 @@ $o = & "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force
 Check 'an old install updates itself to the latest release' ("$o" -match 'PC Setup Kit updated v2000.01.01 -> v') "$o"
 Check '... scripts, skills, hook, tray and uninstaller installed' ((@(Get-ChildItem "$cd\*.ps1").Count -ge 15) -and (Test-Path "$cd\skills\maintain\SKILL.md") -and (Test-Path "$cd\hooks\no-power-off.ps1") -and ((Get-Content "$td\Messiah Tray.ahk" -Raw) -match 'Persistent') -and (Test-Path "$kd\uninstall.ps1")) ''
 Check '... the kit copy''s test suite refreshed (for the weekly self-test), removed tests gone' ((Test-Path "$kd\tests\run-tests.ps1") -and (Test-Path "$kd\tests\unit\static.ps1") -and -not (Test-Path "$kd\tests\unit\removed-long-ago.ps1")) ''
+Check '... the tests are stamped with the release they belong to (self-test.ps1 checks it)' ((Get-Content "$kd\tests\tests-version.txt" -ErrorAction SilentlyContinue) -eq (Get-Content "$kd\kit-version.txt")) ''
+'stale' | Set-Content "$kd\tests\tests-version.txt"; $o = & "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force -Reinstall
+Check '-Reinstall installs the current release again (a stale test suite gets replaced)' ((Get-Content "$kd\tests\tests-version.txt") -eq (Get-Content "$kd\kit-version.txt") -and "$o" -match 'updated') "$o"
 Check 'already current: silent' (-not (& "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force)) ''
 [IO.File]::Delete("$kd\kit-source.txt")
 Check 'no kit-source.txt (not installed from the kit): silent' (-not (& "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force)) ''
