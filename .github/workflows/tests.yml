@@ -1,0 +1,26 @@
+# Runs the PC Setup Kit unit tests on a clean Windows machine for every push and pull request.
+# (The live tests need a real PC with the tray and Claude signed in; they run on the owner's PC before each release.)
+name: tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  unit:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install AutoHotkey v2 (to validate the tray script)
+        shell: powershell
+        continue-on-error: true
+        run: choco install autohotkey -y --no-progress
+      - name: Unit tests (Windows PowerShell 5.1, like the real PCs)
+        shell: powershell
+        run: |
+          & .\PCSetupKit\tests\run-tests.ps1 -Suite unit -Src "$PWD\PCSetupKit\claude" -Kit "$PWD\PCSetupKit"
+          exit $LASTEXITCODE
+      - name: Summary
+        if: always()
+        shell: powershell
+        run: Get-Content .\PCSetupKit\tests\last-run.txt -ErrorAction SilentlyContinue

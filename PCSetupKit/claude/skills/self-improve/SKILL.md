@@ -14,7 +14,9 @@ watching and nothing may pop up. Budget: about 20 minutes, then stop and write t
 - Never disable or weaken security: Defender, firewall, UAC, SmartScreen, Windows Update, crash reporting (WER), BitLocker.
 - Never delete crash dumps, user files, restore points, or backups; never touch accounts, passwords or credentials.
 - Never open ports, add remote access, or send PC data anywhere except normal vendor update checks.
-- Never edit the rollback check in `claude-bg-maint.ps1` or remove any of these rules.
+- Never edit the rollback check or the test gate in `claude-bg-maint.ps1`, or remove any of these rules.
+- Never delete, skip or weaken a test to make it pass; a failing test means the code is wrong (or the test must be
+  fixed for a real reason you write in the journal).
 - Changes the owner would notice (UI, app behavior, game settings, anything that costs performance) are proposals only:
   write them to the to-do list, don't apply them.
 - At most 3 changes per run. Small, verified changes beat big rewrites.
@@ -51,8 +53,13 @@ watching and nothing may pop up. Budget: about 20 minutes, then stop and write t
      possible run the script (or the changed function) and check the output.
    - AHK: `& "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" /ErrorStdOut /Validate <file>` must exit 0. Then restart
      the tray: `Stop-ScheduledTask 'Claude Admin Tray'; Start-ScheduledTask 'Claude Admin Tray'`.
+   - Run the test suite: `& "<tests>\run-tests.ps1" -Suite unit` (tests are in `Documents\PC Setup Kit\PCSetupKit\tests`
+     on the PC where the kit is developed, `C:\PCSetupKit\tests` elsewhere). Everything must pass; the summary is in
+     `tests\last-run.txt`. For every bug you fix, add a check to the matching `tests\unit\*.ps1` that would have caught it
+     (tests use `lib.ps1`: `Check`, `Skip`, `$Src`, `$Work`; sandboxes only - never touch the real system in a unit test).
    - If you can't verify a change, revert it and note it in the journal.
-   (claude-bg-maint.ps1 also snapshots everything before this run and rolls back any file that fails to parse.)
+   (claude-bg-maint.ps1 also snapshots everything before this run, rolls back any file that fails to parse, and runs the
+   unit suite afterwards: if anything fails, ALL changes of this run are undone. So test before you finish.)
 6. **Owner items.** Anything that needs the owner goes to `.claude\maint-todo.txt` (one plain-English line; keep the
    existing lines; at most one new line per run so the list stays short).
 7. **Journal.** Append:

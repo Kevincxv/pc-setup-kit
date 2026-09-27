@@ -86,6 +86,11 @@ if ($Unattended) {
             Copy-Item "$dir\*.ps1" $snap
             Copy-Item "$dir\skills\maintain", "$dir\skills\pc-optimize", "$dir\skills\self-improve" $snap -Recurse -ErrorAction SilentlyContinue
             if (Test-Path $tray) { Copy-Item $tray $snap }
+            # the kit's test suite (developer PC: the kit repo; installed PCs: C:\PCSetupKit) - snapshotted too
+            # (inside a test run the gate is off unless a test points it at a stand-in suite - no suite-in-suite loops)
+            $tests = if ($env:PCKIT_TESTS_DIR) { $env:PCKIT_TESTS_DIR } elseif (-not $env:PCKIT_IN_TESTS) {
+                @("$env:USERPROFILE\Documents\PC Setup Kit\PCSetupKit\tests", 'C:\PCSetupKit\tests') | Where-Object { Test-Path "$_\run-tests.ps1" } | Select-Object -First 1 }
+            if ($tests) { Copy-Item $tests "$snap\tests" -Recurse }
         }
         $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$dir\claude-unattended.ps1`"", '-Mode', $r.Mode)
         if ($r.Mode -eq 'maintain') { $argList += '-Due', "`"$($due -join ', ')`"" }
@@ -101,6 +106,27 @@ if ($Unattended) {
                 $v = Start-Process $ahk -ArgumentList '/ErrorStdOut', '/Validate', "`"$tray`"" -Wait -PassThru -WindowStyle Hidden
                 if ($v.ExitCode -ne 0) {
                     Copy-Item "$snap\Claude Admin Tray.ahk" $tray -Force; Add-Content $log "`nROLLED BACK Claude Admin Tray.ahk (failed to validate)"
+                    Stop-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue; Start-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue
+                }
+            }
+            # Test gate: everything must still pass after self-improvement - otherwise ALL of its changes are undone
+            # (scripts, skills, tray and tests; files it added are moved into the snapshot's "added" folder)
+            if ($tests) {
+                $tlog = Join-Path $logDir ('{0:yyyyMMdd-HHmmss}-tests.txt' -f (Get-Date))
+                & powershell -NoProfile -ExecutionPolicy Bypass -File "$tests\run-tests.ps1" -Suite unit -Src $dir -TrayFile $tray *> $tlog
+                $ok = $LASTEXITCODE -eq 0; $sum = Get-Content "$tests\last-run.txt" -TotalCount 1 -ErrorAction SilentlyContinue
+                if ($ok) { Add-Content $log "`nTests after self-improvement: $sum" }
+                else {
+                    foreach ($f in Get-ChildItem "$dir\*.ps1") {
+                        if (Test-Path "$snap\$($f.Name)") { Copy-Item "$snap\$($f.Name)" $f.FullName -Force }
+                        else { New-Item "$snap\added" -ItemType Directory -Force | Out-Null; Move-Item $f.FullName "$snap\added\" -Force }
+                    }
+                    foreach ($s in 'maintain', 'pc-optimize', 'self-improve') { if (Test-Path "$snap\$s") { Copy-Item "$snap\$s\*" "$dir\skills\$s\" -Recurse -Force } }
+                    if (Test-Path "$snap\Claude Admin Tray.ahk") { Copy-Item "$snap\Claude Admin Tray.ahk" $tray -Force }
+                    if (Test-Path "$snap\tests") { Copy-Item "$snap\tests\*" $tests -Recurse -Force }
+                    Add-Content $log "`nROLLED BACK all self-improvement changes - the test suite failed afterwards: $sum (details: $tlog)"
+                    & powershell -NoProfile -ExecutionPolicy Bypass -File "$tests\run-tests.ps1" -Suite unit -Src $dir -TrayFile $tray *> "$tlog.after-rollback.txt"
+                    Add-Content $log "Tests after the rollback: $(Get-Content "$tests\last-run.txt" -TotalCount 1 -ErrorAction SilentlyContinue)"
                     Stop-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue; Start-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue
                 }
             }

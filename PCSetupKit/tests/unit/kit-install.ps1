@@ -1,0 +1,74 @@
+# The kit's own install/uninstall pieces: setup.ps1's settings merge and tray task, uninstall.ps1 end to end
+# (sandbox profile), kit-update.ps1 and install.ps1 against the real GitHub release (skipped offline).
+. "$PSScriptRoot\..\lib.ps1"
+Section 'setup.ps1: the no-shutdown hook merged into Claude settings'
+$lines = Get-Content "$Kit\setup.ps1"; $i = [array]::IndexOf($lines, ($lines | Where-Object { $_ -match '^# Claude never shuts down' } | Select-Object -First 1))
+$snippet = ($lines[$i..($i + 8)]) -join "`n"
+New-Item "$Work\kitsrc\claude\hooks" -ItemType Directory -Force | Out-Null; Copy-Item "$Src\hooks\no-power-off.ps1" "$Work\kitsrc\claude\hooks\"
+foreach ($case in 'none', 'existing', 'corrupt') {
+    $cl = "$Work\home-$case"; New-Item $cl -ItemType Directory -Force | Out-Null
+    if ($case -eq 'existing') { '{"theme":"dark","hooks":{"Stop":[{"hooks":[{"type":"command","command":"x.cmd"}]}]}}' | Set-Content "$cl\settings.json" }
+    if ($case -eq 'corrupt') { '{"theme":' | Set-Content "$cl\settings.json" }
+    # own scope: the snippet's $kit would otherwise overwrite the test's $Kit (PowerShell names ignore case)
+    & { param($cl, $kit) . ([scriptblock]::Create($snippet)) } $cl "$Work\kitsrc"
+    $j = Get-Content "$cl\settings.json" -Raw | ConvertFrom-Json; $b = [IO.File]::ReadAllBytes("$cl\settings.json")
+    Check "settings $case`: hook added, valid JSON, no BOM" (($j.hooks.PreToolUse[0].hooks[0].command -match 'no-power-off') -and $b[0] -ne 0xEF) (Get-Content "$cl\settings.json" -Raw)
+    if ($case -eq 'existing') { Check '... existing settings kept' ($j.theme -eq 'dark') '' }
+}
+Section 'setup.ps1: tray task'
+if (Test-IsAdmin) {
+    $s = Get-Content "$Kit\setup.ps1" -Raw
+    $blk = [regex]::Match($s, '(?s)\$set = New-ScheduledTaskSettingsSet[^\r\n]*').Value
+    $act = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c exit'; $trg = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+    $prn = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
+    . ([scriptblock]::Create($blk))
+    Register-ScheduledTask -TaskName 'PCSetupKit Tray TEST' -Action $act -Trigger $trg -Principal $prn -Settings $set -Force | Out-Null
+    $t = Get-ScheduledTask 'PCSetupKit Tray TEST'
+    Check 'tray task: elevated, no time limit, restarts on failure, runs on battery' ($t.Principal.RunLevel -eq 'Highest' -and $t.Settings.ExecutionTimeLimit -eq 'PT0S' -and $t.Settings.RestartCount -eq 3 -and -not $t.Settings.DisallowStartIfOnBatteries) ''
+    Unregister-ScheduledTask 'PCSetupKit Tray TEST' -Confirm:$false
+    Check 'login maintenance task allows 4 h (waiting for games)' ($s -match 'ExecutionTimeLimit \(New-TimeSpan -Hours 4\)') ''
+} else { Skip 'tray task' 'needs administrator' }
+
+Section 'uninstall.ps1 end to end (sandbox profile, real processes and tasks untouched)'
+$H = "$Work\uhome"; $cl = "$H\.claude"; $A = "$H\AppData\Roaming"; $kf = "$Work\ukit"
+New-Item "$cl\hooks", "$cl\skills\maintain", "$cl\skills\my-own-skill", "$cl\projects\p", "$A\Microsoft\Windows\Start Menu\Programs", "$H\Desktop", "$H\Documents\Claude Admin Tray", $kf -ItemType Directory -Force | Out-Null
+foreach ($f in 'claude-admin-launch.ps1', 'health-check.ps1', 'maint-state.json', 'games.txt', 'hooks\no-power-off.ps1', 'skills\maintain\SKILL.md', 'skills\my-own-skill\SKILL.md', 'projects\p\conv.jsonl', 'CLAUDE.md') { 'x' | Set-Content "$cl\$f" }
+foreach ($f in "$A\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk", "$H\Desktop\Claude (Admin).lnk", "$H\Documents\Claude Admin Tray\Claude Admin Tray.ahk", "$kf\setup.log") { 'x' | Set-Content $f }
+@'
+{ "theme": "dark", "hooks": { "PreToolUse": [ { "matcher": "Bash|PowerShell", "hooks": [ { "type": "command", "command": "powershell.exe -File \"C:\\x\\hooks\\no-power-off.ps1\"" } ] },
+                              { "matcher": "Edit", "hooks": [ { "type": "command", "command": "my-own-hook.cmd" } ] } ] } }
+'@ | Set-Content "$cl\settings.json"
+$unText = Get-Content "$Kit\uninstall.ps1" -Raw
+$a = $unText.IndexOf('    Write-Host "`n=== Stopping Claude (Admin)"'); $b = $unText.IndexOf('    Write-Host "`n=== Shortcuts and tray icon"')
+$safe = ($unText.Substring(0, $a) + $unText.Substring($b)).Replace("'C:\PCSetupKit'", "'$kf'")
+Check 'sandbox copy cannot touch real processes, tasks or C:\PCSetupKit' (-not ($safe -match 'Stop-Process|Unregister-ScheduledTask') -and $safe -notmatch [regex]::Escape("Stash 'C:\PCSetupKit'")) ''
+Set-Content "$Work\uninstall-sandbox.ps1" $safe
+$r = Invoke-As $H "$Work\uninstall-sandbox.ps1" @('-Yes') @{ APPDATA = $A }
+$s = Get-Content "$cl\settings.json" -Raw | ConvertFrom-Json
+Check 'our hook removed, the owner''s own hook and settings kept, settings backed up' (-not ($s.hooks.PreToolUse.hooks.command -match 'no-power-off') -and ($s.hooks.PreToolUse.hooks.command -match 'my-own-hook') -and $s.theme -eq 'dark' -and (Test-Path "$cl\settings.json.before-uninstall")) $r.Out
+Check 'kit files, shortcuts, tray and kit folder gone' (-not (Test-Path "$cl\claude-admin-launch.ps1") -and -not (Test-Path "$cl\skills\maintain") -and -not (Test-Path "$A\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk") -and -not (Test-Path "$H\Desktop\Claude (Admin).lnk") -and -not (Test-Path "$H\Documents\Claude Admin Tray") -and -not (Test-Path $kf)) $r.Out
+Check 'conversations, own skills and CLAUDE.md kept' ((Test-Path "$cl\projects\p\conv.jsonl") -and (Test-Path "$cl\skills\my-own-skill") -and (Test-Path "$cl\CLAUDE.md")) ''
+$st = Get-ChildItem $cl -Directory -Filter 'pc-setup-kit-removed-*'
+Check 'nothing deleted: everything is in the removed-files folder' (@(Get-ChildItem $st.FullName -Recurse -File).Count -ge 9) ''
+$o = & "$Kit\uninstall.ps1" -WhatIf 2>&1 | Out-String
+Check 'the real uninstaller dry run (-WhatIf) changes nothing and has no errors' ($o -match 'Nothing was changed' -and $o -notmatch 'Exception|FAILED') $o
+
+Section 'GitHub: install.ps1 and kit-update.ps1 against the real release'
+if (-not (Test-Online)) { Skip 'GitHub tests' 'offline'; Finish }
+$repoRoot = Split-Path $Kit
+if (Test-Path "$repoRoot\install.ps1") {
+    & "$repoRoot\install.ps1" -DownloadOnly "$Work\dl" | Out-Null
+    $k = Get-ChildItem "$Work\dl\x" -Directory | ForEach-Object { "$($_.FullName)\PCSetupKit" }
+    Check 'installer downloads and unpacks the latest release' ((Test-Path "$k\setup.ps1") -and (Test-Path "$k\kit-version.txt")) ''
+    $bad = @(Get-ChildItem $k -Recurse -Filter *.ps1 | Where-Object { $e = $null; [void][Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$e); $e })
+    Check 'every script in the published release parses' (-not $bad) ($bad.Name -join ', ')
+} else { Skip 'installer' 'install.ps1 not next to the kit' }
+$kd = "$Work\kd"; $cd = "$Work\cd"; $td = "$Work\td"; New-Item $kd, $cd, $td -ItemType Directory -Force | Out-Null
+Get-Content "$Kit\kit-source.txt" | Set-Content "$kd\kit-source.txt"; 'v2000.01.01' | Set-Content "$kd\kit-version.txt"; 'old' | Set-Content "$td\Claude Admin Tray.ahk"
+$o = & "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force
+Check 'an old install updates itself to the latest release' ("$o" -match 'PC Setup Kit updated v2000.01.01 -> v') "$o"
+Check '... scripts, skills, hook, tray and uninstaller installed' ((@(Get-ChildItem "$cd\*.ps1").Count -ge 15) -and (Test-Path "$cd\skills\maintain\SKILL.md") -and (Test-Path "$cd\hooks\no-power-off.ps1") -and ((Get-Content "$td\Claude Admin Tray.ahk" -Raw) -match 'Persistent') -and (Test-Path "$kd\uninstall.ps1")) ''
+Check 'already current: silent' (-not (& "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force)) ''
+[IO.File]::Delete("$kd\kit-source.txt")
+Check 'no kit-source.txt (not installed from the kit): silent' (-not (& "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force)) ''
+Finish
