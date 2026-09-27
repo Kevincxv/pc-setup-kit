@@ -56,8 +56,17 @@ Check 'the real uninstaller dry run (-WhatIf) changes nothing and has no errors'
 Section 'GitHub: install.ps1 and kit-update.ps1 against the real release'
 if (-not (Test-Online)) { Skip 'GitHub tests' 'offline'; Finish }
 $repoRoot = Split-Path $Kit
+# GitHub's release API sometimes doesn't answer for a moment (the kit then quietly waits for the next login - correct).
+# A step that got no answer is tried again; if GitHub stays unreachable, the rest is skipped (with the reason), never
+# failed. If GitHub answers and the step still fails, that is a real failure.
+$repo = ((Get-Content "$Kit\kit-source.txt") -match '^repo=' | Select-Object -First 1) -replace '^repo=\s*'
+function Test-ReleaseApi { try { [void](Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{ 'User-Agent' = 'pc-setup-kit-tests' } -TimeoutSec 20); $true } catch { $false } }
+function GitHubStep([scriptblock]$Action, [scriptblock]$Ok) {
+    for ($i = 1; $i -le 3; $i++) { $o = & $Action; if ((& $Ok $o) -or (Test-ReleaseApi)) { return $o }; Start-Sleep 10 }
+    Skip 'the rest of the GitHub tests' "GitHub's release API did not answer (3 tries)"; Finish
+}
 if (Test-Path "$repoRoot\install.ps1") {
-    & "$repoRoot\install.ps1" -DownloadOnly "$Work\dl" | Out-Null
+    [void](GitHubStep { if (Test-Path "$Work\dl") { Clear-Path "$Work\dl" }; & "$repoRoot\install.ps1" -DownloadOnly "$Work\dl" | Out-Null } { Test-Path "$Work\dl\x\*\PCSetupKit\kit-version.txt" })
     $k = Get-ChildItem "$Work\dl\x" -Directory | ForEach-Object { "$($_.FullName)\PCSetupKit" }
     Check 'installer downloads and unpacks the latest release' ((Test-Path "$k\setup.ps1") -and (Test-Path "$k\kit-version.txt")) ''
     $bad = @(Get-ChildItem $k -Recurse -Filter *.ps1 | Where-Object { $e = $null; [void][Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$e); $e })
@@ -66,12 +75,12 @@ if (Test-Path "$repoRoot\install.ps1") {
 $kd = "$Work\kd"; $cd = "$Work\cd"; $td = "$Work\td"; New-Item $kd, $cd, $td -ItemType Directory -Force | Out-Null
 Get-Content "$Kit\kit-source.txt" | Set-Content "$kd\kit-source.txt"; 'v2000.01.01' | Set-Content "$kd\kit-version.txt"; 'old' | Set-Content "$td\Messiah Tray.ahk"
 New-Item "$kd\tests\unit" -ItemType Directory -Force | Out-Null; 'old' | Set-Content "$kd\tests\unit\removed-long-ago.ps1"
-$o = & "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force
+$o = GitHubStep { & "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force } { param($x) "$x" -match 'updated' }
 Check 'an old install updates itself to the latest release' ("$o" -match 'PC Setup Kit updated v2000.01.01 -> v') "$o"
 Check '... scripts, skills, hook, tray and uninstaller installed' ((@(Get-ChildItem "$cd\*.ps1").Count -ge 15) -and (Test-Path "$cd\skills\maintain\SKILL.md") -and (Test-Path "$cd\hooks\no-power-off.ps1") -and ((Get-Content "$td\Messiah Tray.ahk" -Raw) -match 'Persistent') -and (Test-Path "$kd\uninstall.ps1")) ''
 Check '... the kit copy''s test suite refreshed (for the weekly self-test), removed tests gone' ((Test-Path "$kd\tests\run-tests.ps1") -and (Test-Path "$kd\tests\unit\static.ps1") -and -not (Test-Path "$kd\tests\unit\removed-long-ago.ps1")) ''
 Check '... the tests are stamped with the release they belong to (self-test.ps1 checks it)' ((Get-Content "$kd\tests\tests-version.txt" -ErrorAction SilentlyContinue) -eq (Get-Content "$kd\kit-version.txt")) ''
-'stale' | Set-Content "$kd\tests\tests-version.txt"; $o = & "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force -Reinstall
+'stale' | Set-Content "$kd\tests\tests-version.txt"; $o = GitHubStep { & "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force -Reinstall } { param($x) "$x" -match 'updated' }
 Check '-Reinstall installs the current release again (a stale test suite gets replaced)' ((Get-Content "$kd\tests\tests-version.txt") -eq (Get-Content "$kd\kit-version.txt") -and "$o" -match 'updated') "$o"
 Check 'already current: silent' (-not (& "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force)) ''
 [IO.File]::Delete("$kd\kit-source.txt")

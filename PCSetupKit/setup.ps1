@@ -2,10 +2,11 @@
 # Can also be run by hand on an existing Windows 11 PC: right-click > Run with PowerShell (it asks for admin).
 # Steps: copy kit to C:\PCSetupKit > tweaks > power plan > remove OneDrive > install apps > install Claude Code +
 # Messiah > open Messiah with the /pc-optimize playbook.
+param([switch]$NoLaunch)   # -NoLaunch: don't open Messiah at the end (the fresh-install test on GitHub: nobody logs in there)
 $ErrorActionPreference = 'Continue'
 
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`""
+    Start-Process powershell -Verb RunAs -ArgumentList (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"") + @(if ($NoLaunch) { '-NoLaunch' }))
     exit
 }
 
@@ -123,6 +124,7 @@ Write-Host @'
   You can unplug the USB drive now. Log: C:\PCSetupKit\setup.log
 '@ -ForegroundColor Green
 Stop-Transcript | Out-Null
+if ($NoLaunch) { return }
 Start-Process powershell -Verb RunAs -WorkingDirectory "$env:SystemRoot\System32" -ArgumentList '-NoExit', '-NoLogo', '-ExecutionPolicy', 'Bypass', '-File', "`"$cl\claude-admin-launch.ps1`"", '/pc-optimize'
 Start-Sleep 15
 Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue   # sees the open session, so it only adds the icon

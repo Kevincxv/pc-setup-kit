@@ -1,0 +1,35 @@
+# Fresh-install test: runs the real setup.ps1 on a clean Windows machine for every release (and on demand), then checks
+# the result and runs the new install's own self-test. GitHub's machines are Windows Server, not Windows 11 Home/Pro,
+# so it proves the setup flow end to end rather than every Windows 11 detail.
+name: fresh install
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+jobs:
+  setup:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run setup.ps1 (for real, without opening Messiah at the end)
+        shell: powershell
+        run: |
+          & .\PCSetupKit\setup.ps1 -NoLaunch
+          exit 0
+      - name: Check the installed PC
+        shell: powershell
+        run: |
+          & .\PCSetupKit\tests\fresh\check-install.ps1
+          exit $LASTEXITCODE
+      - name: The new install's own self-test (the kit's unit tests against the installed scripts)
+        shell: powershell
+        run: |
+          $o = & "$env:USERPROFILE\.claude\self-test.ps1" -Force
+          $o
+          Get-Content "$env:USERPROFILE\.claude\self-test.log" -ErrorAction SilentlyContinue | Select-String '^\s+FAIL|tests \(unit\)'
+          if ("$o" -notmatch '^Self-test \(requested\): \d+ passed, 0 failed') { exit 1 }
+      - name: Setup log
+        if: always()
+        shell: powershell
+        run: Get-Content C:\PCSetupKit\setup.log -ErrorAction SilentlyContinue
