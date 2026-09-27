@@ -6,6 +6,7 @@
 #   -Kit  : the kit folder (default: the one this runner is in)
 # Results also go to tests\last-run.txt.
 param([ValidateSet('unit', 'live', 'all')][string]$Suite = 'unit', [string]$Only, [string]$Src, [string]$Kit, [string]$TrayFile)
+$ErrorActionPreference = 'Continue'   # a test writing to stderr must never stop the runner (CI runs with Stop)
 $here = $PSScriptRoot
 if (-not $Kit) { $Kit = Split-Path $here }
 if (-not $Src) { $Src = if (Test-Path "$env:USERPROFILE\.claude\claude-admin-launch.ps1") { "$env:USERPROFILE\.claude" } else { "$Kit\claude" } }

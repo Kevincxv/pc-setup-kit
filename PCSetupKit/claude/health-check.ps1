@@ -8,7 +8,8 @@
 $ErrorActionPreference = 'SilentlyContinue'
 $state = "$env:USERPROFILE\.claude\health-check.last"
 $ignore = @(Get-Content "$env:USERPROFILE\.claude\health-ignore.txt" | Where-Object { $_.Trim() })
-$since = if (Test-Path $state) { [datetime](Get-Content $state -Raw) } else { (Get-Date).AddDays(-7) }
+$since = (Get-Date).AddDays(-7)   # first run, or an unreadable file: look back a week
+if (Test-Path $state) { $prev = [datetime]::MinValue; if ([datetime]::TryParse("$(Get-Content $state -Raw)".Trim(), [ref]$prev)) { $since = $prev } }
 (Get-Date).ToString('o') | Set-Content $state
 
 # --- Crashes ---

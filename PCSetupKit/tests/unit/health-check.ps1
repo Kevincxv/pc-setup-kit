@@ -144,7 +144,11 @@ $M.Tasks += [pscustomobject]@{ TaskName = 'Nightly Backup'; TaskPath = '\'; Stat
 Check '... not when a backup task exists' (-not ($o -match 'nothing is backed up')) ''
 
 Section 'robustness'
-Healthy; 'not a date' | Set-Content "$d\health-check.last"
-$e = @(& { $u = $env:USERPROFILE; $env:USERPROFILE = $H; try { & "$d\health-check.ps1" 2>&1 } finally { $env:USERPROFILE = $u } } | Where-Object { $_ -is [Management.Automation.ErrorRecord] })
+# $Error sees every error, also one a script writes straight to the host (2>&1 missed it - this check once passed with
+# the bug). It also holds errors the script silences on purpose, so: errors with a corrupt file minus a normal run's
+function HCErrors { $Error.Clear(); [void](& { $u = $env:USERPROFILE; $env:USERPROFILE = $H; try { & "$d\health-check.ps1" 2>&1 } finally { $env:USERPROFILE = $u } }); @($Error | ForEach-Object { "$_" } | Sort-Object -Unique) }
+Healthy; (Get-Date).AddDays(-1).ToString('o') | Set-Content "$d\health-check.last"; $base = HCErrors
+Healthy; 'not a date' | Set-Content "$d\health-check.last"; $e = @(HCErrors | Where-Object { $_ -notin $base })
 Check 'a corrupt last-check file causes no errors' ($e.Count -eq 0) "$e"
+Check '... and is replaced by a good one' ([datetime]::TryParse((Get-Content "$d\health-check.last" -Raw).Trim(), [ref][datetime]::MinValue)) ''
 Finish
