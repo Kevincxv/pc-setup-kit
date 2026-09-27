@@ -75,6 +75,8 @@ About 2 minutes after each login (and whenever Messiah is opened) maintenance ru
     antivirus scan if >7 days old, clock sync, hardware reminders, restart check (what's waiting for the next
     shutdown, and afterwards whether it all finished)
   - weekly: app updates (Steam/Discord/Chrome/NVIDIA update themselves)
+  - weekly and after every kit update: a self-test - the kit's own test suite checks the maintenance scripts on
+    this PC (in a sandbox, nothing changes); a failure is a WARNING Claude fixes
   - monthly: restore point, Windows cleanup (safe allow-list only - never Downloads, Recycle Bin, shader cache),
     old driver versions, leftovers of uninstalled programs, SSD TRIM check, Windows end-of-support check
 When something needs judgment, Claude handles it by itself (hidden, then tells the owner only what they must do):

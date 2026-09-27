@@ -45,6 +45,10 @@ foreach ($j in $jobs) {
     if ($j.TimedOut) { $out = @('WARNING: timed out') + $out }
     if ($out) { $lines += "[$($j.Name)]"; $lines += $out }   # a job with nothing to say (e.g. no kit update) leaves no empty section
 }
+# Self-test (weekly, and after a kit update - so after the jobs): the kit's test suite against the installed scripts.
+# A failure is a WARNING, so /maintain looks at it at this same login.
+$st = @(if (Test-Path "$dir\self-test.ps1") { & "$dir\self-test.ps1" | Where-Object { $_ } })
+if ($st) { $lines += '[Self-test]'; $lines += $st }
 # Write to a temp file then swap, so the launcher never reads a half-written report
 $lines | Set-Content "$report.tmp" -Encoding utf8
 Move-Item "$report.tmp" $report -Force

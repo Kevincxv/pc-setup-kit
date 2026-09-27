@@ -61,6 +61,19 @@ resumes it (the tray for interactive sessions, maint-requests.txt for hidden run
   `TargetReleaseVersion`=1, `TargetReleaseVersionInfo`=<that version>; scan Windows Update and install it (usually a small
   enablement package); tell the owner it finishes the next time they turn the PC off (never restart for them). Remove `claude-winver-due` afterwards.
 - **Hardware errors (WHEA)**: check which component; suggest a RAM/CPU stability test if they repeat.
+- **Self-test failed / stopped** (`[Self-test]`: the kit's unit tests run weekly and after every kit update against this
+  PC's installed scripts): read the FAIL lines in `%USERPROFILE%\.claude\self-test.log`, then decide which it is:
+  - a real bug - the check is right and an installed script is wrong (a bad update, a broken self-improve change,
+    something on this PC the script doesn't handle): fix the script;
+  - a test that assumes something this PC doesn't have (timing, hardware, a shutdown pattern, what's on screen): fix the
+    test so it checks the same behavior without that assumption (pin the input, as the other tests do);
+  - "stopped after N min": find the test that hangs (the log ends inside it) and why.
+  Never delete a check or loosen it just to get a pass. Where the fix goes: on the PC the kit is developed on
+  (`Documents\PC Setup Kit\.git` exists) change the installed script in `.claude` AND the same file in the kit
+  (`PCSetupKit\claude\...`; tests live only in `PCSetupKit\tests`) - the owner publishes it. Elsewhere fix `.claude` /
+  `C:\PCSetupKit\tests`; the next kit update replaces them (if the release still has the problem, the self-test after
+  that update says so again). Confirm with `& "$env:USERPROFILE\.claude\self-test.ps1" -Force` (about 5 minutes) - it
+  must print a passing "Self-test (requested): ..." line. Nothing here goes on the owner's to-do list.
 
 ## 2. Quarterly (claude-quarterly older than 90 days)
 - BIOS: board model (Win32_BaseBoard) + version/date (Win32_BIOS); web-search the vendor support page for a newer

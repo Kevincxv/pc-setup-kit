@@ -10,7 +10,7 @@ function New-Case([hashtable]$Jobs, [string]$Unattended, [switch]$Short) {
     Copy-Item "$Src\maint-due.ps1" $C -Force
     '' | Set-Content "$C\game-check.ps1"   # never gaming here (game-aware.ps1 tests that)
     foreach ($j in 'driver-check', 'claude-maint', 'health-check', 'periodic-maint') { $(if ($Jobs -and $Jobs.ContainsKey($j)) { $Jobs[$j] } else { "`"$j ok`"" }) | Set-Content "$C\$j.ps1" }
-    Clear-Path "$C\kit-update.ps1"
+    Clear-Path "$C\kit-update.ps1"; Clear-Path "$C\self-test.ps1"; Clear-Path "$C\kit-updated.txt"
     $u = if ($Unattended) { $Unattended } else { @'
 param([string]$Due, [string]$Mode)
 $req = if (Test-Path "$PSScriptRoot\maint-requests.txt") { (Get-Content "$PSScriptRoot\maint-requests.txt" -Raw -Encoding UTF8).Trim() }
@@ -36,6 +36,15 @@ Check 'no half-written temp file left' (-not (Test-Path "$C\maint-report.txt.tmp
 New-Case -Jobs @{ 'periodic-maint' = '' }
 Run @('-Force')
 Check 'a job with nothing to say leaves no empty section' (-not ((Get-Content "$C\maint-report.txt") -contains '[Periodic]')) ((Get-Content "$C\maint-report.txt") -join ' / ')
+New-Case
+'Start-Sleep 2; "updated" | Set-Content "$PSScriptRoot\kit-updated.txt"; "PC Setup Kit updated v1 -> v2"' | Set-Content "$C\kit-update.ps1"
+'"WARNING: self-test (after the kit update to v2) failed: 1 failed in launcher (kit update seen: $(Test-Path "$PSScriptRoot\kit-updated.txt"))"' | Set-Content "$C\self-test.ps1"
+Run
+$r = Get-Content "$C\maint-report.txt"
+Check 'self-test runs after the jobs (it sees the kit update of the same run)' (($r -join "`n") -match '\[Self-test\]\s+WARNING: self-test .*kit update seen: True') ($r -join ' / ')
+Check '... and its WARNING wakes /maintain at the same login' ((Runs) -match 'ran maintain') ((Runs) -join ' / ')
+New-Case; '' | Set-Content "$C\self-test.ps1"; Run @('-Force')
+Check 'self-test with nothing to say (not due): no section' (-not ((Get-Content "$C\maint-report.txt") -contains '[Self-test]')) ''
 New-Case; Run @('-Force'); $t1 = (Get-Item "$C\maint-report.txt").LastWriteTime; Start-Sleep 1; Run @()
 Check 'without -Force it skips when the last run was < 30 min ago' ((Get-Item "$C\maint-report.txt").LastWriteTime -eq $t1) ''
 

@@ -6,6 +6,8 @@ Work goes milestone by milestone. Every change is validated before it can reach 
 2. **Release gate**: `publish-kit.ps1` refuses to publish unless the whole suite passes (unit + live on the owner's PC).
 3. **CI gate**: GitHub runs the unit suite on a clean Windows machine for every push (`.github/workflows/tests.yml`).
 4. **Self-improvement gate**: the daily hidden self-improvement pass is undone completely if any test fails afterwards.
+5. **Self-test on every PC**: weekly and after each kit update the suite runs against the PC's installed scripts; a
+   failure is a WARNING that the hidden /maintain fixes.
 
 Run the tests: `PCSetupKit\tests\run-tests.ps1 -Suite unit|live|all` (summary in `tests\last-run.txt`).
 
@@ -14,7 +16,7 @@ Run the tests: `PCSetupKit\tests\run-tests.ps1 -Suite unit|live|all` (summary in
 | M1 | Permanent test suite: every earlier check turned into tests, one command | Done (2026-09-27) |
 | M2 | Gates: release gate, CI on every push, self-improvement rollback on failing tests - each proven with a deliberate bug | Done (2026-09-27) |
 | M3 | Coverage gaps: health-check, periodic tasks, driver-check (NVIDIA + Windows Update), crash-analyze, claude-maint, maint-watch, status, tray logic, tweaks.ps1, setup.ps1, autounattend.xml - all with mocked system commands, guarded by a tripwire and mock verification | Done (2026-09-27) |
-| M4 | Ongoing self-validation: the suite runs weekly and after every kit update on each PC; failures become a warning Claude fixes | Planned |
+| M4 | Ongoing self-validation: the suite runs weekly and after every kit update on each PC (self-test.ps1, from the background maintenance after its jobs); failures become a WARNING /maintain fixes; kit updates refresh the installed test suite | Done (2026-09-27) |
 | M5 | Fresh-install test of setup.ps1 on a clean Windows 11 (needs a VM - owner's decision) | Planned |
 
 Found and fixed by the gates and tests so far:

@@ -1,4 +1,4 @@
-# The kit's own install/uninstall pieces: setup.ps1's settings merge and tray task, uninstall.ps1 end to end
+﻿# The kit's own install/uninstall pieces: setup.ps1's settings merge and tray task, uninstall.ps1 end to end
 # (sandbox profile), kit-update.ps1 and install.ps1 against the real GitHub release (skipped offline).
 . "$PSScriptRoot\..\lib.ps1"
 Section 'setup.ps1: the no-shutdown hook merged into Claude settings'
@@ -65,9 +65,11 @@ if (Test-Path "$repoRoot\install.ps1") {
 } else { Skip 'installer' 'install.ps1 not next to the kit' }
 $kd = "$Work\kd"; $cd = "$Work\cd"; $td = "$Work\td"; New-Item $kd, $cd, $td -ItemType Directory -Force | Out-Null
 Get-Content "$Kit\kit-source.txt" | Set-Content "$kd\kit-source.txt"; 'v2000.01.01' | Set-Content "$kd\kit-version.txt"; 'old' | Set-Content "$td\Messiah Tray.ahk"
+New-Item "$kd\tests\unit" -ItemType Directory -Force | Out-Null; 'old' | Set-Content "$kd\tests\unit\removed-long-ago.ps1"
 $o = & "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force
 Check 'an old install updates itself to the latest release' ("$o" -match 'PC Setup Kit updated v2000.01.01 -> v') "$o"
 Check '... scripts, skills, hook, tray and uninstaller installed' ((@(Get-ChildItem "$cd\*.ps1").Count -ge 15) -and (Test-Path "$cd\skills\maintain\SKILL.md") -and (Test-Path "$cd\hooks\no-power-off.ps1") -and ((Get-Content "$td\Messiah Tray.ahk" -Raw) -match 'Persistent') -and (Test-Path "$kd\uninstall.ps1")) ''
+Check '... the kit copy''s test suite refreshed (for the weekly self-test), removed tests gone' ((Test-Path "$kd\tests\run-tests.ps1") -and (Test-Path "$kd\tests\unit\static.ps1") -and -not (Test-Path "$kd\tests\unit\removed-long-ago.ps1")) ''
 Check 'already current: silent' (-not (& "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force)) ''
 [IO.File]::Delete("$kd\kit-source.txt")
 Check 'no kit-source.txt (not installed from the kit): silent' (-not (& "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force)) ''

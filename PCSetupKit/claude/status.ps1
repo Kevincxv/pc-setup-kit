@@ -47,4 +47,9 @@ L "Monthly cleanup:   $(Next 'monthly-cleanup' 30)"
 L "Quarterly check:   $(Next 'claude-quarterly' 90)  (BIOS, firmware, benchmark)"
 L "Half-year check:   $(Next 'claude-halfyear' 180)  (dusting, temperatures, backup)"
 L "Yearly re-audit:   $(Next 'claude-yearly' 365)"
+$st = $null; try { $st = Get-Content "$cl\self-test.json" -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch {}
+$std = [datetime]::MinValue
+if ($st -and [datetime]::TryParse("$($st.date)", [ref]$std)) {
+    L "Self-test:         $(if ($st.ok) { "passed $($std.ToString('d')) ($($st.result))" } else { "FAILED $($std.ToString('d')) ($($st.result)$(if ($st.failed) { " in $($st.failed -join ', ')" }))" }); next $($std.AddDays(7).ToString('d')) or after a kit update" $(if ($st.ok) { 'Gray' } else { 'Yellow' })
+} else { L 'Self-test:         at the next login (tests the maintenance scripts, weekly)' }
 if (-not $NoWait) { Write-Host "`nPress any key to close." -ForegroundColor DarkGray; [void][Console]::ReadKey($true) }

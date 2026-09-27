@@ -31,6 +31,8 @@ try {
     if ($bad) { "Kit update: $tag has scripts that don't parse ($($bad.Name -join ', ')) - kept the current version"; return }
 
     Copy-Item "$k\*.ps1" $KitDir -Force                                   # setup / tweaks / uninstall
+    # the kit copy's tests and scripts (self-test.ps1 runs these tests weekly): replaced whole, so removed files don't linger
+    foreach ($d in 'tests', 'claude') { if (Test-Path "$k\$d") { Remove-Item "$KitDir\$d" -Recurse -Force -ErrorAction SilentlyContinue; Copy-Item "$k\$d" $KitDir -Recurse -Force } }
     Copy-Item "$k\claude\*.ps1" $ClaudeDir -Force                         # maintenance scripts
     New-Item "$ClaudeDir\hooks", "$ClaudeDir\skills" -ItemType Directory -Force | Out-Null
     Copy-Item "$k\claude\hooks\*" "$ClaudeDir\hooks" -Force

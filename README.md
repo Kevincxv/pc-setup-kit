@@ -38,6 +38,8 @@ Microsoft's Media Creation Tool USB plus `autounattend.xml` and the `PCSetupKit`
   automatic dump diagnosis, antivirus/clock/TRIM checks, monthly cleanup and restore point, BIOS/firmware checks
   every 3 months, dusting reminder every 6 months, full re-audit yearly. It waits while you're gaming.
 - **Automatic updates of the kit itself**: new releases install by themselves at login.
+- **Self-testing**: weekly and after every update, the kit's test suite checks the maintenance scripts on the PC
+  itself (in a sandbox - nothing changes); if something broke, Claude fixes it.
 
 ## Remove it
 

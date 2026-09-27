@@ -33,10 +33,13 @@ Check 'every module-command mock is loaded first and verified (Import-MockTarget
 # names of functions must not collide with built-in aliases (e.g. H = Get-History)
 $clash = @($all | ForEach-Object { [regex]::Matches((Get-Content $_.FullName -Raw), '(?m)^\s*function\s+([\w-]+)') | ForEach-Object { $_.Groups[1].Value } } | Where-Object { Get-Alias $_ -ErrorAction SilentlyContinue } | Select-Object -Unique)
 Check 'no function is shadowed by a built-in alias' (-not $clash) ($clash -join ', ')
-$personal = 'Kevin|gmail|@[a-z0-9-]+\.(com|net|org)|B650I|7800X3D|RTX 5080|G2725D|PG27AQDM|CMK32|Seagate ZP|gho_|ghp_|sk-ant-'
-$hits = @(Get-ChildItem $repoRoot -Recurse -File | Where-Object { $_.FullName -notmatch '\\\.git\\' -and $_.Name -ne 'last-run.txt' } | Select-String -Pattern $personal |
-        Where-Object { $_.Line -notmatch 'Kevincxv/pc-setup-kit|noreply@anthropic\.com' -and $_.Line -notmatch '^\s*\$personal = ' } | ForEach-Object { "$($_.Filename):$($_.LineNumber)" })   # (the pattern line itself)
-Check 'nothing personal in the kit (names, email, hardware, tokens)' (-not $hits) ($hits -join ', ')
+# only where the kit is published from (the repo) or in CI - an installed PC's kit folder holds its own setup log etc.
+if ((Test-Path "$repoRoot\.git") -or $env:GITHUB_ACTIONS) {
+    $personal = 'Kevin|gmail|@[a-z0-9-]+\.(com|net|org)|B650I|7800X3D|RTX 5080|G2725D|PG27AQDM|CMK32|Seagate ZP|gho_|ghp_|sk-ant-'
+    $hits = @(Get-ChildItem $repoRoot -Recurse -File | Where-Object { $_.FullName -notmatch '\\\.git\\' -and $_.Name -ne 'last-run.txt' } | Select-String -Pattern $personal |
+            Where-Object { $_.Line -notmatch 'Kevincxv/pc-setup-kit|noreply@anthropic\.com' -and $_.Line -notmatch '^\s*\$personal = ' } | ForEach-Object { "$($_.Filename):$($_.LineNumber)" })   # (the pattern line itself)
+    Check 'nothing personal in the kit (names, email, hardware, tokens)' (-not $hits) ($hits -join ', ')
+} else { Skip 'nothing personal in the kit' 'checked where the kit is published from' }
 # every script the kit installs is known to the uninstaller, so nothing is left behind
 $un = Get-Content "$Kit\uninstall.ps1" -Raw
 $missing = @(Get-ChildItem "$Kit\claude\*.ps1" | Where-Object { $un -notmatch [regex]::Escape("'$($_.Name)'") } | ForEach-Object Name)
