@@ -1,4 +1,4 @@
-﻿# Claude Code maintenance for the "Claude (Admin)" launcher (runs in the background via claude-bg-maint.ps1).
+﻿# Claude Code maintenance for the "Messiah" launcher (runs in the background via claude-bg-maint.ps1).
 # update -> marketplaces -> plugins -> doctor, in order since they touch the same install. Prints one clean status line.
 $ErrorActionPreference = 'Continue'
 $c = "$env:USERPROFILE\.local\bin\claude.exe"

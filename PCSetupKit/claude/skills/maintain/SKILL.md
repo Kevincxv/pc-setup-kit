@@ -1,6 +1,6 @@
 ---
 name: maintain
-description: Scheduled PC maintenance that needs judgment - handles WARNING items from the background maintenance report (crash dumps, leftovers, failed updates, Windows version end of support) and the quarterly / half-year / yearly checks (BIOS, chipset and SSD firmware, re-benchmark, physical cleaning reminder, full re-audit). The Claude (Admin) launcher starts this automatically when something is due; also use it when the user asks for maintenance.
+description: Scheduled PC maintenance that needs judgment - handles WARNING items from the background maintenance report (crash dumps, leftovers, failed updates, Windows version end of support) and the quarterly / half-year / yearly checks (BIOS, chipset and SSD firmware, re-benchmark, physical cleaning reminder, full re-audit). The Messiah launcher starts this automatically when something is due; also use it when the user asks for maintenance.
 ---
 
 # Scheduled maintenance
@@ -94,7 +94,7 @@ To mark the report's warnings as handled, run `& "$env:USERPROFILE\.claude\maint
 ## Unattended runs and the to-do list
 At login this skill may run headless (`claude -p`, no window): then never ask questions, restart, or start anything heavy -
 write what needs the owner to `%USERPROFILE%\.claude\maint-todo.txt` (one plain-English line each; rewrite the whole list;
-delete the file when empty). Logs of headless runs are in `.claude\maint-claude-log\`. When the owner opens Claude (Admin)
+delete the file when empty). Logs of headless runs are in `.claude\maint-claude-log\`. When the owner opens Messiah
 with open items, go through them together; remove each line once it's done. One-off requests for the next login run can be
 left in `.claude\maint-requests.txt`.
 

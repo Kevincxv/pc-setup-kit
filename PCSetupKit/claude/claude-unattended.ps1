@@ -8,7 +8,7 @@ param([string]$Due, [ValidateSet('maintain', 'improve')][string]$Mode = 'maintai
 $cl = $PSScriptRoot
 $claude = "$env:USERPROFILE\.local\bin\claude.exe"
 $req = "$cl\maint-requests.txt"
-Set-Location C:\WINDOWS\system32          # same project folder as Claude (Admin), so memory is shared
+Set-Location C:\WINDOWS\system32          # same project folder as Messiah, so memory is shared
 
 $rules = @"
 You are running UNATTENDED in the background right after the owner logged in. Nobody is watching and nothing may pop up
@@ -17,7 +17,7 @@ or run heavy benchmarks/stress tests (they may be starting a game) - put those o
 Before any heavy step (driver/app installs, virus scans, DISM/cleanup, anything that loads the PC) run
 & "$cl\game-check.ps1" - if it prints a game name, the owner is playing: skip that step and leave it for the next run.
 To-do list: write each thing that needs the owner as one short plain-English line to $cl\maint-todo.txt (rewrite the file
-with the complete current list; delete the file when nothing is open). The launcher shows it next time they open Claude (Admin).
+with the complete current list; delete the file when nothing is open). The launcher shows it next time they open Messiah.
 "@
 if ($Mode -eq 'improve') {
     $extra = $null

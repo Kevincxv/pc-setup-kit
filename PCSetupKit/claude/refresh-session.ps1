@@ -1,4 +1,4 @@
-# Keeps the always-on Claude (Admin) session on the newest Claude Code. Claude Code updates itself, but a session that
+# Keeps the always-on Messiah session on the newest Claude Code. Claude Code updates itself, but a session that
 # is already running keeps the old version until it restarts - and the tray's session runs all the time. Run every
 # 15 min by the tray (elevated, hidden). A session is only restarted when that's invisible to the owner:
 # window hidden in the tray (or minimized), no activity for 10+ minutes, and not in the middle of a task.

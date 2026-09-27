@@ -2,7 +2,7 @@
 # maintenance. Does nothing on the PC where the kit is developed (its folder is a git repo) or without kit-source.txt.
 # A new release is downloaded, checked (all files present, every script parses) and only then installed.
 # Test overrides: -KitDir -ClaudeDir -TrayDir -Force (skip the developer-PC check).
-param([string]$KitDir = 'C:\PCSetupKit', [string]$ClaudeDir = $PSScriptRoot, [string]$TrayDir = "$env:USERPROFILE\Documents\Claude Admin Tray", [switch]$Force)
+param([string]$KitDir = 'C:\PCSetupKit', [string]$ClaudeDir = $PSScriptRoot, [string]$TrayDir = "$env:USERPROFILE\Documents\Messiah Tray", [switch]$Force)
 $ErrorActionPreference = 'Stop'
 $srcFile = "$KitDir\kit-source.txt"
 if (-not (Test-Path $srcFile)) { return }
@@ -23,8 +23,9 @@ try {
     Expand-Archive "$tmp\kit.zip" "$tmp\x" -Force
     $k = Get-ChildItem "$tmp\x" -Directory | Select-Object -First 1 | ForEach-Object { "$($_.FullName)\PCSetupKit" }
     $need = 'setup.ps1', 'tweaks.ps1', 'uninstall.ps1', 'claude\claude-admin-launch.ps1', 'claude\claude-bg-maint.ps1', 'claude\health-check.ps1',
-        'claude\session-lib.ps1', 'claude\hooks\no-power-off.ps1', 'claude\skills\maintain\SKILL.md', 'claude\tray\Claude Admin Tray.ahk'
-    $missing = @($need | Where-Object { -not (Test-Path "$k\$_") })
+        'claude\session-lib.ps1', 'claude\hooks\no-power-off.ps1', 'claude\skills\maintain\SKILL.md'
+    $trayFile = @('Messiah Tray.ahk', 'Claude Admin Tray.ahk') | Where-Object { Test-Path "$k\claude\tray\$_" } | Select-Object -First 1   # releases before the rename to Messiah: old name
+    $missing = @($need | Where-Object { -not (Test-Path "$k\$_") }) + @(if (-not $trayFile) { 'claude\tray\Messiah Tray.ahk' })
     if ($missing) { "Kit update: $tag is incomplete ($($missing -join ', ')) - kept the current version"; return }
     $bad = @(Get-ChildItem $k -Recurse -Filter *.ps1 | Where-Object { $e = $null; [void][Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$e); $e })
     if ($bad) { "Kit update: $tag has scripts that don't parse ($($bad.Name -join ', ')) - kept the current version"; return }
@@ -35,10 +36,10 @@ try {
     Copy-Item "$k\claude\hooks\*" "$ClaudeDir\hooks" -Force
     Copy-Item "$k\claude\skills\*" "$ClaudeDir\skills" -Recurse -Force
     if (Test-Path $TrayDir) {
-        Copy-Item "$k\claude\tray\Claude Admin Tray.ahk" $TrayDir -Force
-        if (-not $Force -and (Get-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue)) {   # reload the tray (it won't open a second session)
-            Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe'" | Where-Object CommandLine -match 'Claude Admin Tray\.ahk' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-            Start-ScheduledTask 'Claude Admin Tray'
+        Copy-Item "$k\claude\tray\$trayFile" "$TrayDir\Messiah Tray.ahk" -Force
+        if (-not $Force -and (Get-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue)) {   # reload the tray (it won't open a second session)
+            Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+            Start-ScheduledTask 'Messiah Tray'
         }
     }
     $tag | Set-Content $verFile

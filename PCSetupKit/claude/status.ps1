@@ -1,14 +1,14 @@
 # One-page status of the zero-maintenance system (tray menu: "Status").
 param([switch]$NoWait)
 $cl = "$env:USERPROFILE\.claude"
-$Host.UI.RawUI.WindowTitle = 'Claude (Admin) - status'
+$Host.UI.RawUI.WindowTitle = 'Messiah - status'
 . "$cl\session-lib.ps1"
 function Section($t) { Write-Host "`n$t" -ForegroundColor Cyan }
 function L($t, $c = 'Gray') { Write-Host "  $t" -ForegroundColor $c }
-$state = @{}; try { (Get-Content "$cl\maint-state.json" -Raw | ConvertFrom-Json -ErrorAction Stop).PSObject.Properties | ForEach-Object { $state[$_.Name] = $_.Value } } catch {}
+$state = @{}; try { (Get-Content "$cl\maint-state.json" -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop).PSObject.Properties | ForEach-Object { $state[$_.Name] = $_.Value } } catch {}
 function Next($key, $days) { $d = [datetime]::MinValue; if ([datetime]::TryParse("$($state[$key])", [ref]$d)) { $n = $d.AddDays($days); if ($n -lt (Get-Date)) { 'due now' } else { $n.ToString('MMM d, yyyy') } } else { 'due now' } }
 
-Section 'Claude (Admin)'
+Section 'Messiah'
 $ver = ((& "$env:USERPROFILE\.local\bin\claude.exe" --version 2>$null) -split ' ')[0]
 L "Claude Code $ver"
 $sess = @(Get-AdminSessions)
@@ -20,7 +20,7 @@ $todo = @(Get-Content "$cl\maint-todo.txt" -Encoding UTF8 -ErrorAction SilentlyC
 if ($todo) { $todo | ForEach-Object { L "- $_" 'Yellow' } } else { L 'Nothing' 'Green' }
 
 Section 'Waiting for your next shutdown or restart'
-$led = $null; try { $led = Get-Content "$cl\restart-ledger.json" -Raw | ConvertFrom-Json -ErrorAction Stop } catch {}
+$led = $null; try { $led = Get-Content "$cl\restart-ledger.json" -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch {}
 if ($led.items) { $led.items | ForEach-Object { L "- $($_.Name)" }; L 'These finish by themselves the next time you turn the PC off; the check after that confirms it.' 'DarkGray' }
 else { L 'Nothing' 'Green' }
 

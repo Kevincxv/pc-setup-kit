@@ -1,4 +1,4 @@
-# Background maintenance for the "Claude (Admin)" launcher. Runs elevated and hidden, so Claude never waits on it.
+# Background maintenance for the "Messiah" launcher. Runs elevated and hidden, so Claude never waits on it.
 # Started by the launcher (fire-and-forget) and by the "Claude Background Maintenance" task at logon.
 # Runs the driver check, Claude Code maintenance and PC health check in parallel and writes a report
 # that the launcher shows at the next start.
@@ -19,6 +19,8 @@ while (($g = & "$dir\game-check.ps1") -and ((Get-Date) - $w0).TotalMinutes -lt 4
 $waited = [int]((Get-Date) - $w0).TotalMinutes
 if ($g) { $gameNote = "Game: $g still running after $waited min - heavy steps held until the next run" }
 elseif ($waited -ge 1) { $gameNote = "Game: waited $waited min for it to close before starting" }
+# PCs installed before the rename to Messiah: move the shortcuts and tray task once (migrate-names.ps1)
+$renamed = if (Test-Path "$dir\migrate-names.ps1") { & "$dir\migrate-names.ps1" }
 $start = Get-Date
 $jobs = foreach ($j in @(
         @{ Name = 'Drivers'; Script = 'driver-check.ps1'; Timeout = 1200 },
@@ -37,7 +39,7 @@ foreach ($j in $jobs) {
     if ($left -le 0 -or -not $j.Proc.WaitForExit($left)) { Stop-Process -Id $j.Proc.Id -Force -ErrorAction SilentlyContinue; $j | Add-Member TimedOut $true }
 }
 
-$lines = @("Checked $((Get-Date).ToString('g')) in $([int]((Get-Date) - $start).TotalSeconds)s") + @($gameNote | Where-Object { $_ })
+$lines = @("Checked $((Get-Date).ToString('g')) in $([int]((Get-Date) - $start).TotalSeconds)s") + @($gameNote, $renamed | Where-Object { $_ })
 foreach ($j in $jobs) {
     $out = @(if (Test-Path $j.Out) { Get-Content $j.Out | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() }; Remove-Item $j.Out -Force })
     if ($j.TimedOut) { $out = @('WARNING: timed out') + $out }
@@ -70,7 +72,7 @@ if ($Unattended) {
     # Self-improvement: at most once a day (a full Opus pass at every login ate into the plan's usage on restart-heavy days)
     $si = "$dir\selfimprove-last"
     if (-not (Test-Path $si) -or ((Get-Date) - (Get-Item $si).LastWriteTime).TotalHours -ge 20) { $runs += @{ Mode = 'improve'; Minutes = 30 } }
-    $tray = "$env:USERPROFILE\Documents\Claude Admin Tray\Claude Admin Tray.ahk"
+    $tray = "$env:USERPROFILE\Documents\Messiah Tray\Messiah Tray.ahk"
     $ahk = "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe"
     foreach ($r in $runs) {
         # Hidden Claude runs wait for a game to close too (up to 30 min); self-improvement then waits for another day.
@@ -102,11 +104,11 @@ if ($Unattended) {
                 $e = $null; [void][Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$e)
                 if ($e -and (Test-Path "$snap\$($f.Name)")) { Copy-Item "$snap\$($f.Name)" $f.FullName -Force; Add-Content $log "`nROLLED BACK $($f.Name) (syntax error after self-improve)" }
             }
-            if ((Test-Path $ahk) -and (Test-Path "$snap\Claude Admin Tray.ahk")) {
+            if ((Test-Path $ahk) -and (Test-Path "$snap\Messiah Tray.ahk")) {
                 $v = Start-Process $ahk -ArgumentList '/ErrorStdOut', '/Validate', "`"$tray`"" -Wait -PassThru -WindowStyle Hidden
                 if ($v.ExitCode -ne 0) {
-                    Copy-Item "$snap\Claude Admin Tray.ahk" $tray -Force; Add-Content $log "`nROLLED BACK Claude Admin Tray.ahk (failed to validate)"
-                    Stop-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue; Start-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue
+                    Copy-Item "$snap\Messiah Tray.ahk" $tray -Force; Add-Content $log "`nROLLED BACK Messiah Tray.ahk (failed to validate)"
+                    Stop-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue; Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue
                 }
             }
             # Test gate: everything must still pass after self-improvement - otherwise ALL of its changes are undone
@@ -122,12 +124,12 @@ if ($Unattended) {
                         else { New-Item "$snap\added" -ItemType Directory -Force | Out-Null; Move-Item $f.FullName "$snap\added\" -Force }
                     }
                     foreach ($s in 'maintain', 'pc-optimize', 'self-improve') { if (Test-Path "$snap\$s") { Copy-Item "$snap\$s\*" "$dir\skills\$s\" -Recurse -Force } }
-                    if (Test-Path "$snap\Claude Admin Tray.ahk") { Copy-Item "$snap\Claude Admin Tray.ahk" $tray -Force }
+                    if (Test-Path "$snap\Messiah Tray.ahk") { Copy-Item "$snap\Messiah Tray.ahk" $tray -Force }
                     if (Test-Path "$snap\tests") { Copy-Item "$snap\tests\*" $tests -Recurse -Force }
                     Add-Content $log "`nROLLED BACK all self-improvement changes - the test suite failed afterwards: $sum (details: $tlog)"
                     & powershell -NoProfile -ExecutionPolicy Bypass -File "$tests\run-tests.ps1" -Suite unit -Src $dir -TrayFile $tray *> "$tlog.after-rollback.txt"
                     Add-Content $log "Tests after the rollback: $(Get-Content "$tests\last-run.txt" -TotalCount 1 -ErrorAction SilentlyContinue)"
-                    Stop-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue; Start-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue
+                    Stop-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue; Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue
                 }
             }
             Get-ChildItem "$dir\selfimprove-backup" -Directory | Where-Object Name -match '^\d{8}-\d{6}$' | Sort-Object Name -Descending | Select-Object -Skip 10 | Remove-Item -Recurse -Force

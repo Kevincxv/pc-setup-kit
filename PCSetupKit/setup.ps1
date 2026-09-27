@@ -1,7 +1,7 @@
 ﻿# PC Setup Kit - first-logon setup. Started automatically by autounattend.xml (FirstLogonCommands) from the USB.
 # Can also be run by hand on an existing Windows 11 PC: right-click > Run with PowerShell (it asks for admin).
 # Steps: copy kit to C:\PCSetupKit > tweaks > power plan > remove OneDrive > install apps > install Claude Code +
-# Claude (Admin) > open Claude (Admin) with the /pc-optimize playbook.
+# Messiah > open Messiah with the /pc-optimize playbook.
 $ErrorActionPreference = 'Continue'
 
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -45,7 +45,7 @@ for ($i = 0; $i -lt 40 -and -not (Get-Command winget -ErrorAction SilentlyContin
 winget source update --accept-source-agreements | Out-Null
 
 Step 'Installing apps'
-# WinDbg: automatic crash-dump diagnosis; AutoHotkey (v2): the Claude (Admin) tray icon
+# WinDbg: automatic crash-dump diagnosis; AutoHotkey (v2): the Messiah tray icon
 foreach ($id in 'Git.Git', 'Valve.Steam', 'Discord.Discord', 'Google.Chrome', 'Microsoft.WinDbg', 'AutoHotkey.AutoHotkey') {
     Write-Host "  $id"
     winget install --id $id -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity | Select-Object -Last 1
@@ -68,7 +68,7 @@ if (Get-CimInstance Win32_VideoController | Where-Object Name -match 'NVIDIA') {
 Step 'Installing Claude Code'
 try { & ([scriptblock]::Create((Invoke-RestMethod 'https://claude.ai/install.ps1'))) } catch { "  Claude Code install failed: $($_.Exception.Message)" }
 
-Step 'Setting up Claude (Admin)'
+Step 'Setting up Messiah'
 $cl = "$env:USERPROFILE\.claude"
 New-Item "$cl\skills" -ItemType Directory -Force | Out-Null
 Copy-Item "$kit\claude\*.ps1" $cl -Force
@@ -82,7 +82,7 @@ if (-not $s) { $s = [pscustomobject]@{} }
 $s | Add-Member hooks ([pscustomobject]@{ PreToolUse = @([pscustomobject]@{ matcher = 'Bash|PowerShell'; hooks = @([pscustomobject]@{
                     type = 'command'; command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$cl\hooks\no-power-off.ps1`""; timeout = 15 }) }) }) -Force
 [IO.File]::WriteAllText($sf, ($s | ConvertTo-Json -Depth 10), (New-Object Text.UTF8Encoding $false))   # no BOM
-$lnkPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk"
+$lnkPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Messiah.lnk"
 $sh = (New-Object -ComObject WScript.Shell).CreateShortcut($lnkPath)
 $sh.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 $sh.Arguments = "-NoExit -NoLogo -ExecutionPolicy Bypass -File `"$cl\claude-admin-launch.ps1`""
@@ -99,23 +99,23 @@ $prn = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -Logon
 Register-ScheduledTask -TaskName 'Claude Background Maintenance' -Action $act -Trigger $trg -Principal $prn -Force `
     -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 4) -Priority 7) | Out-Null
 
-# Tray icon (hidden icons area): keeps a Claude (Admin) session open hidden from every login, continues work a
+# Tray icon (hidden icons area): keeps a Messiah session open hidden from every login, continues work a
 # shutdown cut off, shows small alerts when something needs the owner, and keeps the session on the newest Claude Code
-$trayDir = "$env:USERPROFILE\Documents\Claude Admin Tray"
+$trayDir = "$env:USERPROFILE\Documents\Messiah Tray"
 New-Item $trayDir -ItemType Directory -Force | Out-Null
-Copy-Item "$kit\claude\tray\Claude Admin Tray.ahk" $trayDir -Force
+Copy-Item "$kit\claude\tray\Messiah Tray.ahk" $trayDir -Force
 $ahk = "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe"
 if (Test-Path $ahk) {
-    $act = New-ScheduledTaskAction -Execute $ahk -Argument "`"$trayDir\Claude Admin Tray.ahk`""
+    $act = New-ScheduledTaskAction -Execute $ahk -Argument "`"$trayDir\Messiah Tray.ahk`""
     $trg = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
     $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable
-    Register-ScheduledTask -TaskName 'Claude Admin Tray' -Action $act -Trigger $trg -Principal $prn -Settings $set -Force | Out-Null
+    Register-ScheduledTask -TaskName 'Messiah Tray' -Action $act -Trigger $trg -Principal $prn -Settings $set -Force | Out-Null
 } else { '  AutoHotkey is missing - no tray icon (Claude will install it and set the tray up)' }
 
-Step 'Done - opening Claude (Admin)'
+Step 'Done - opening Messiah'
 Write-Host @'
 
-  Setup finished. Claude (Admin) is opening now.
+  Setup finished. Messiah is opening now.
   1. Log in with YOUR OWN Claude account (it opens a browser page).
   2. Claude then runs the /pc-optimize playbook: updates, drivers, hardware checks
      (BIOS, RAM speed, graphics card, monitors), crash checks and a benchmark.
@@ -124,4 +124,4 @@ Write-Host @'
 Stop-Transcript | Out-Null
 Start-Process powershell -Verb RunAs -WorkingDirectory "$env:SystemRoot\System32" -ArgumentList '-NoExit', '-NoLogo', '-ExecutionPolicy', 'Bypass', '-File', "`"$cl\claude-admin-launch.ps1`"", '/pc-optimize'
 Start-Sleep 15
-Start-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue   # sees the open session, so it only adds the icon
+Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue   # sees the open session, so it only adds the icon

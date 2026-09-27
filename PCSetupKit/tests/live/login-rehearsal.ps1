@@ -1,7 +1,7 @@
 # LIVE: the real sign-in chain without restarting (rehearse-login.ps1): tray task -> hidden launcher -> real Claude.
 # Scenarios: cut off mid-task, resume armed by an agent, nothing to resume. Uses a little Claude usage.
 . "$PSScriptRoot\..\lib.ps1"
-if (-not (Get-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue)) { Skip 'login rehearsal' 'Claude (Admin) tray is not installed on this PC'; Finish }
+if (-not (Get-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue)) { Skip 'login rehearsal' 'Messiah tray is not installed on this PC'; Finish }
 $proj = "$env:USERPROFILE\.claude\projects\C--WINDOWS-system32"
 $mine = Get-ChildItem "$proj\*.jsonl" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1   # the session running this, if any
 $strayBefore = if ($mine) { @(Select-String -Path $mine.FullName -Pattern '"content":"The PC was turned off while').Count } else { 0 }

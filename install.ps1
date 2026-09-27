@@ -1,6 +1,6 @@
 # PC Setup Kit - one-command install on an existing Windows 11 PC. In PowerShell (it asks for admin by itself):
 #   irm https://raw.githubusercontent.com/Kevincxv/pc-setup-kit/main/install.ps1 | iex
-# Downloads the newest release, then runs PCSetupKit\setup.ps1 (tweaks, apps, Claude (Admin) + zero maintenance).
+# Downloads the newest release, then runs PCSetupKit\setup.ps1 (tweaks, apps, Messiah + zero maintenance).
 # -DownloadOnly <folder>: only download and unpack (used for testing).
 param([string]$DownloadOnly)
 $ErrorActionPreference = 'Stop'
@@ -15,11 +15,11 @@ if (-not $DownloadOnly) {
     Write-Host @'
 
   PC SETUP KIT
-  This sets up this PC like a tuned gaming PC and installs Claude (Admin), which then keeps it maintained by itself:
+  This sets up this PC like a tuned gaming PC and installs Messiah, which then keeps it maintained by itself:
    - removes Windows bloat and ads, turns off telemetry and AI features, applies gaming tweaks
      (also turns memory integrity / VBS off for performance)
    - installs Git, Steam, Discord, Chrome, WinDbg, AutoHotkey, NVIDIA App (NVIDIA cards only) and Claude Code
-   - Claude (Admin) runs WITHOUT permission prompts and needs your own Claude account (Pro or higher)
+   - Messiah runs WITHOUT permission prompts and needs your own Claude account (Pro or higher)
   Everything can be removed later with C:\PCSetupKit\uninstall.ps1 (-RevertTweaks puts Windows settings back).
 
 '@ -ForegroundColor Yellow

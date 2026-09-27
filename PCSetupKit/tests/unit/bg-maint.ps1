@@ -1,9 +1,9 @@
-# claude-bg-maint.ps1 in a sandbox home with stub jobs and a stub claude-unattended.ps1.
+﻿# claude-bg-maint.ps1 in a sandbox home with stub jobs and a stub claude-unattended.ps1.
 . "$PSScriptRoot\..\lib.ps1"
-$H = "$Work\home"; $C = "$H\.claude"; $trayDir = "$H\Documents\Claude Admin Tray"
+$H = "$Work\home"; $C = "$H\.claude"; $trayDir = "$H\Documents\Messiah Tray"
 New-Item $C, $trayDir -ItemType Directory -Force | Out-Null
 $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
-function Setup([hashtable]$Jobs, [string]$Unattended, [switch]$Short) {
+function New-Case([hashtable]$Jobs, [string]$Unattended, [switch]$Short) {
     $t = (Get-Content "$Src\claude-bg-maint.ps1" -Raw).Replace("'Global\ClaudeBgMaint'", "'Global\ClaudeBgMaintT$PID'")
     if ($Short) { $t = $t.Replace("Script = 'driver-check.ps1'; Timeout = 1200", "Script = 'driver-check.ps1'; Timeout = 4") }
     Set-Content "$C\claude-bg-maint.ps1" $t
@@ -26,27 +26,27 @@ function Run([string[]]$A = @('-Force', '-Unattended')) { [void](Invoke-As $H "$
 function Runs { @(Get-Content "$C\runs.log" -ErrorAction SilentlyContinue) }
 
 Section 'report'
-Setup -Short -Jobs @{ 'driver-check' = 'Start-Sleep 30; "never seen"'; 'health-check' = '"WARNING: blue screen 0x109"' }
+New-Case -Short -Jobs @{ 'driver-check' = 'Start-Sleep 30; "never seen"'; 'health-check' = '"WARNING: blue screen 0x109"' }
 Run @('-Force')
 $r = Get-Content "$C\maint-report.txt"
 Check 'a hung job is stopped at its limit and reported' (($r -join "`n") -match '\[Drivers\]\s+WARNING: timed out') ($r -join ' / ')
 Check 'other jobs still reported' (($r -match 'claude-maint ok') -and ($r -match 'WARNING: blue screen')) ($r -join ' / ')
 Check 'a copy kept in maint-history' (@(Get-ChildItem "$C\maint-history" -ErrorAction SilentlyContinue).Count -ge 1) ''
 Check 'no half-written temp file left' (-not (Test-Path "$C\maint-report.txt.tmp")) ''
-Setup -Jobs @{ 'periodic-maint' = '' }
+New-Case -Jobs @{ 'periodic-maint' = '' }
 Run @('-Force')
 Check 'a job with nothing to say leaves no empty section' (-not ((Get-Content "$C\maint-report.txt") -contains '[Periodic]')) ((Get-Content "$C\maint-report.txt") -join ' / ')
-Setup; Run @('-Force'); $t1 = (Get-Item "$C\maint-report.txt").LastWriteTime; Start-Sleep 1; Run @()
+New-Case; Run @('-Force'); $t1 = (Get-Item "$C\maint-report.txt").LastWriteTime; Start-Sleep 1; Run @()
 Check 'without -Force it skips when the last run was < 30 min ago' ((Get-Item "$C\maint-report.txt").LastWriteTime -eq $t1) ''
 
 Section 'hidden Claude runs'
-Setup -Jobs @{ 'health-check' = '"WARNING: blue screen"' }
+New-Case -Jobs @{ 'health-check' = '"WARNING: blue screen"' }
 Run; $r = Runs
 Check 'warning -> /maintain first, then self-improve' ($r.Count -eq 2 -and $r[0] -match '^ran maintain due=\[warnings' -and $r[1] -match '^ran improve') ($r -join ' | ')
 Check 'the warning is NOT marked handled before /maintain ran' ($r[0] -match 'handled-before=False') $r[0]
 Check '... and IS marked handled after it finished' ((Get-Content "$C\maint-state.json" -Raw) -match 'claude-handled-report') ''
 Check 'busy marker removed afterwards' (-not (Test-Path "$C\maint-claude-running")) ''
-Setup
+New-Case
 Run; Check 'nothing due: only self-improve' ((Runs) -join '|' -match '^ran improve') ((Runs) -join ' | ')
 Clear-Path "$C\runs.log"; Run
 Check 'self-improve at most once in 20 h' (@(Runs).Count -eq 0) ((Runs) -join ' | ')
@@ -54,13 +54,13 @@ Check 'self-improve at most once in 20 h' (@(Runs).Count -eq 0) ((Runs) -join ' 
 Check '... and again after 20 h' ((Runs) -join '|' -match 'ran improve') ((Runs) -join ' | ')
 
 Section 'cut off by a shutdown'
-Setup
+New-Case
 @('aaaa-bbbb', 'maintain', $boot.AddMinutes(-10).ToString('o')) | Set-Content "$C\maint-claude-session"
 'x' | Set-Content "$C\maint-claude-running"; (Get-Item "$C\maint-claude-running").LastWriteTime = $boot.AddMinutes(-9)
 Run; $r = Runs
 Check 'a run cut off before this boot is handed to /maintain to finish' ($r[0] -match 'ran maintain' -and $r[0] -match 'was cut off' -and $r[0] -match 'aaaa-bbbb') ($r -join ' | ')
 Check 'the one-off request is consumed' (-not (Test-Path "$C\maint-requests.txt")) ''
-Setup -Jobs @{ 'health-check' = '"WARNING: new thing"' } -Unattended @'
+New-Case -Jobs @{ 'health-check' = '"WARNING: new thing"' } -Unattended @'
 param([string]$Due, [string]$Mode)
 if ($Mode -eq 'maintain') { Start-Sleep 60 }
 '@
@@ -72,18 +72,18 @@ Check 'PC off during /maintain: the warning is still due next login' (-not ((Get
 Check '... and the busy marker stays, so the next login knows it was cut off' (Test-Path "$C\maint-claude-running") ''
 
 Section 'self-improvement safety net'
-Setup -Unattended @'
+New-Case -Unattended @'
 param([string]$Due, [string]$Mode)
 if ($Mode -eq 'improve') {
   'function Broken {' | Set-Content "$PSScriptRoot\health-check.ps1"
-  'this is { not valid AHK' | Set-Content "$env:USERPROFILE\Documents\Claude Admin Tray\Claude Admin Tray.ahk"
+  'this is { not valid AHK' | Set-Content "$env:USERPROFILE\Documents\Messiah Tray\Messiah Tray.ahk"
 }
 '@
-Copy-Item $Tray "$trayDir\Claude Admin Tray.ahk" -Force
+Copy-Item $Tray "$trayDir\Messiah Tray.ahk" -Force
 Run
 Check 'a script broken by self-improve is rolled back' ((Get-Content "$C\health-check.ps1" -Raw) -match 'health-check ok') (Get-Content "$C\health-check.ps1" -Raw)
 if (Test-Path "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe") {
-    Check 'a tray script broken by self-improve is rolled back' ((Get-Content "$trayDir\Claude Admin Tray.ahk" -Raw) -match 'Persistent') ''
+    Check 'a tray script broken by self-improve is rolled back' ((Get-Content "$trayDir\Messiah Tray.ahk" -Raw) -match 'Persistent') ''
 } else { Skip 'tray rollback' 'AutoHotkey not installed' }
 Check 'the rollback is written to the run log' (@(Get-ChildItem "$C\maint-claude-log\*.md" | Select-String 'ROLLED BACK').Count -ge 1) ''
 Check 'a code snapshot was taken first' (@(Get-ChildItem "$C\selfimprove-backup" -Directory -ErrorAction SilentlyContinue).Count -ge 1) ''
@@ -100,7 +100,7 @@ exit [int]$bad
 'original test' | Set-Content "$tdir\some-test.ps1"
 $script:gate = $tdir
 New-Item "$C\skills\maintain" -ItemType Directory -Force | Out-Null; 'original skill' | Set-Content "$C\skills\maintain\SKILL.md"
-Setup -Unattended @'
+New-Case -Unattended @'
 param([string]$Due, [string]$Mode)
 if ($Mode -eq 'improve') {
   '"health-check ok"; "SEMANTIC-BUG"' | Set-Content "$PSScriptRoot\health-check.ps1"
@@ -116,7 +116,7 @@ Check '... a skill it changed is restored' ((Get-Content "$C\skills\maintain\SKI
 Check '... a test it weakened is restored' ((Get-Content "$tdir\some-test.ps1" -Raw) -match 'original test') ''
 $lg = (Get-ChildItem "$C\maint-claude-log\*-improve.md" | Sort-Object Name | Select-Object -Last 1 | Get-Content -Raw)
 Check '... and the log says why, with the test summary and the result after rollback' ($lg -match 'ROLLED BACK all self-improvement changes.*1 failed' -and $lg -match 'Tests after the rollback: .*0 failed') $lg
-Setup -Unattended @'
+New-Case -Unattended @'
 param([string]$Due, [string]$Mode)
 if ($Mode -eq 'improve') { '"health-check ok"; "a good improvement"' | Set-Content "$PSScriptRoot\health-check.ps1" }
 '@
@@ -125,7 +125,7 @@ Check 'passing tests: a good change is kept' ((Get-Content "$C\health-check.ps1"
 $lg = (Get-ChildItem "$C\maint-claude-log\*-improve.md" | Sort-Object Name | Select-Object -Last 1 | Get-Content -Raw)
 Check '... and the log records the passing test run' ($lg -match 'Tests after self-improvement: .*0 failed') $lg
 $script:gate = $null
-Setup -Unattended @'
+New-Case -Unattended @'
 param([string]$Due, [string]$Mode)
 if ($Mode -eq 'improve') { '"health-check ok"; "SEMANTIC-BUG"' | Set-Content "$PSScriptRoot\health-check.ps1" }
 '@

@@ -2,7 +2,8 @@
 . "$PSScriptRoot\..\lib.ps1"
 $rc = "$Src\restart-check.ps1"; $L = "$Work\ledger.json"
 function Item($k, $id, $n) { [pscustomobject]@{ Kind = $k; Id = $id; Name = $n } }
-function RC($boot, $pending) { @(& $rc -Ledger $L -BootTime $boot -Pending $pending) }
+$IG = "$Work\ignore.txt"; '' | Set-Content $IG
+function RC($boot, $pending) { @(& $rc -Ledger $L -BootTime $boot -Pending $pending -IgnoreFile $IG) }
 $b1 = [datetime]'2026-09-27 09:33:24'; $b2 = [datetime]'2026-09-28 08:00:00'; $b3 = [datetime]'2026-09-29 08:00:00'
 $upd = Item 'update' 'u-1' '2026-09 Cumulative Update for Windows 11 (KB5099999)'
 $drv = Item 'device' 'PCI\VEN_10DE' 'NVIDIA GeForce RTX'
@@ -37,6 +38,17 @@ Check 'single queued item: count says 1 (no phantom entry)' ($o -match ': 1 item
 [IO.File]::Delete($fa)
 $o = RC $b2 @()
 Check 'deleted file = finished, surviving file = WARNING' (($o -match 'finished at the restart \(delete in-use-a') -and ($o -match 'WARNING.*replace in-use-b')) ($o -join ' / ')
+Clear-Path $L
+Section 'accepted stuck items (health-ignore.txt)'
+$fs = "$Work\stuckproxy_13.dll.0"; 'x' | Set-Content $fs
+[void](RC $b1 @((Item 'file' $fs 'delete stuckproxy_13.dll.0'), $upd)); $o = RC $b2 @((Item 'file' $fs 'delete stuckproxy_13.dll.0'))
+Check 'not ignored: surviving file is a WARNING' ($o -match 'WARNING.*stuckproxy') ($o -join ' / ')
+'stuckproxy_13.dll.0' | Set-Content $IG
+$o = RC $b3 @((Item 'file' $fs 'delete stuckproxy_13.dll.0'))
+Check 'ignored: no WARNING, not re-recorded' ((-not ($o -match 'WARNING')) -and -not (Test-Path $L)) ($o -join ' / ')
+[void](RC $b1 @((Item 'file' $fs 'delete stuckproxy_13.dll.0'), $upd)); $o = RC $b2 @()
+Check 'ignored item mixed with real work: only the real work is counted' (($o -match '1 item\(s\) Windows had queued finished') -and -not ($o -match 'stuckproxy|WARNING')) ($o -join ' / ')
+'' | Set-Content $IG; Clear-Path $L
 Section 'the real system can be read'
 $o = @(& $rc -Ledger "$Work\probe.json" -BootTime (Get-Date).AddYears(-1) 2>&1)
 Check 'scanning the real restart queue gives no errors' (-not ($o | Where-Object { $_ -is [Management.Automation.ErrorRecord] })) ($o -join ' / ')

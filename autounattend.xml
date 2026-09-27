@@ -5,7 +5,7 @@
   - Still asks: language/keyboard, product key/edition, WHICH DISK to install to (nothing is wiped automatically),
     username/password for a local account.
   - Skips: license page, Microsoft account screens, OEM/ad screens, privacy page (all data sharing off).
-  - First login: runs PCSetupKit\setup.ps1 from the USB (tweaks, apps, Claude Code + Claude (Admin)).
+  - First login: runs PCSetupKit\setup.ps1 from the USB (tweaks, apps, Claude Code + Messiah).
 -->
 <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
   <settings pass="windowsPE">

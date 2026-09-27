@@ -9,7 +9,7 @@ param([ValidateSet('unit', 'live', 'all')][string]$Suite = 'unit', [string]$Only
 $here = $PSScriptRoot
 if (-not $Kit) { $Kit = Split-Path $here }
 if (-not $Src) { $Src = if (Test-Path "$env:USERPROFILE\.claude\claude-admin-launch.ps1") { "$env:USERPROFILE\.claude" } else { "$Kit\claude" } }
-if (-not $TrayFile) { $TrayFile = if (Test-Path "$env:USERPROFILE\Documents\Claude Admin Tray\Claude Admin Tray.ahk") { "$env:USERPROFILE\Documents\Claude Admin Tray\Claude Admin Tray.ahk" } else { "$Kit\claude\tray\Claude Admin Tray.ahk" } }
+if (-not $TrayFile) { $TrayFile = if (Test-Path "$env:USERPROFILE\Documents\Messiah Tray\Messiah Tray.ahk") { "$env:USERPROFILE\Documents\Messiah Tray\Messiah Tray.ahk" } else { "$Kit\claude\tray\Messiah Tray.ahk" } }
 $env:PCKIT_SRC = $Src; $env:PCKIT_KIT = $Kit; $env:PCKIT_TRAY = $TrayFile
 $env:PCKIT_IN_TESTS = '1'   # scripts under test know not to start the real test suite themselves (no suite-in-suite loops)
 

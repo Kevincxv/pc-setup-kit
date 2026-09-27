@@ -1,4 +1,4 @@
-﻿# PC health check for the "Claude (Admin)" launcher (PC Setup Kit). Runs elevated in the background.
+﻿# PC health check for the "Messiah" launcher (PC Setup Kit). Runs elevated in the background.
 # - Reports blue screens / freezes since the last check
 # - Tweak guard: re-runs C:\PCSetupKit\tweaks.ps1, which re-applies anything a Windows update undid
 # - Hardware reminders until fixed: GPU link width, RAM at default speed (EXPO/XMP off), monitor below max Hz, old BIOS

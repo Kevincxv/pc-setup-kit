@@ -1,4 +1,4 @@
-# Launcher for the "Claude (Admin)" shortcut. Opens Claude immediately with full permissions.
+# Launcher for the "Messiah" shortcut. Opens Claude immediately with full permissions.
 # Maintenance (drivers, Claude Code, PC health, weekly/monthly tasks) runs hidden in the background via
 # claude-bg-maint.ps1; this launcher only shows anything notable from the last finished run, which takes no time.
 # When maintenance needs judgment (a WARNING in the report, or a quarterly/half-year/yearly check is due), Claude opens
@@ -10,7 +10,7 @@ $proj = "$cl\projects\C--WINDOWS-system32"
 $sessList = "$cl\admin-sessions.txt"                 # ids of sessions this launcher opened (newest last)
 $resumeFile = "$cl\resume-after-login.txt"           # "<session id><TAB><prompt>" left by resume-after-restart.ps1
 Set-Location C:\WINDOWS\system32
-$Host.UI.RawUI.WindowTitle = 'Claude (Admin)'
+$Host.UI.RawUI.WindowTitle = 'Messiah'
 $cargs = @($args)
 
 # Autostart: the tray script opens a hidden session at every login (CLAUDE_ADMIN_AUTOSTART=1). It continues the
@@ -100,7 +100,7 @@ if (-not $cargs -and -not $auto -and -not $busy) {
         $stamp = (Get-Item "$cl\maint-todo.txt").LastWriteTime.ToString('o')        # walk through each new list once
         if ((Get-Content "$cl\maint-todo.shown" -ErrorAction SilentlyContinue) -ne $stamp) {
             $stamp | Set-Content "$cl\maint-todo.shown"
-            $autoArgs = @('/maintain The owner just opened Claude (Admin). Briefly go through the open items in maint-todo.txt with them.')
+            $autoArgs = @('/maintain The owner just opened Messiah. Briefly go through the open items in maint-todo.txt with them.')
         }
     }
 }

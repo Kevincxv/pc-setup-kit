@@ -23,7 +23,7 @@ watching and nothing may pop up. Budget: about 20 minutes, then stop and write t
 
 ## Files
 - Code: `%USERPROFILE%\.claude\*.ps1`, `.claude\skills\{maintain,pc-optimize,self-improve}\SKILL.md`,
-  `Documents\Claude Admin Tray\Claude Admin Tray.ahk`, `C:\PCSetupKit\tweaks.ps1`, `.claude\tweaks-local.ps1`.
+  `Documents\Messiah Tray\Messiah Tray.ahk`, `C:\PCSetupKit\tweaks.ps1`, `.claude\tweaks-local.ps1`.
 - Evidence: `.claude\maint-report.txt`, `.claude\maint-history\`, `.claude\maint-claude-log\` (headless run output),
   `.claude\maint-state.json`, `%TEMP%\claude-launch-*.log`, event logs (System/Application errors since last boot).
 - Journal (your memory between runs): `.claude\selfimprove-journal.md`. Read it first; append one entry at the end.
@@ -52,7 +52,7 @@ watching and nothing may pop up. Budget: about 20 minutes, then stop and write t
    - PowerShell: `[Management.Automation.Language.Parser]::ParseFile($f,[ref]$null,[ref]$e)`; `$e` must be empty. Where
      possible run the script (or the changed function) and check the output.
    - AHK: `& "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" /ErrorStdOut /Validate <file>` must exit 0. Then restart
-     the tray: `Stop-ScheduledTask 'Claude Admin Tray'; Start-ScheduledTask 'Claude Admin Tray'`.
+     the tray: `Stop-ScheduledTask 'Messiah Tray'; Start-ScheduledTask 'Messiah Tray'`.
    - Run the test suite: `& "<tests>\run-tests.ps1" -Suite unit` (tests are in `Documents\PC Setup Kit\PCSetupKit\tests`
      on the PC where the kit is developed, `C:\PCSetupKit\tests` elsewhere). Everything must pass; the summary is in
      `tests\last-run.txt`. For every bug you fix, add a check to the matching `tests\unit\*.ps1` that would have caught it

@@ -1,4 +1,4 @@
-# Shared helpers for Claude (Admin) sessions (dot-sourced by claude-admin-launch.ps1, refresh-session.ps1,
+# Shared helpers for Messiah sessions (dot-sourced by claude-admin-launch.ps1, refresh-session.ps1,
 # status.ps1 and rehearse-login.ps1).
 
 # True when a conversation stopped mid-turn: a finished turn ends with a turn_duration record or a final (end_turn)
@@ -38,7 +38,7 @@ function Test-SessionWindowShown([int]$ProcId) {
     $script:__shown
 }
 
-# Open Claude (Admin) sessions: launcher process, its claude.exe, the conversation id and transcript
+# Open Messiah sessions: launcher process, its claude.exe, the conversation id and transcript
 function Get-AdminSessions {
     $proj = "$env:USERPROFILE\.claude\projects\C--WINDOWS-system32"
     foreach ($l in Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object CommandLine -match 'claude-admin-launch\.ps1') {

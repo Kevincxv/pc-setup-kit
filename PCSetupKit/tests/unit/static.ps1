@@ -1,4 +1,4 @@
-# Static checks: every script parses, the tray script validates, nothing personal in the kit, docs match the files.
+﻿# Static checks: every script parses, the tray script validates, nothing personal in the kit, docs match the files.
 . "$PSScriptRoot\..\lib.ps1"
 $repoRoot = Split-Path $Kit
 $all = @(Get-ChildItem $Src -Filter *.ps1 -File) + @(Get-ChildItem $Kit -Recurse -Filter *.ps1 -File) + @(Get-ChildItem $repoRoot -Filter *.ps1 -File)
@@ -9,14 +9,27 @@ $enc = @($all | Where-Object { $b = [IO.File]::ReadAllBytes($_.FullName); ($b | 
 Check 'scripts with non-ASCII characters have a UTF-8 BOM' (-not $enc) ($enc -join ', ')
 $ahk = "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe"
 if (Test-Path $ahk) {
-    foreach ($t in @($Tray, "$Kit\claude\tray\Claude Admin Tray.ahk") | Select-Object -Unique) {
+    foreach ($t in @($Tray, "$Kit\claude\tray\Messiah Tray.ahk") | Select-Object -Unique) {
         $v = Start-Process $ahk -ArgumentList '/ErrorStdOut', '/Validate', "`"$t`"" -Wait -PassThru -WindowStyle Hidden
         Check "tray script validates ($(Split-Path (Split-Path $t) -Leaf))" ($v.ExitCode -eq 0) "exit $($v.ExitCode)"
     }
 } else { Skip 'tray script validation' 'AutoHotkey not installed' }
+# PCs updating from before the rename to Messiah get the tray through the old updater, under the old name (migrate-names.ps1)
+$compat = "$Kit\claude\tray\Claude Admin Tray.ahk"
+Check 'the old-name tray copy is identical to Messiah Tray.ahk' ((Test-Path $compat) -and (Get-FileHash $compat).Hash -eq (Get-FileHash "$Kit\claude\tray\Messiah Tray.ahk").Hash) ''
 # tests must not reassign the shared $Src / $Kit / $Tray / $Work (PowerShell names ignore case: "$src = ..." clobbers $Src)
 $clobber = @(Get-ChildItem "$PSScriptRoot\*.ps1" | Select-String -Pattern '(?i)^\s*\$(src|kit|tray|work)\s*=' | ForEach-Object { "$($_.Filename):$($_.LineNumber)" })
 Check 'no test overwrites the shared $Src/$Kit/$Tray/$Work' (-not $clobber) ($clobber -join ', ')
+# tests that mock a command from a Windows module must load the module first and verify the mock (see lib.ps1)
+$unsafe = @(foreach ($tf in Get-ChildItem "$PSScriptRoot\*.ps1") {
+        $txt = Get-Content $tf.FullName -Raw
+        foreach ($m in [regex]::Matches($txt, '(?m)^\s*function\s+(?:global:)?([\w-]+)')) {
+            $n = $m.Groups[1].Value
+            if (-not (Get-Command $n -All -ErrorAction SilentlyContinue | Where-Object { $_.ModuleName -and $_.ModuleName -notmatch '^Microsoft\.PowerShell\.(Management|Utility)$' })) { continue }
+            $imp = $txt.IndexOf('Import-MockTargets'); $as = $txt.LastIndexOf('Assert-Mocks')
+            if ($imp -lt 0 -or $imp -gt $m.Index -or $as -lt $m.Index) { "$($tf.Name): $n" }
+        } })
+Check 'every module-command mock is loaded first and verified (Import-MockTargets / Assert-Mocks)' (-not $unsafe) ($unsafe -join ', ')
 # names of functions must not collide with built-in aliases (e.g. H = Get-History)
 $clash = @($all | ForEach-Object { [regex]::Matches((Get-Content $_.FullName -Raw), '(?m)^\s*function\s+([\w-]+)') | ForEach-Object { $_.Groups[1].Value } } | Where-Object { Get-Alias $_ -ErrorAction SilentlyContinue } | Select-Object -Unique)
 Check 'no function is shadowed by a built-in alias' (-not $clash) ($clash -join ', ')

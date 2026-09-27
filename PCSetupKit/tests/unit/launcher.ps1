@@ -90,7 +90,9 @@ Check 'autostart resume: no prompt sent (idle, no tokens)' ($r.Args.Count -eq 9)
 
 Reset
 $id = [guid]::NewGuid().ToString(); $id | Set-Content "$cl\admin-sessions.txt"; Transcript $id $boot.AddMinutes(-45) | Out-Null
-$r = Launch -Auto
+# pin a clean shutdown 1 min before boot (the real last log can be much older - e.g. after a power cut)
+"boot=$($boot.ToString('o'))", "shutdown=$($boot.AddMinutes(-1).ToString('o'))" | Set-Content "$cl\rehearsal.txt"
+$r = Launch -Auto; Clear-Path "$cl\rehearsal.txt"
 Check 'autostart, session 45 min before boot: fresh' (-not (Has $r '--resume')) ($r.Args -join ' ')
 
 Reset
@@ -114,7 +116,7 @@ Reset
 $id = [guid]::NewGuid().ToString(); Transcript $id (Get-Date) | Out-Null
 $prompt = "Verify the ""25H2"" upgrade's result`tthen report - café ✓"
 $sidBefore = $env:CLAUDE_CODE_SESSION_ID; $env:CLAUDE_CODE_SESSION_ID = $id
-$hadTray = [bool](Get-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue)
+$hadTray = [bool](Get-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue)
 $u = $env:USERPROFILE; $env:USERPROFILE = $home2; $o = & "$cl\resume-after-restart.ps1" -Prompt $prompt 2>&1; $env:USERPROFILE = $u
 $env:CLAUDE_CODE_SESSION_ID = $sidBefore
 if ($hadTray) { Check 'resume script: tray PC - uses the tray, no task registered' (("$o" -match 'tray') -and -not (Get-ScheduledTask 'Claude Resume After Restart' -ErrorAction SilentlyContinue)) "$o" }

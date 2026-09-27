@@ -1,4 +1,4 @@
-# PC Setup Kit - uninstaller. Removes Claude (Admin) and its zero-maintenance system: tray icon, hidden session,
+# PC Setup Kit - uninstaller. Removes Messiah and its zero-maintenance system: tray icon, hidden session,
 # background maintenance, shortcuts, the no-shutdown block and the maintenance scripts/skills. Your conversations,
 # Claude account/settings and installed apps stay. Nothing is deleted outright: the removed files are moved to
 # %USERPROFILE%\.claude\pc-setup-kit-removed-<date> so it can be put back by hand.
@@ -30,25 +30,28 @@ function Stash([string]$Path) {
 }
 
 if (-not $Yes -and -not $WhatIf) {
-    Write-Host "This removes Claude (Admin), its tray icon and the hidden maintenance from this PC." -ForegroundColor Yellow
+    Write-Host "This removes Messiah, its tray icon and the hidden maintenance from this PC." -ForegroundColor Yellow
     if ($RevertTweaks) { Write-Host 'It also puts back the Windows settings the kit changed.' -ForegroundColor Yellow }
     if ($RemoveClaudeCode) { Write-Host 'It also removes Claude Code itself.' -ForegroundColor Yellow }
     if ((Read-Host 'Type YES to continue') -ne 'YES') { 'Cancelled - nothing was changed.'; return }
 }
 
 if (-not $RevertOnly) {
-    Write-Host "`n=== Stopping Claude (Admin)" -ForegroundColor Cyan
-    # ourselves and our parents stay alive (the uninstaller may be run from inside a Claude (Admin) session)
+    Write-Host "`n=== Stopping Messiah" -ForegroundColor Cyan
+    # ourselves and our parents stay alive (the uninstaller may be run from inside a Messiah session)
     $keep = @(); $p = $PID; while ($p) { $keep += $p; $p = (Get-CimInstance Win32_Process -Filter "ProcessId=$p").ParentProcessId; if ($p -in $keep) { break } }
-    foreach ($pr in Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -notin $keep -and ($_.CommandLine -match 'Claude Admin Tray\.ahk|claude-admin-launch\.ps1|claude-bg-maint\.ps1|claude-unattended\.ps1') }) {
+    foreach ($pr in Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -notin $keep -and ($_.CommandLine -match 'Messiah Tray\.ahk|Claude Admin Tray\.ahk|claude-admin-launch\.ps1|claude-bg-maint\.ps1|claude-unattended\.ps1') }) {
         Do-It "stop $($pr.Name) $($pr.ProcessId)" { Stop-Process -Id $pr.ProcessId -Force }
     }
     Write-Host "`n=== Scheduled tasks" -ForegroundColor Cyan
-    foreach ($t in 'Claude Admin Tray', 'Claude Background Maintenance', 'Claude Resume After Restart') {
+    foreach ($t in 'Messiah Tray', 'Claude Admin Tray', 'Claude Background Maintenance', 'Claude Resume After Restart') {
         if (Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue) { Do-It "remove task '$t'" { Unregister-ScheduledTask -TaskName $t -Confirm:$false } }
     }
     Write-Host "`n=== Shortcuts and tray icon" -ForegroundColor Cyan
-    foreach ($l in "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk", "$env:USERPROFILE\Desktop\Claude (Admin).lnk",
+    foreach ($l in "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Messiah.lnk", "$env:USERPROFILE\Desktop\Messiah.lnk",
+        "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Messiah.lnk", "$env:USERPROFILE\Documents\Messiah Tray",
+        # from before the rename to Messiah
+        "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk", "$env:USERPROFILE\Desktop\Claude (Admin).lnk",
         "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Claude (Admin).lnk", "$env:USERPROFILE\Documents\Claude Admin Tray") { Stash $l }
 
     Write-Host "`n=== No-shutdown block (Claude settings)" -ForegroundColor Cyan
@@ -67,10 +70,10 @@ if (-not $RevertOnly) {
     Write-Host "`n=== Maintenance scripts, skills and their data" -ForegroundColor Cyan
     $files = 'claude-admin-launch.ps1', 'claude-bg-maint.ps1', 'claude-maint.ps1', 'claude-unattended.ps1', 'crash-analyze.ps1', 'driver-check.ps1',
         'health-check.ps1', 'maint-due.ps1', 'maint-watch.ps1', 'periodic-maint.ps1', 'resume-after-restart.ps1', 'restart-check.ps1', 'session-lib.ps1',
-        'refresh-session.ps1', 'status.ps1', 'rehearse-login.ps1', 'game-check.ps1', 'kit-update.ps1', 'tweaks-local.ps1',
+        'refresh-session.ps1', 'status.ps1', 'rehearse-login.ps1', 'game-check.ps1', 'kit-update.ps1', 'migrate-names.ps1', 'tweaks-local.ps1',
         'maint-report.txt', 'maint-state.json', 'maint-todo.txt', 'maint-todo.shown', 'maint-requests.txt', 'maint-claude-running', 'maint-claude-session',
         'maint-history', 'maint-claude-log', 'restart-ledger.json', 'restart-canary.txt', 'admin-sessions.txt', 'resume-after-login.txt', 'rehearsal.txt',
-        'games.txt', 'tray-notified.ini', 'selfimprove-last', 'selfimprove-journal.md', 'selfimprove-backup', 'session-refresh.log', 'benchmarks.json',
+        'games.txt', 'tray-notified.ini', 'tray-errors.log', 'selfimprove-last', 'selfimprove-journal.md', 'selfimprove-backup', 'session-refresh.log', 'benchmarks.json',
         'health-check.last', 'health-ignore.txt', 'startup-baseline.txt', 'kit-version.txt', 'hooks\no-power-off.ps1', 'skills\maintain', 'skills\pc-optimize', 'skills\self-improve'
     foreach ($f in $files) { Stash "$cl\$f" }
 }

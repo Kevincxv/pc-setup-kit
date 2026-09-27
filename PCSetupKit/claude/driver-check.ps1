@@ -1,4 +1,4 @@
-# Driver check for the "Claude (Admin)" launcher. Runs elevated.
+# Driver check for the "Messiah" launcher. Runs elevated.
 # - NVIDIA GPU: compares the installed driver with the NVIDIA app's latest Game Ready recommendation;
 #   downloads and silently installs it if newer.
 # - Everything else (AMD chipset, Realtek audio, MediaTek Wi-Fi/BT, SteelSeries, Logitech...):
@@ -7,8 +7,11 @@
 $ErrorActionPreference = 'Continue'
 
 # --- NVIDIA ---
-try {
-    $installed = (& nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>$null | Select-Object -First 1).Trim()
+# (PCs without an NVIDIA card - AMD/Intel graphics - skip this silently; a missing nvidia-smi used to throw an error
+#  whose "failed" woke /maintain at every login)
+if (Get-CimInstance Win32_VideoController | Where-Object Name -match 'NVIDIA') { try {
+    $installed = & nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>$null | Select-Object -First 1
+    $installed = if ($installed) { "$installed".Trim() }
     $recFile = "$env:LOCALAPPDATA\NVIDIA Corporation\NVIDIA app\NvBackend\DriverRecommendations.dat"
     if (-not $installed) {
         'NVIDIA: could not read installed driver version (nvidia-smi failed)'
@@ -40,7 +43,7 @@ try {
             }
         }
     }
-} catch { if ("$_" -ne 'held') { "NVIDIA: check failed - $($_.Exception.Message)" } }
+} catch { if ("$_" -ne 'held') { "NVIDIA: check failed - $($_.Exception.Message)" } } }
 
 # --- Windows Update drivers ---
 try {

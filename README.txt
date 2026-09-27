@@ -1,10 +1,10 @@
-PC SETUP KIT - fresh Windows 11 with all the tweaks + Claude (Admin)
+PC SETUP KIT - fresh Windows 11 with all the tweaks + Messiah
 ======================================================================
 
 WHAT YOU NEED
 - A USB stick, 8 GB or bigger (it gets erased).
 - Your friend's Windows license (new PCs usually have one built in; otherwise a product key).
-- Your friend's own Claude account (Pro or higher) for Claude (Admin). Never share yours.
+- Your friend's own Claude account (Pro or higher) for Messiah. Never share yours.
 
 MAKE THE USB (once, on any PC)
 1. Download Microsoft's "Media Creation Tool" for Windows 11:
@@ -30,8 +30,8 @@ INSTALL ON THE NEW PC
        memory integrity (VBS) off, mouse acceleration off, no power-saving on controllers/Ethernet
      - blocks motherboard "auto driver installer" bloat
      - installs Git, Steam, Discord, Chrome, WinDbg, AutoHotkey, NVIDIA App (only with an NVIDIA card), Claude Code
-     - creates "Claude (Admin)" (Start menu + desktop + tray icon) with hidden background maintenance
-6. Claude (Admin) opens. Your friend logs in with THEIR Claude account, then Claude runs /pc-optimize:
+     - creates "Messiah" (Start menu + desktop + tray icon) with hidden background maintenance
+6. Messiah opens. Your friend logs in with THEIR Claude account, then Claude runs /pc-optimize:
    updates, drivers, hardware audit (BIOS version, RAM EXPO/XMP, graphics card PCIe link, monitor refresh rates),
    crash check, overlays, benchmark - and guides them through any BIOS steps.
 
@@ -41,7 +41,7 @@ Easiest: open PowerShell and run
 Or copy the PCSetupKit folder anywhere, right-click PCSetupKit\setup.ps1 > "Run with PowerShell", approve the admin prompt.
 
 REMOVE IT
-C:\PCSetupKit\uninstall.ps1 removes Claude (Admin), the tray icon and the maintenance (add -RevertTweaks to also put
+C:\PCSetupKit\uninstall.ps1 removes Messiah, the tray icon and the maintenance (add -RevertTweaks to also put
 the Windows settings back). Nothing is deleted outright; removed files go to %USERPROFILE%\.claude\pc-setup-kit-removed-<date>.
 
 UPDATES
@@ -50,8 +50,8 @@ at the next login).
 
 NOTES
 - Everything is official Microsoft Windows; updates keep working. The kit only changes settings and removes apps.
-- Undo: most changes are listed in C:\PCSetupKit\setup.log. Claude (Admin) can undo any of them on request.
-- Claude (Admin) runs with permission prompts skipped: it acts without asking (it does ask before uninstalling
+- Undo: most changes are listed in C:\PCSetupKit\setup.log. Messiah can undo any of them on request.
+- Messiah runs with permission prompts skipped: it acts without asking (it does ask before uninstalling
   the owner's apps or BIOS steps). Only give it to friends who are OK with that.
 - Claude NEVER shuts down or restarts the PC (a built-in block enforces it). It does every fix right away; anything
   that needs a restart (Windows updates, drivers) finishes by itself the next time the owner turns the PC off -
@@ -61,7 +61,7 @@ NOTES
 - Each person needs their own Claude account (Pro or higher). The hidden maintenance uses that account's usage.
 
 THE TRAY ICON (hidden icons area, next to the clock)
-- At every login a Claude (Admin) session opens hidden there, so Claude is always ready. Click the icon to show or
+- At every login a Messiah session opens hidden there, so Claude is always ready. Click the icon to show or
   hide it; minimizing the window sends it back to the tray.
 - If the PC was turned off while Claude was working, the next start picks the conversation up and finishes the job.
 - Small alerts appear in the corner when something needs the owner (never over a fullscreen game; they wait).
@@ -70,7 +70,7 @@ THE TRAY ICON (hidden icons area, next to the clock)
 - When Claude Code updates itself, the hidden session is quietly restarted on the new version once it's idle.
 
 ZERO-MAINTENANCE (built in)
-About 2 minutes after each login (and whenever Claude (Admin) is opened) maintenance runs hidden in the background:
+About 2 minutes after each login (and whenever Messiah is opened) maintenance runs hidden in the background:
   - every run: drivers, Claude Code, tweak guard, crash detection + automatic dump diagnosis (WinDbg),
     antivirus scan if >7 days old, clock sync, hardware reminders, restart check (what's waiting for the next
     shutdown, and afterwards whether it all finished)

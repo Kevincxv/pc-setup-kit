@@ -1,7 +1,7 @@
-﻿# LIVE: refresh-session.ps1 with real hidden Claude (Admin) sessions on this PC (uses a little Claude usage via haiku).
+﻿# LIVE: refresh-session.ps1 with real hidden Messiah sessions on this PC (uses a little Claude usage via haiku).
 # Pretends a Claude Code update landed (a scratch file dated "now") and checks which sessions get restarted.
 . "$PSScriptRoot\..\lib.ps1"
-if (-not (Get-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue)) { Skip 'session refresh' 'Claude (Admin) is not installed on this PC'; Finish }
+if (-not (Get-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue)) { Skip 'session refresh' 'Messiah is not installed on this PC'; Finish }
 $cl = "$env:USERPROFILE\.claude"; $proj = "$cl\projects\C--WINDOWS-system32"; $claude = "$env:USERPROFILE\.local\bin\claude.exe"
 $rs = "$Src\refresh-session.ps1"; . "$Src\session-lib.ps1"
 
@@ -68,7 +68,7 @@ try {
     $o = & $rs -Exe (Touch-New) -OnlyPid $s4 -IdleMinutes 10 -WhatIf
     Check 'used 3 minutes ago: skipped' ($o -match 'skip .*active') ($o -join ' / ')
     $o = & $rs -Exe (Touch-New) -OnlyPid $mine -WhatIf
-    Check 'this open, on-screen session: skipped' ($o -match 'skip .*(window is open|conversation id unknown)') ($o -join ' / ')
+    Check 'this session (on screen, or hidden but in use): skipped' ($o -match 'skip .*(window is open|conversation id unknown|active)') ($o -join ' / ')
     Check 'this session is still alive' ([bool](Get-Process -Id $mine[0] -ErrorAction SilentlyContinue))
 }
 finally {

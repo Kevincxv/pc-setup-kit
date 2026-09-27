@@ -1,5 +1,5 @@
 # Login rehearsal: tests what happens after a restart WITHOUT restarting. Runs the real chain exactly as Windows does at
-# sign-in (the "Claude Admin Tray" scheduled task -> tray script -> hidden launcher -> real claude.exe) with a
+# sign-in (the "Messiah Tray" scheduled task -> tray script -> hidden launcher -> real claude.exe) with a
 # rehearsal.txt that makes the launcher and tray believe the PC just started. Sessions already open (like the one
 # running this test) are ignored for the duration. Each scenario uses its own small throwaway session.
 #   midtask : a session was cut off mid-task by a shutdown -> reopened hidden and told to finish (checks it does)
@@ -30,8 +30,8 @@ function Stop-Tree([int]$ProcId) {
     Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcId" | ForEach-Object { Stop-Tree $_.ProcessId }
     Stop-Process -Id $ProcId -Force -ErrorAction SilentlyContinue
 }
-function Restart-Tray { Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe'" | Where-Object CommandLine -match 'Claude Admin Tray\.ahk' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-    Start-ScheduledTask 'Claude Admin Tray' }
+function Restart-Tray { Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+    Start-ScheduledTask 'Messiah Tray' }
 # A small real session made headless with a cheap model; -KillAfter cuts it off mid-task like a shutdown would
 function New-TestSession([string]$Prompt, [int]$KillAfter) {
     $id = [guid]::NewGuid().ToString()

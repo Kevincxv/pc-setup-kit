@@ -1,4 +1,4 @@
-# Live view of the hidden maintenance run (opened from the Claude Admin tray menu: "Watch maintenance live").
+# Live view of the hidden maintenance run (opened from the Messiah tray menu: "Watch maintenance live").
 # Follows the headless Claude session named in maint-claude-session and prints each step as it happens.
 # When nothing is running it shows the output of the last run.
 $cl = "$env:USERPROFILE\.claude"

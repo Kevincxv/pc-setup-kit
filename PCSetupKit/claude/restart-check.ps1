@@ -1,11 +1,14 @@
-# Restart check for the "Claude (Admin)" launcher (PC Setup Kit), run by health-check.ps1.
+# Restart check for the "Messiah" launcher (PC Setup Kit), run by health-check.ps1.
 # Claude never restarts the PC: work that needs a restart (Windows updates, driver installs, files in use) waits for the
 # owner's own shutdown/restart. This script makes sure that work really finishes:
 # - Before: records what Windows has queued for the next restart (restart-ledger.json) and checks the queue is healthy.
 # - After the next restart: checks each recorded item finished; anything that didn't is a WARNING (Claude then fixes it).
 # -Canary: also queues a harmless test file for deletion at the next restart, proving the whole chain end to end.
 # -BootTime / -Pending: test overrides (simulate a restart without doing one).
-param([switch]$Canary, [datetime]$BootTime, [object[]]$Pending, [string]$Ledger = "$PSScriptRoot\restart-ledger.json")
+# Items accepted as stuck (e.g. a Microsoft component that re-queues its own leftover every boot) can be listed in
+# health-ignore.txt: a line matching an item's name or path leaves it out of the check.
+param([switch]$Canary, [datetime]$BootTime, [object[]]$Pending, [string]$Ledger = "$PSScriptRoot\restart-ledger.json",
+    [string]$IgnoreFile = "$env:USERPROFILE\.claude\health-ignore.txt")
 $ErrorActionPreference = 'SilentlyContinue'
 $canaryFile = "$PSScriptRoot\restart-canary.txt"
 
@@ -53,23 +56,27 @@ if ($Canary) {
 
 $boot = if ($BootTime) { $BootTime } else { (Get-CimInstance Win32_OperatingSystem).LastBootUpTime }
 $bootKey = $boot.ToString('s')
+$ignore = @(Get-Content $IgnoreFile | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+function Test-Ignored($it) { foreach ($x in $ignore) { if ("$($it.Name)" -like "*$x*" -or "$($it.Id)" -like "*$x*") { return $true } }; $false }
 $now = if ($PSBoundParameters.ContainsKey('Pending')) { @($Pending) } else { @(Get-PendingWork) }
+$now = @($now | Where-Object { $_ -and -not (Test-Ignored $_) })
 $old = $null; if (Test-Path $Ledger) { try { $old = Get-Content $Ledger -Raw | ConvertFrom-Json -ErrorAction Stop } catch {} }
 
 # A restart happened since the ledger was written: did everything on it finish?
 if ($old -and $old.boot -ne $bootKey) {
     # A queued file is done only if it's really gone (Windows drops the queue entry even when the delete fails);
     # everything else is done when it's no longer pending
-    $left = @($old.items | Where-Object { $o = $_
+    $recorded = @($old.items | Where-Object { $_ -and -not (Test-Ignored $_) })
+    $left = @($recorded | Where-Object { $o = $_
             if ($o.Kind -eq 'file') { Test-Path -LiteralPath $o.Id } else { $now | Where-Object { $_.Kind -eq $o.Kind -and $_.Id -eq $o.Id } } })
-    $done = @($old.items | Where-Object { $_ -notin $left })
+    $done = @($recorded | Where-Object { $_ -notin $left })
     if ($done) { "Restart check: $($done.Count) item(s) Windows had queued finished at the restart ($((@($done | ForEach-Object Name) | Select-Object -First 4) -join '; '))" }
     if ($left) { "WARNING: after the restart these still hadn't finished: $((@($left | ForEach-Object Name)) -join '; ') - Claude will find out why" }
     $old = $null
 }
 # Record what's queued for the next restart (keeps anything recorded earlier during this boot)
 if ($now) {
-    $items = @($now) + @($old.items | Where-Object { $o = $_; $o -and -not ($now | Where-Object { $_.Kind -eq $o.Kind -and $_.Id -eq $o.Id }) })
+    $items = @($now) + @($old.items | Where-Object { $o = $_; $o -and -not (Test-Ignored $o) -and -not ($now | Where-Object { $_.Kind -eq $o.Kind -and $_.Id -eq $o.Id }) })
     [pscustomobject]@{ boot = $bootKey; recorded = (Get-Date).ToString('o'); items = @($items | Select-Object Kind, Id, Name) } | ConvertTo-Json -Depth 4 | Set-Content "$Ledger.tmp" -Encoding utf8
     Move-Item "$Ledger.tmp" $Ledger -Force
     "Restart check: $($items.Count) item(s) will finish the next time you turn the PC off or restart ($((@($items | ForEach-Object Name) | Select-Object -First 3) -join '; '))"

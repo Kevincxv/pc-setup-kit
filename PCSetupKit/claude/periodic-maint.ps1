@@ -1,4 +1,4 @@
-# Weekly / monthly maintenance for the "Claude (Admin)" launcher. Run by claude-bg-maint.ps1 (elevated, hidden).
+# Weekly / monthly maintenance for the "Messiah" launcher. Run by claude-bg-maint.ps1 (elevated, hidden).
 # Tracks what ran when in .claude\maint-state.json and only does tasks that are due. Prints one line per action.
 # Tasks that need judgment (BIOS, firmware, Windows version upgrades, re-benchmarks) are marked due here and done
 # by Claude itself: the launcher opens Claude with /maintain when anything in "claude" is due.
@@ -36,7 +36,7 @@ if (-not $game -and (Due 'weekly-apps' 7)) {
 if (-not $game -and (Due 'monthly-cleanup' 30)) {
     $rps = @(Get-ComputerRestorePoint)
     if (-not ($rps | Where-Object { $_.ConvertToDateTime($_.CreationTime) -gt (Get-Date).AddDays(-1) })) {   # Windows allows one per 24 h
-        Checkpoint-Computer -Description 'Monthly maintenance (Claude Admin)' -RestorePointType MODIFY_SETTINGS -WarningAction SilentlyContinue
+        Checkpoint-Computer -Description 'Monthly maintenance (Messiah)' -RestorePointType MODIFY_SETTINGS -WarningAction SilentlyContinue
         if (@(Get-ComputerRestorePoint).Count -gt $rps.Count) { 'Created a monthly restore point' } else { 'Restore point FAILED (is System Protection on for C:?)' }
     }
     $free0 = (Get-PSDrive C).Free
