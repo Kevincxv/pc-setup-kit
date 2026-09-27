@@ -1,4 +1,4 @@
-# Game-aware maintenance: heavy work waits while a game runs (a stub game-check says "TestGame").
+﻿# Game-aware maintenance: heavy work waits while a game runs (a stub game-check says "TestGame").
 . "$PSScriptRoot\..\lib.ps1"
 $stub = @'
 $f = "$PSScriptRoot\gamecalls.txt"; $n = [int](Get-Content $f -ErrorAction SilentlyContinue); Add-Content "$PSScriptRoot\gamechecks.log" 'x'
@@ -24,15 +24,8 @@ $held = @($o | Where-Object { $_ -match 'held while TestGame' })
 Check 'app updates held, said without FAILED/WARNING' ($held -and -not ($held -match 'WARNING|FAILED')) ($o -join ' / ')
 Check 'not marked done, so they run next time' ((Get-Content "$d\maint-state.json" -Raw | ConvertFrom-Json).'weekly-apps' -eq $old) ''
 
-Section 'driver-check: a newer NVIDIA driver while a game runs'
-$d = "$Work\driver"; New-Item $d -ItemType Directory -Force | Out-Null; Copy-Item "$Src\driver-check.ps1" $d; $stub | Set-Content "$d\game-check.ps1"; '-1' | Set-Content "$d\gamecalls.txt"
-$la = "$d\la\NVIDIA Corporation\NVIDIA app\NvBackend"; New-Item $la -ItemType Directory -Force | Out-Null
-@{ checkTime = (Get-Date).ToUniversalTime().ToString('o'); updates = @(@{ version = '999.99'; isBeta = $false; driverType = 0; downloadURL = 'https://example.invalid/never.exe' }) } | ConvertTo-Json -Depth 4 | Set-Content "$la\DriverRecommendations.dat"
-if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-    $u = $env:LOCALAPPDATA; $env:LOCALAPPDATA = "$d\la"; $o = & powershell -NoProfile -ExecutionPolicy Bypass -File "$d\driver-check.ps1"; $env:LOCALAPPDATA = $u
-    Check 'NVIDIA install held while the game runs' ($o -match 'NVIDIA: 999.99 is available - install held while TestGame') ($o -join ' / ')
-    Check 'nothing downloaded, no error line' (-not ($o -match 'check failed|updating|signature')) ($o -join ' / ')
-} else { Skip 'NVIDIA hold' 'no NVIDIA GPU on this machine' }
+# (driver-check while a game runs: tests\unit\driver-check.ps1, mocked - a real run here searched Windows Update for
+#  20 s and could hide real driver updates)
 
 Section 'background run: waits for the game, then runs'
 $H = "$Work\bg"; $d = "$H\.claude"; New-Item $d -ItemType Directory -Force | Out-Null

@@ -3,6 +3,7 @@
 name: tests
 on:
   push:
+    branches: ['**']   # branch pushes only: a release pushes a tag with the same commit (it ran twice)
   pull_request:
   workflow_dispatch:
 jobs:

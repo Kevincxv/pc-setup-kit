@@ -33,8 +33,9 @@ function Launch([switch]$Auto, [string[]]$LaunchArgs) {
     $psi.EnvironmentVariables['USERPROFILE'] = $home2; $psi.EnvironmentVariables['FAKE_LOG'] = $log
     if ($Auto) { $psi.EnvironmentVariables['CLAUDE_ADMIN_AUTOSTART'] = '1' } else { $psi.EnvironmentVariables.Remove('CLAUDE_ADMIN_AUTOSTART') }
     $p = [Diagnostics.Process]::Start($psi); $out = $p.StandardOutput.ReadToEnd(); $err = $p.StandardError.ReadToEnd(); [void]$p.WaitForExit(30000)
-    Start-Sleep -Milliseconds 700   # bg-maint stub is fire-and-forget
-    $r = [pscustomobject]@{ Args = @(); Env = $null; Out = $out; Err = $err; Kicked = (Test-Path "$cl\bgmaint-was-kicked") }
+    $r = [pscustomobject]@{ Args = @(); Env = $null; Out = $out; Err = $err }
+    # bg-maint is fire-and-forget: its marker can appear a moment later - only the checks that ask wait for it (up to 2 s)
+    $r | Add-Member ScriptProperty Kicked { $w = [Diagnostics.Stopwatch]::StartNew(); while (-not (Test-Path "$cl\bgmaint-was-kicked") -and $w.ElapsedMilliseconds -lt 2000) { Start-Sleep -Milliseconds 50 }; Test-Path "$cl\bgmaint-was-kicked" }
     if (Test-Path $log) { $l = Get-Content $log -Encoding UTF8; $r.Args = @($l | ? { $_ -like 'ARG=*' } | % { $_.Substring(4) }); $r.Env = ($l | ? { $_ -like 'AUTOSTART_ENV=*' }).Substring(14) }
     $r
 }

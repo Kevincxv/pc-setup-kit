@@ -76,7 +76,11 @@ if ($Mode -eq 'maintain') { Start-Sleep 60 }
 $u = $env:USERPROFILE; $env:USERPROFILE = $H
 $p = Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$C\claude-bg-maint.ps1`"", '-Force', '-Unattended' -WindowStyle Hidden -PassThru
 $env:USERPROFILE = $u
-Start-Sleep 10; Stop-Tree $p.Id   # the PC goes off in the middle of /maintain
+# the PC goes off in the middle of /maintain: once bg-maint has marked a hidden run as started (polled, up to 20 s)
+$w = [Diagnostics.Stopwatch]::StartNew()
+while ($w.Elapsed.TotalSeconds -lt 20 -and -not ((Test-Path "$C\maint-claude-running") -and (Get-Item "$C\maint-claude-running").LastWriteTime -gt $boot.AddMinutes(1) -and (Test-Path "$C\maint-claude-log") -and (Get-ChildItem "$C\maint-claude-log" -Filter '*-maintain.md'))) { Start-Sleep -Milliseconds 200 }
+Start-Sleep 1; Stop-Tree $p.Id
+Check '... (it really was in the middle of /maintain)' ($w.Elapsed.TotalSeconds -lt 20) ''
 Check 'PC off during /maintain: the warning is still due next login' (-not ((Get-Content "$C\maint-state.json" -Raw) -match 'claude-handled-report')) ''
 Check '... and the busy marker stays, so the next login knows it was cut off' (Test-Path "$C\maint-claude-running") ''
 

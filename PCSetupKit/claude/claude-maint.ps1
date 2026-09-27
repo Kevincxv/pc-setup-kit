@@ -1,9 +1,10 @@
 ﻿# Claude Code maintenance for the "Messiah" launcher (runs in the background via claude-bg-maint.ps1).
 # update -> marketplaces -> plugins -> doctor, in order since they touch the same install. Prints one clean status line.
+param([int]$StepSeconds = 45)   # time limit per step (tests use a short one)
 $ErrorActionPreference = 'Continue'
 $c = "$env:USERPROFILE\.local\bin\claude.exe"
 # Runs one claude subcommand with its own time limit (right after login the network can hang a step for minutes)
-function Invoke-Claude([string[]]$ArgList, [int]$Seconds = 45) {
+function Invoke-Claude([string[]]$ArgList, [int]$Seconds = $StepSeconds) {
     $o = Join-Path $env:TEMP "claude-maint-$PID.txt"; $e = "$o.err"
     $p = Start-Process $c -ArgumentList $ArgList -WindowStyle Hidden -PassThru -RedirectStandardOutput $o -RedirectStandardError $e
     if (-not $p.WaitForExit($Seconds * 1000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; "Claude Code: '$($ArgList -join ' ')' got no response in $Seconds s, skipped" }

@@ -1,4 +1,4 @@
-# LIVE: the real sign-in chain without restarting (rehearse-login.ps1): tray task -> hidden launcher -> real Claude.
+﻿# LIVE: the real sign-in chain without restarting (rehearse-login.ps1): tray task -> hidden launcher -> real Claude.
 # Scenarios: cut off mid-task, resume armed by an agent, nothing to resume. Uses a little Claude usage.
 . "$PSScriptRoot\..\lib.ps1"
 if (-not (Get-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue)) { Skip 'login rehearsal' 'Messiah tray is not installed on this PC'; Finish }
@@ -10,5 +10,8 @@ $o | Where-Object { "$_" -match 'PASS|FAIL|^\[' } | ForEach-Object { Write-Host 
 $m = [regex]::Match(($o -join "`n"), 'Rehearsal: (\d+) passed, (\d+) failed')
 Check 'rehearsal ran to the end' $m.Success (($o | Select-Object -Last 5) -join ' / ')
 if ($m.Success) { Check "all $($m.Groups[1].Value) rehearsal checks passed" ([int]$m.Groups[2].Value -eq 0) "$($m.Groups[2].Value) failed" }
+# every scenario must have run (a rehearsal that stopped early still prints its summary)
+$missing = @('midtask', 'armed', 'fresh' | Where-Object { -not ($o -match "^\s*\[$_\]\s*$") })
+Check 'all 3 scenarios ran (midtask, armed, fresh)' (-not $missing) "missing: $($missing -join ', ')"
 if ($mine) { Check 'the session running the tests was not resumed by mistake' (@(Select-String -Path $mine.FullName -Pattern '"content":"The PC was turned off while').Count -eq $strayBefore) '' }
 Finish

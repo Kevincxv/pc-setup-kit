@@ -5,7 +5,7 @@ $ca = "$Work\ca"; New-Item "$ca\windbg\amd64" -ItemType Directory -Force | Out-N
 if (-not (Test-Tripwire "$ca\crash-analyze.ps1" @('Get-AppxPackage'))) { Finish }
 $dbgSrc = 'using System; using System.IO; public static class D { public static void Main(string[] a) { File.AppendAllText(Environment.GetEnvironmentVariable("DBG_LOG"), "{EXE} " + string.Join(" ", a) + Environment.NewLine); Console.Write(File.ReadAllText(Environment.GetEnvironmentVariable("DBG_OUT"))); } }'
 foreach ($x in 'kd', 'cdb') {
-    $exe = Join-Path $env:TEMP "pckit-tests\dbg\$x.exe"
+    $exe = Join-Path $BinRoot "dbg\$x.exe"
     if (-not (Test-Path $exe)) { New-Item (Split-Path $exe) -ItemType Directory -Force | Out-Null; Add-Type -OutputType ConsoleApplication -OutputAssembly $exe -TypeDefinition ($dbgSrc.Replace('{EXE}', $x).Replace('public static class D', "public static class D$x")) }
     Copy-Item $exe "$ca\windbg\amd64\$x.exe" -Force
 }
@@ -45,7 +45,7 @@ $H = "$Work\home"; $cm = "$H\.claude"; $fd = "$Work\fake"; New-Item "$H\.local\b
 Copy-Item (Get-ScriptedClaude) "$H\.local\bin\claude.exe"; Copy-Item "$Src\claude-maint.ps1" $cm
 if (-not (Test-Tripwire "$cm\claude-maint.ps1" @('Start-Process', 'Stop-Process'))) { Finish }   # (they only start/stop the fake claude.exe in the sandbox)
 function Fake([hashtable]$files) { Get-ChildItem $fd -File | ForEach-Object { Clear-Path $_.FullName }; '2.1.283' | Set-Content "$fd\version.txt"; foreach ($k in $files.Keys) { $files[$k] | Set-Content "$fd\$k" } }
-function CM { (Invoke-As $H "$cm\claude-maint.ps1" @() @{ FAKE_DIR = $fd }).Out.Trim() -split "`r?`n" }
+function CM([int]$Step = 45) { (Invoke-As $H "$cm\claude-maint.ps1" @('-StepSeconds', $Step) @{ FAKE_DIR = $fd }).Out.Trim() -split "`r?`n" }
 '{ "enabledPlugins": { "helper@market": true, "off@market": false } }' | Set-Content "$cm\settings.json"
 Fake @{ 'update.txt' = 'Claude Code is up to date (2.1.283)'; 'doctor.txt' = "Diagnostics`nNo installation issues found" }
 $o = CM
@@ -62,7 +62,8 @@ Fake @{ 'update.txt' = 'Claude Code is up to date'; 'doctor.txt' = "Warning: mul
 $o = CM
 Check 'doctor finds a problem: DOCTOR ISSUES with the details' (($o -contains 'DOCTOR ISSUES:') -and ($o -match 'multiple installations')) ($o -join ' / ')
 Fake @{ 'update.txt' = 'Claude Code is up to date'; 'doctor.sleep' = '60000' }
-$t0 = Get-Date; $o = CM
-Check 'doctor hangs: skipped after 45 s, worded so it does not wake /maintain' ((($o -join '|') -match "got no response in 45 s, skipped") -and -not (($o -join '|') -match 'WARNING|FAILED|timed out|DOCTOR ISSUES') -and ((Get-Date) - $t0).TotalSeconds -lt 70) ($o -join ' / ')
+$t0 = Get-Date; $o = CM 2   # the step limit shortened for the test; the real one is checked below
+Check 'doctor hangs: skipped at the step limit, worded so it does not wake /maintain' ((($o -join '|') -match "got no response in 2 s, skipped") -and -not (($o -join '|') -match 'WARNING|FAILED|timed out|DOCTOR ISSUES') -and ((Get-Date) - $t0).TotalSeconds -lt 30) ($o -join ' / ')
 Get-CimInstance Win32_Process -Filter "Name='claude.exe'" | Where-Object ExecutablePath -like "$H*" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+Check '... the real limit per step is still 45 s (120 s for the update)' ((Get-Content "$Src\claude-maint.ps1" -Raw) -match '\[int\]\$StepSeconds = 45\)' -and (Get-Content "$Src\claude-maint.ps1" -Raw) -match "Invoke-Claude 'update' 120") ''
 Finish

@@ -8,8 +8,17 @@ $rs = "$Src\refresh-session.ps1"; . "$Src\session-lib.ps1"
 function Start-Hidden([string[]]$ExtraArgs) {   # a hidden session exactly like the tray starts one
     $env:CLAUDE_ADMIN_AUTOSTART = '1'
     $p = Start-Process powershell.exe -ArgumentList @(@('-NoLogo', '-ExecutionPolicy', 'Bypass', '-File', "`"$cl\claude-admin-launch.ps1`"") + $ExtraArgs | Where-Object { $_ }) -WorkingDirectory "$env:WINDIR\System32" -WindowStyle Hidden -PassThru
-    Remove-Item Env:CLAUDE_ADMIN_AUTOSTART; Start-Sleep 6; $p.Id
+    Remove-Item Env:CLAUDE_ADMIN_AUTOSTART; $t0 = Get-Date; $script:cleanup += $p.Id   # cleaned up even if a wait below fails
+    # ready = its claude.exe runs, and a resumed one has written to its transcript (resuming does that right away;
+    # the test backdates the transcript afterwards). Polled instead of a fixed wait; the limits are generous.
+    Wait-Until { (Session $p.Id).ClaudePid } 30
+    $i = if ($ExtraArgs) { [array]::IndexOf($ExtraArgs, '--resume') } else { -1 }
+    if ($i -ge 0) { $tr = "$proj\$($ExtraArgs[$i + 1]).jsonl"; Wait-Until { (Get-Item $tr).LastWriteTime -gt $t0 } 30; Start-Sleep 1 }
+    $p.Id
 }
+function Wait-Until([scriptblock]$Cond, [int]$Seconds) { $w = [Diagnostics.Stopwatch]::StartNew(); while (-not (& $Cond) -and $w.Elapsed.TotalSeconds -lt $Seconds) { Start-Sleep -Milliseconds 250 } }
+# a refresh restarted a session: the old launcher is gone and exactly one new one runs with its claude.exe
+function Wait-Restart($old, $before) { Wait-Until { $n = NewLaunchers $before; -not (Get-Process -Id $old -ErrorAction SilentlyContinue) -and @($n | Where-Object ClaudePid).Count -ge 1 } 30; Start-Sleep 1 }
 function Session($launcherPid) { Get-AdminSessions | Where-Object LauncherPid -eq $launcherPid }
 function NewLaunchers($before) { , @(Get-AdminSessions | Where-Object { $_.LauncherPid -notin $before }) }
 function New-Conversation([string]$Prompt, [int]$KillAfter) {
@@ -30,7 +39,7 @@ try {
     $o = & $rs -Exe $oldExe -OnlyPid $s1 -WhatIf; Check 'no update on disk: nothing happens' (-not $o) ($o -join ' / ')
     $o = & $rs -Exe (Touch-New) -OnlyPid $s1 -WhatIf; Check 'update landed: would restart it as a fresh session' ($o -match 'would restart .* fresh') ($o -join ' / ')
     $before = @(Get-AdminSessions | ForEach-Object LauncherPid)
-    $o = & $rs -Exe (Touch-New) -OnlyPid $s1; Start-Sleep 7
+    $o = & $rs -Exe (Touch-New) -OnlyPid $s1; Wait-Restart $s1 $before
     $n = NewLaunchers $before
     Check 'old session closed' (-not (Get-Process -Id $s1 -ErrorAction SilentlyContinue))
     Check 'new session running, hidden, fresh' ($n.Count -eq 1 -and $n[0].Shown -eq $false -and $n[0].SessionId) (($n | Out-String))
@@ -46,7 +55,7 @@ try {
     $o = & $rs -Exe (Touch-New) -OnlyPid $s2 -IdleMinutes 10 -WhatIf
     Check 'idle 20 min, finished turn, hidden: would restart and resume the same conversation' ($o -match "would restart .* resuming $id") ($o -join ' / ')
     $before = @(Get-AdminSessions | ForEach-Object LauncherPid)
-    [void](& $rs -Exe (Touch-New) -OnlyPid $s2 -IdleMinutes 10); Start-Sleep 7
+    [void](& $rs -Exe (Touch-New) -OnlyPid $s2 -IdleMinutes 10); Wait-Restart $s2 $before
     $n = NewLaunchers $before; $cleanup += $n.LauncherPid
     Check 'restarted with --resume <same conversation>, hidden' ($n.Count -eq 1 -and $n[0].SessionId -eq $id -and $n[0].Shown -eq $false) (($n | Out-String))
     $c = Get-CimInstance Win32_Process -Filter "ProcessId=$($n[0].ClaudePid)"
@@ -71,6 +80,7 @@ try {
     Check 'this session (on screen, or hidden but in use): skipped' ($o -match 'skip .*(window is open|conversation id unknown|active)') ($o -join ' / ')
     Check 'this session is still alive' ([bool](Get-Process -Id $mine[0] -ErrorAction SilentlyContinue))
 }
+catch { Check 'the test ran to the end' $false "$($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))" }   # a crash halfway is a failure, not a pass
 finally {
     foreach ($p in $cleanup) { if ($p) { Stop-Tree $p } }
     foreach ($i in $ids) { if (Test-Path "$proj\$i.jsonl") { [IO.File]::Delete("$proj\$i.jsonl") } }

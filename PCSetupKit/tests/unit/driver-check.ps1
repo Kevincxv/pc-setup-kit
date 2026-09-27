@@ -93,4 +93,11 @@ Check 'a driver that failed before is hidden, not retried forever' (($o -match "
 Check 'the rest are installed: success and failure reported per driver' (($o -contains 'Driver: Realtek - Net - 10.70 - installed') -and ($o -contains 'Driver: Logitech - HID - 1.2 - FAILED') -and -not ($o -match 'Driver: AMD - Display - 32.0 -')) ($o -join ' / ')
 Check 'licence terms accepted for them' ($DC.Updates[0].EulaAccepted -and $DC.Updates[2].EulaAccepted) ''
 Check 'restart needed: REBOOT line (finishes at the owner''s next restart)' ([bool]($o -match '^REBOOT required to finish driver installs')) ''
+Section 'a game is running: installs wait (moved here from game-aware: mocked, so it also runs without an NVIDIA card)'
+'"TestGame"' | Set-Content "$d\game-check.ps1"
+Reset-D; Rec @((Drv '620.36')); $DC.Updates = @((New-WUUpdate 'Realtek - Net - 10.70')); $o = DC
+Check 'newer NVIDIA driver: install held while the game runs' ([bool]($o -match 'NVIDIA: 620.36 is available - install held while TestGame')) ($o -join ' / ')
+Check 'pending Windows Update drivers: held too' ([bool]($o -match 'Other drivers: 1 update\(s\) available - held while TestGame')) ($o -join ' / ')
+Check '... nothing downloaded or installed, no error line' (-not ($DCcalls -match 'download|install|^run ') -and -not ($o -match 'check failed|updating|signature')) (($DCcalls + $o) -join ' / ')
+'' | Set-Content "$d\game-check.ps1"
 Finish

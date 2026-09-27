@@ -36,7 +36,12 @@ function Restart-Tray { Get-CimInstance Win32_Process -Filter "Name='AutoHotkey6
 function New-TestSession([string]$Prompt, [int]$KillAfter) {
     $id = [guid]::NewGuid().ToString()
     $p = Start-Process $claude -ArgumentList '-p', "`"$Prompt`"", '--session-id', $id, '--model', 'haiku', '--dangerously-skip-permissions' -WorkingDirectory "$env:WINDIR\System32" -WindowStyle Hidden -PassThru
-    if ($KillAfter) { Start-Sleep $KillAfter; Stop-Tree $p.Id } else { [void]$p.WaitForExit(120000) }
+    if ($KillAfter) {   # cut off while its command runs: 2 s after the command shows up in the transcript ($KillAfter s at most)
+        $w = [Diagnostics.Stopwatch]::StartNew()
+        while ($w.Elapsed.TotalSeconds -lt $KillAfter -and -not ((Test-Path "$proj\$id.jsonl") -and (Select-String -Path "$proj\$id.jsonl" -Pattern '"type":"tool_use"' -Quiet))) { Start-Sleep -Milliseconds 250 }
+        if ($w.Elapsed.TotalSeconds -lt $KillAfter) { Start-Sleep 2 }
+        Stop-Tree $p.Id
+    } else { [void]$p.WaitForExit(120000) }
     $id
 }
 function Wait-Transcript([string]$Id, [string]$Text, [int]$Seconds) {
@@ -47,7 +52,7 @@ function Wait-Transcript([string]$Id, [string]$Text, [int]$Seconds) {
             try { $j = $l | ConvertFrom-Json } catch { continue }
             if ($j.message.content | Where-Object { $_.type -eq 'text' -and $_.text -match [regex]::Escape($Text) }) { return $true }
         }
-        Start-Sleep 3
+        Start-Sleep 1
     }
     $false
 }
@@ -85,8 +90,9 @@ try {
         while (-not $new -and (Get-Date) -lt $t) { Start-Sleep 1; $new = Get-Launchers | Where-Object { $_.ProcessId -notin $keep } | Select-Object -First 1 }
         Check 'tray started a session by itself (like at login)' $new
         if (-not $new) { continue }
-        Start-Sleep 4
-        $c = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($new.ProcessId) AND Name='claude.exe'" | Select-Object -First 1
+        $c = $null; $w = [Diagnostics.Stopwatch]::StartNew()   # its claude.exe (polled; up to 15 s)
+        while (-not $c -and $w.Elapsed.TotalSeconds -lt 15) { Start-Sleep -Milliseconds 250; $c = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($new.ProcessId) AND Name='claude.exe'" | Select-Object -First 1 }
+        Start-Sleep 1   # its window state settles (the hidden check below)
         Check 'session window is hidden (in the tray)' ((Test-WindowVisible $new.ProcessId) -eq $false) "visible: $(Test-WindowVisible $new.ProcessId)"
         Check 'real claude.exe is running in it' $c
         $cmd = "$($c.CommandLine)"
@@ -103,6 +109,7 @@ try {
         if ($test) { [IO.File]::Delete("$proj\$test.jsonl") }
     }
 }
+catch { Check 'rehearsal ran to the end' $false "$($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))" }   # a crash is a failure
 finally {
     [IO.File]::Delete($rf); if (Test-Path "$cl\resume-after-login.txt") { [IO.File]::Delete("$cl\resume-after-login.txt") }
     $listBackup | Set-Content $sessList

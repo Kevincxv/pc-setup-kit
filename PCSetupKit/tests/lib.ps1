@@ -9,6 +9,8 @@ $Kit = if ($env:PCKIT_KIT) { $env:PCKIT_KIT } else { Split-Path (Split-Path $PSS
 $Src = if ($env:PCKIT_SRC) { $env:PCKIT_SRC } else { "$Kit\claude" }
 $Tray = if ($env:PCKIT_TRAY) { $env:PCKIT_TRAY } else { "$Kit\claude\tray\Messiah Tray.ahk" }
 $TestName = [IO.Path]::GetFileNameWithoutExtension($MyInvocation.PSCommandPath)
+# compiled stand-ins (fake claude.exe etc.) are cached here; run-tests.ps1 builds them once before tests run side by side
+$BinRoot = if ($env:PCKIT_BIN_ROOT) { $env:PCKIT_BIN_ROOT } else { Join-Path $env:TEMP 'pckit-tests' }
 $Work = Join-Path $env:TEMP "pckit-tests\$TestName-$(Get-Date -Format HHmmss)-$(Get-Random -Maximum 999)"
 New-Item $Work -ItemType Directory -Force | Out-Null
 $script:pass = 0; $script:fail = 0; $script:skip = 0
@@ -33,7 +35,7 @@ function Clear-Path([string]$Path) {
 }
 # A stand-in claude.exe that records how it was called (args, stdin, env) to $env:FAKE_LOG and exits
 function Get-FakeClaude {
-    $exe = Join-Path $env:TEMP 'pckit-tests\bin\claude.exe'
+    $exe = Join-Path $BinRoot 'bin\claude.exe'
     if (-not (Test-Path $exe)) {
         New-Item (Split-Path $exe) -ItemType Directory -Force | Out-Null
         Add-Type -OutputType ConsoleApplication -OutputAssembly $exe -TypeDefinition @'
@@ -52,7 +54,7 @@ public static class P { public static void Main(string[] a) {
 }
 # A stand-in claude.exe that just stays alive for 30 s (holds a conversation "open")
 function Get-SleeperClaude {
-    $exe = Join-Path $env:TEMP 'pckit-tests\sleeper\claude.exe'
+    $exe = Join-Path $BinRoot 'sleeper\claude.exe'
     if (-not (Test-Path $exe)) {
         New-Item (Split-Path $exe) -ItemType Directory -Force | Out-Null
         Add-Type -OutputType ConsoleApplication -OutputAssembly $exe -TypeDefinition 'public static class S { public static void Main(string[] a) { System.Threading.Thread.Sleep(30000); } }'
@@ -102,7 +104,7 @@ function Assert-Mocks([string[]]$Names) {
 # exits with a_b_c.exit; "--version" prints version.txt, and a_b_c.newversion replaces version.txt (an update).
 # Every call is appended to $env:FAKE_DIR\calls.log.
 function Get-ScriptedClaude {
-    $exe = Join-Path $env:TEMP 'pckit-tests\scripted2\claude.exe'
+    $exe = Join-Path $BinRoot 'scripted2\claude.exe'
     if (-not (Test-Path $exe)) {
         New-Item (Split-Path $exe) -ItemType Directory -Force | Out-Null
         Add-Type -OutputType ConsoleApplication -OutputAssembly $exe -TypeDefinition @'
