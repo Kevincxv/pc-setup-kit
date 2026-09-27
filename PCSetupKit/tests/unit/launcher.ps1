@@ -163,8 +163,9 @@ Reset -report 'Checked A', 'Claude Code: got no response in 45 s, skipped'
 Check "'got no response' does not trigger /maintain" ((Due).Count -eq 0) ((Due) -join ',')
 
 Write-Host "`n== Turned off mid-task -> resumed and continued ==" -ForegroundColor Cyan
-$down = Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Kernel-General'; Id = 13; EndTime = $boot } -MaxEvents 1 -ErrorAction SilentlyContinue | ForEach-Object TimeCreated
-if (-not $down) { $down = $boot }   # a machine with no recorded clean shutdown (e.g. a fresh CI runner): the launcher uses boot time too
+# when the PC went down = the last System event before this boot (same rule as the launcher)
+$down = Get-WinEvent -FilterHashtable @{ LogName = 'System'; EndTime = $boot } -MaxEvents 1 -ErrorAction SilentlyContinue | ForEach-Object TimeCreated
+if (-not $down -or ($boot - $down).TotalHours -gt 12) { $down = $boot.AddSeconds(-30) }   # e.g. a CI machine booted from an old image
 Write-Host "  (last shutdown $down, boot $boot)"
 $rec = @{
     done      = @('{"type":"user","message":{"role":"user","content":"fix it"}}', '{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"Done."}]}}', '{"type":"system","subtype":"turn_duration"}')
@@ -192,6 +193,24 @@ Reset
 $id = [guid]::NewGuid().ToString(); $id | Set-Content "$cl\admin-sessions.txt"; Transcript $id $down.AddMinutes(-40) | Out-Null
 $r = Launch -Auto
 Check 'active 40 min before shutdown: fresh session instead' (-not (Has $r '--resume')) ($r.Args -join ' ')
+
+Write-Host "`n== the last logged shutdown is older than the conversation (crash, power cut, old image) ==" -ForegroundColor Cyan
+$realDown = Get-WinEvent -FilterHashtable @{ LogName = 'System'; EndTime = $boot } -MaxEvents 1 -ErrorAction SilentlyContinue | ForEach-Object TimeCreated
+if ($realDown -and ($boot - $realDown).TotalMinutes -gt 50) {   # this machine's last log before boot is old (like a CI runner)
+    Reset; $id = [guid]::NewGuid().ToString(); $id | Set-Content "$cl\admin-sessions.txt"; Transcript $id $boot.AddMinutes(-45) | Out-Null
+    $r = Launch -Auto
+    Check 'conversation 45 min before boot, written after the old log: boot time is used -> fresh' (-not (Has $r '--resume')) ($r.Args -join ' ')
+} else {
+    Reset; $id = [guid]::NewGuid().ToString(); $id | Set-Content "$cl\admin-sessions.txt"; Transcript $id $boot.AddMinutes(-2) | Out-Null
+    "boot=$($boot.ToString('o'))", "shutdown=$($boot.AddDays(-3).ToString('o'))" | Set-Content "$cl\rehearsal.txt"
+    $r = Launch -Auto
+    Check 'last shutdown 3 days ago, conversation 2 min before boot (crash): resumed via boot time' ((After $r '--resume') -eq $id) ($r.Args -join ' ')
+    Reset; $id = [guid]::NewGuid().ToString(); $id | Set-Content "$cl\admin-sessions.txt"; Transcript $id $boot.AddMinutes(-45) | Out-Null
+    "boot=$($boot.ToString('o'))", "shutdown=$($boot.AddDays(-3).ToString('o'))" | Set-Content "$cl\rehearsal.txt"
+    $r = Launch -Auto
+    Check 'last shutdown 3 days ago, conversation 45 min before boot: not treated as recent -> fresh' (-not (Has $r '--resume')) ($r.Args -join ' ')
+    Clear-Path "$cl\rehearsal.txt"
+}
 Reset
 'x' | Set-Content "$cl\maint-claude-running"; (Get-Item "$cl\maint-claude-running").LastWriteTime = $boot.AddMinutes(-5)
 Reset -state @{ 'claude-quarterly' = (Get-Date).AddDays(-91).ToString('o') }

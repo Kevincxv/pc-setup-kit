@@ -5,7 +5,7 @@ $d = "$Work\pm"; New-Item $d -ItemType Directory -Force | Out-Null
 (Get-Content "$Src\periodic-maint.ps1" -Raw).Replace('$cur = Read-State', 'Start-Sleep 3; $cur = Read-State') | Set-Content "$d\periodic-maint.ps1"
 '' | Set-Content "$d\game-check.ps1"
 $now = (Get-Date).ToString('o'); @{ 'weekly-apps' = $now; 'monthly-cleanup' = $now; 'trim' = $now; 'claude-quarterly' = $now; 'claude-winver-due' = 'yes' } | ConvertTo-Json | Set-Content "$d\maint-state.json"
-$p = Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$d\periodic-maint.ps1`"" -PassThru -WindowStyle Hidden -RedirectStandardOutput "$d\out.txt"
+$p = Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$d\periodic-maint.ps1`"", '-TestDisplayVersion', '25H2', '-TestEdition', 'Professional', '-TestToday', '2026-09-27' -PassThru -WindowStyle Hidden -RedirectStandardOutput "$d\out.txt"
 Start-Sleep 1.5
 $s = Get-Content "$d\maint-state.json" -Raw | ConvertFrom-Json; $s | Add-Member 'expo-off-test' '2026-09-26T22:18:34' -Force; $s | Add-Member 'claude-handled-report' 'Checked X' -Force; $s | ConvertTo-Json | Set-Content "$d\maint-state.json"
 $p.WaitForExit()
@@ -18,6 +18,23 @@ $head = $head -replace '\$PSScriptRoot', $d
 foreach ($c in '{"broken', '', 'null', '{"weekly-apps":"garbage"}') {
     $c | Set-Content "$d\maint-state.json"; $err = @(. ([scriptblock]::Create($head)) 2>&1)
     Check "state file [$c]: no error, weekly treated as due" ($err.Count -eq 0 -and (Due 'weekly-apps' 7)) "$err"
+}
+
+Section 'Windows end of support depends on the edition'
+$d2 = "$Work\eos"; New-Item $d2 -ItemType Directory -Force | Out-Null; Copy-Item "$Src\periodic-maint.ps1" $d2; '' | Set-Content "$d2\game-check.ps1"
+function Eos($ver, $ed, $type = 'Client', $day = '2026-09-27') {
+    @{ 'weekly-apps' = $now; 'monthly-cleanup' = $now; 'trim' = $now } | ConvertTo-Json | Set-Content "$d2\maint-state.json"
+    $o = & powershell -NoProfile -ExecutionPolicy Bypass -File "$d2\periodic-maint.ps1" -TestDisplayVersion $ver -TestEdition $ed -TestInstallType $type -TestToday $day
+    [pscustomobject]@{ Warn = [bool]($o -match 'WARNING: Windows'); Due = [bool](Get-Content "$d2\maint-state.json" -Raw | ConvertFrom-Json).'claude-winver-due'; Out = $o -join ' / ' }
+}
+foreach ($c in @(
+        @('24H2', 'Professional', 'Client', $true, 'Pro 24H2 (ends Oct 2026)'), @('24H2', 'Core', 'Client', $true, 'Home 24H2'),
+        @('25H2', 'Professional', 'Client', $false, 'Pro 25H2 (ends Oct 2027)'), @('24H2', 'ProfessionalEducation', 'Client', $true, 'Pro Education 24H2 (24 months)'),
+        @('24H2', 'Education', 'Client', $false, 'Education 24H2 (36 months: Oct 2027)'), @('24H2', 'Enterprise', 'Client', $false, 'Enterprise 24H2 (36 months)'),
+        @('23H2', 'Enterprise', 'Client', $true, 'Enterprise 23H2 (ends Oct 2026)'), @('24H2', 'EnterpriseS', 'Client', $false, 'LTSC (own long lifecycle)'),
+        @('24H2', 'ServerDatacenter', 'Server', $false, 'Windows Server (own lifecycle)'))) {
+    $r = Eos $c[0] $c[1] $c[2]
+    Check "$($c[4]): upgrade warning = $($c[3])" ($r.Warn -eq $c[3] -and $r.Due -eq $c[3]) $r.Out
 }
 
 Section 'claude-unattended: the headless prompt'

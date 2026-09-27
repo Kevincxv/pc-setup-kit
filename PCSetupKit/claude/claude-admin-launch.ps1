@@ -37,17 +37,18 @@ if ($auto -and -not $cargs) {
         if ($fresh -and $id -and (Test-Path "$proj\$id.jsonl")) { $cargs = @('--resume', $id) + @($prompt | Where-Object { $_ }) }
     }
     else {
-        # "Recent" is measured from when the PC went down (last clean shutdown before this boot), so turning it off at
-        # night and on in the morning still counts; after a power cut there's no shutdown event, so use the boot time
+        # "Recent" is measured from when the PC went down, so turning it off at night and on in the morning still counts.
+        # When it went down = the last thing Windows logged before this boot (a clean shutdown, or a crash/power cut).
         $boot = if ($reh.boot) { [datetime]$reh.boot } else { (Get-CimInstance Win32_OperatingSystem).LastBootUpTime }
-        $down = if ($reh.shutdown) { [datetime]$reh.shutdown } else { Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Kernel-General'; Id = 13; EndTime = $boot } -MaxEvents 1 -ErrorAction SilentlyContinue |
+        $down = if ($reh.shutdown) { [datetime]$reh.shutdown } else { Get-WinEvent -FilterHashtable @{ LogName = 'System'; EndTime = $boot } -MaxEvents 1 -ErrorAction SilentlyContinue |
             ForEach-Object TimeCreated }
-        if (-not $down) { $down = $boot }
         # never a conversation another running Claude already has open (two processes writing one conversation fork it)
         $open = "$(Get-CimInstance Win32_Process -Filter "Name='claude.exe'" | ForEach-Object CommandLine)"
         $last = Get-Content $sessList -ErrorAction SilentlyContinue | Where-Object { $_ -and -not $open.Contains($_) } |
             ForEach-Object { Get-Item "$proj\$_.jsonl" -ErrorAction SilentlyContinue } |
             Where-Object LastWriteTime -lt $boot | Sort-Object LastWriteTime | Select-Object -Last 1
+        # a conversation written after the "went down" time means that time is wrong (e.g. an old log) - use the boot
+        if (-not $down -or ($last -and $last.LastWriteTime -gt $down.AddMinutes(2))) { $down = $boot }
         if ($last -and ($down - $last.LastWriteTime).TotalMinutes -lt 30) {
             $cargs = @('--resume', $last.BaseName)
             if (Test-MidTask $last.FullName) {   # the owner turned the PC off while Claude was working: finish the job

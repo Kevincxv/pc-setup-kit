@@ -20,7 +20,8 @@ Section 'periodic: weekly app updates while a game runs'
 $d = "$Work\periodic"; New-Item $d -ItemType Directory -Force | Out-Null; Copy-Item "$Src\periodic-maint.ps1" $d; $stub | Set-Content "$d\game-check.ps1"; '-1' | Set-Content "$d\gamecalls.txt"
 $old = (Get-Date).AddDays(-8).ToString('o'); @{ 'weekly-apps' = $old; 'monthly-cleanup' = (Get-Date).ToString('o'); 'trim' = (Get-Date).ToString('o') } | ConvertTo-Json | Set-Content "$d\maint-state.json"
 $o = & powershell -NoProfile -ExecutionPolicy Bypass -File "$d\periodic-maint.ps1"
-Check 'app updates held, said without FAILED/WARNING' (($o -match 'held while TestGame') -and -not ($o -match 'WARNING|FAILED')) ($o -join ' / ')
+$held = @($o | Where-Object { $_ -match 'held while TestGame' })
+Check 'app updates held, said without FAILED/WARNING' ($held -and -not ($held -match 'WARNING|FAILED')) ($o -join ' / ')
 Check 'not marked done, so they run next time' ((Get-Content "$d\maint-state.json" -Raw | ConvertFrom-Json).'weekly-apps' -eq $old) ''
 
 Section 'driver-check: a newer NVIDIA driver while a game runs'

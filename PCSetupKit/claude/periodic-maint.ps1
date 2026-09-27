@@ -2,6 +2,7 @@
 # Tracks what ran when in .claude\maint-state.json and only does tasks that are due. Prints one line per action.
 # Tasks that need judgment (BIOS, firmware, Windows version upgrades, re-benchmarks) are marked due here and done
 # by Claude itself: the launcher opens Claude with /maintain when anything in "claude" is due.
+param([string]$TestDisplayVersion, [string]$TestEdition, [string]$TestInstallType, [string]$TestToday)
 $ErrorActionPreference = 'SilentlyContinue'
 $stateFile = "$PSScriptRoot\maint-state.json"
 function Read-State { $h = @{}; try { $j = Get-Content $stateFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $j = $null }
@@ -81,12 +82,20 @@ if (-not $game -and (Due 'monthly-cleanup' 30)) {
 # --- Checks every run (cheap) ---
 $trim = Get-ScheduledTask -TaskPath '\Microsoft\Windows\Defrag\' -TaskName ScheduledDefrag | Get-ScheduledTaskInfo
 if ($trim.LastRunTime -lt (Get-Date).AddDays(-14) -and (Due 'trim' 7)) { Optimize-Volume -DriveLetter C -ReTrim; 'SSD TRIM run (Windows had not done it in 2+ weeks)'; Done 'trim' }
-# Windows version end of support (Home/Pro: 24 months after the H2 release, around October)
-$dv = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').DisplayVersion
-if ($dv -match '^(\d\d)H(\d)$') {
-    $eos = Get-Date -Year (2000 + [int]$Matches[1] + 2) -Month $(if ($Matches[2] -eq '2') { 10 } else { 4 }) -Day 10
+# Windows version end of support, by edition (Windows 11 lifecycle): Home/Pro/Pro Education/Pro for Workstations/SE get
+# 24 months per yearly release, Enterprise/Education/IoT Enterprise 36 months; LTSC and Server have their own long
+# lifecycles and are not checked. (Test overrides: -TestDisplayVersion -TestEdition -TestInstallType -TestToday.)
+$cv = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+$dv = if ($TestDisplayVersion) { $TestDisplayVersion } else { $cv.DisplayVersion }
+$ed = if ($TestEdition) { $TestEdition } else { $cv.EditionID }
+$it = if ($TestInstallType) { $TestInstallType } else { $cv.InstallationType }
+$today = if ($TestToday) { [datetime]$TestToday } else { Get-Date }
+$months = if ($it -eq 'Server' -or $ed -match 'Server|EnterpriseS|IoTEnterpriseS') { 0 } elseif ($ed -match '^(Enterprise|Education|IoTEnterprise)N?$|^EnterpriseG') { 36 } else { 24 }
+if (-not $months) { $state.Remove('claude-winver-due') }
+elseif ($dv -match '^(\d\d)H(\d)$') {
+    $eos = (Get-Date -Year (2000 + [int]$Matches[1]) -Month $(if ($Matches[2] -eq '2') { 10 } else { 4 }) -Day 10).AddMonths($months)
     $target = (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate').TargetReleaseVersionInfo
-    if ((Get-Date) -gt $eos.AddDays(-75)) {
+    if ($today -gt $eos.AddDays(-75)) {
         if ($rebootPending -and $target -and $target -gt $dv) { "REBOOT required to finish the Windows $target upgrade (Windows $dv support ends $($eos.ToString('MMM yyyy')))"; $state.Remove('claude-winver-due') }
         else { "WARNING: Windows $dv stops getting security updates around $($eos.ToString('MMM yyyy')) - Claude will upgrade it"; $state['claude-winver-due'] = 'yes' }
     }
