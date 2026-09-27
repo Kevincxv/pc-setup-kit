@@ -28,5 +28,11 @@ Found and fixed by the gates and tests so far:
   modules first and verify every mock before anything runs (M3; found when a test re-registered real scheduled tasks,
   which were restored immediately)
 
+- installed PCs never got test updates (kit-update skipped tests) - the self-test would have tested new scripts with
+  old tests (M4)
+- a corrupt health-check.last made health-check error out; its test passed anyway (its error filter missed that kind
+  of error), and on CI the error stopped the whole runner, hiding the rest of the suite for two releases (M4)
+- the personal-info check scanned installed PCs' own files (setup log) - it now runs only in the repo and CI (M4)
+
 Rules for mocked tests (PowerShell 5.1): variable names ignore case (`$tw` is `$TW`); aliases beat functions
 (`H`, `Rp` are built-in aliases); functions beat module commands only if defined after the module is loaded.

@@ -30,7 +30,9 @@ function State { Get-Content "$C\self-test.json" -Raw | ConvertFrom-Json }
 Section 'when it runs'
 Mode pass; $o = @(Run)
 Check 'first run: runs the unit suite and says so in one line' ($o.Count -eq 1 -and $o[0] -eq 'Self-test (first run): 40 passed, 0 failed') ($o -join ' / ')
-Check '... against this PC''s installed scripts and tray' (@(Calls)[-1] -eq "unit|$C|$H\Documents\Messiah Tray\Messiah Tray.ahk") ((Calls) -join ' / ')
+# compared by what the paths point at (a temp folder can be spelled short, RUNNER~1, or long - seen on GitHub's runner)
+$call = @(Calls)[-1] -split '\|'
+Check '... against this PC''s installed scripts and tray' ($call[0] -eq 'unit' -and (Test-Path "$($call[1])\self-test.ps1") -and (Test-Path $call[2]) -and $call[2] -like '*\Documents\Messiah Tray\Messiah Tray.ahk') ((Calls) -join ' / ')
 Check '... result recorded' ((State).ok -eq $true -and (State).kit -eq 'v2026.09.27.4') (Get-Content "$C\self-test.json" -Raw)
 Check '... full output kept for Claude' ((Get-Content "$C\self-test.log" -Raw) -match 'restart-check') ''
 $n = @(Calls).Count; $o = @(Run)
