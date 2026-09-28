@@ -38,14 +38,17 @@ if (-not $game -and (Due 'weekly-apps' 7)) {
         # each row read from the right (Id, Version, Available, Source never contain spaces): a shortened or oddly
         # encoded name can't shift the columns
         for ($i = $h + 2; $i -lt $raw.Count -and $raw[$i] -match '\S' -and $raw[$i] -notmatch 'upgrades? available|explicit targeting'; $i++) {
-            $id = if ("$($raw[$i])" -match '^(?<name>.+?)\s+(?<id>\S+)\s+(?<ver>(<\s)?\S+)\s+(?<avail>\S+)\s+(?<src>\S+)\s*$') { $Matches['id'] }
+            $id = $src = $null; if ("$($raw[$i])" -match '^(?<name>.+?)\s+(?<id>\S+)\s+(?<ver>(<\s)?\S+)\s+(?<avail>\S+)\s+(?<src>\S+)\s*$') { $id = $Matches['id']; $src = $Matches['src'] }
             if (-not $id -or ($skip | Where-Object { $id -like "$_*" })) { continue }
-            $o = winget upgrade --id $id -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | Out-String
+            $o = winget upgrade --id $id -e --source $src --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | Out-String
             if ($o -match 'Successfully installed') { "Updated app: $id" } else { "App update FAILED: $id" }
         }
     }
     if (& $answered $raw) { Done 'weekly-apps' }
 }
+
+# --- Weekly: settings backup (the look, game settings, the kit's memory - setup brings them back after a reinstall) ---
+if (-not $game -and (Test-Path "$PSScriptRoot\settings-backup.ps1")) { & "$PSScriptRoot\settings-backup.ps1" }   # (it skips itself when the last is under 6 days old)
 
 # --- Monthly: cleanup, restore point, orphans, driver store ---
 if (-not $game -and (Due 'monthly-cleanup' 30)) {
@@ -56,7 +59,7 @@ if (-not $game -and (Due 'monthly-cleanup' 30)) {
     }
     $free0 = (Get-PSDrive C).Free
     if (-not $rebootPending) { DISM /Online /Cleanup-Image /StartComponentCleanup /Quiet | Out-Null }   # hangs if a restart is pending
-    # Disk Cleanup: ONLY these safe categories (allow-list). Never: Downloads, Recycle Bin, shader caches (games stutter
+    # Disk Cleanup: ONLY these safe categories (allow-list). Never: Downloads, Recycle Bin, shader caches (only gpu-watch.ps1, once after a driver update; games stutter
     # while rebuilding), crash dumps, previous Windows (needed to roll back an upgrade), driver packages / language packs /
     # update cleanup (DISM-based: they hang while a restart is pending, and DISM above already cleans updates).
     $safe = 'Temporary Files', 'Temporary Setup Files', 'Thumbnail Cache', 'Delivery Optimization Files', 'Setup Log Files',

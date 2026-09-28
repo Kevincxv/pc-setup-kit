@@ -1,4 +1,4 @@
-﻿# PC health check for the "Messiah" launcher (PC Setup Kit). Runs elevated in the background.
+# PC health check for the "Messiah" launcher (PC Setup Kit). Runs elevated in the background.
 # - Reports blue screens / freezes since the last check
 # - Tweak guard: re-runs C:\PCSetupKit\tweaks.ps1, which re-applies anything a Windows update undid
 # - Hardware reminders until fixed: GPU link width, RAM at default speed (EXPO/XMP off), monitor below max Hz, old BIOS
@@ -30,6 +30,8 @@ $dumps = @(Get-ChildItem 'C:\Windows\Minidump\*.dmp', 'C:\Windows\MEMORY.DMP' | 
 # MEMORY.DMP is the same crash as the minidump written with it; analyzing both repeats the line and is slow
 $dumps = @($dumps | Where-Object { $d = $_; $d.Name -ne 'MEMORY.DMP' -or -not ($dumps | Where-Object { $_.Name -ne 'MEMORY.DMP' -and [Math]::Abs(($_.LastWriteTime - $d.LastWriteTime).TotalMinutes) -lt 10 }) } | Select-Object -First 2)
 foreach ($d in $dumps) { "WARNING: crash dump $($d.Name) - $(& "$PSScriptRoot\crash-analyze.ps1" -Dump $d.FullName)" }
+# graphics driver resets (a freeze / black screen in a game, no blue screen) and old shader caches after a driver update
+if (Test-Path "$PSScriptRoot\gpu-watch.ps1") { & "$PSScriptRoot\gpu-watch.ps1" -Since $since }
 
 # --- Health over time (start-up time, disk space, temperatures, SSD wear vs this PC's own normal) ---
 if (Test-Path "$PSScriptRoot\trends.ps1") { & "$PSScriptRoot\trends.ps1" }
@@ -77,6 +79,8 @@ if (-not $expoTest -and $ram.ConfiguredClockSpeed -and $ram.ConfiguredClockSpeed
 }
 $bios = Get-CimInstance Win32_BIOS
 if ($bios.ReleaseDate -and $bios.ReleaseDate -lt (Get-Date).AddMonths(-12)) { "Reminder: BIOS $($bios.SMBIOSBIOSVersion) is from $($bios.ReleaseDate.ToString('d')) (over a year old)" }
+# monitors: fixed first (native resolution, best refresh rate - also one plugged in later), then what's still off is said
+if (Test-Path "$PSScriptRoot\display-refresh.ps1") { & "$PSScriptRoot\display-refresh.ps1" }
 Add-Type -TypeDefinition @'
 using System; using System.Runtime.InteropServices;
 public class HcDisp {
@@ -93,18 +97,19 @@ public class HcDisp {
  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern bool EnumDisplayDevicesW(string n, uint i, ref DISPLAY_DEVICE d, uint f);
 }
 '@
+# (loop names unlike the tests' mock hashtables: PowerShell names ignore case, and a mock reads the nearest $M)
 for ($i = 0; $i -lt 8; $i++) {
     $a = New-Object HcDisp+DISPLAY_DEVICE; $a.cb = [Runtime.InteropServices.Marshal]::SizeOf([type][HcDisp+DISPLAY_DEVICE])
-    if (-not [HcDisp]::EnumDisplayDevicesW($null, $i, [ref]$a, 0)) { break }
+    if (-not [HcDisp]::EnumDisplayDevicesW([NullString]::Value, $i, [ref]$a, 0)) { break }   # (PowerShell passes $null as "")
     if (($a.StateFlags -band 1) -eq 0) { continue }
     $mon = New-Object HcDisp+DISPLAY_DEVICE; $mon.cb = $a.cb; [void][HcDisp]::EnumDisplayDevicesW($a.DeviceName, 0, [ref]$mon, 0)
     if ($ignore | Where-Object { $mon.DeviceString -like "*$_*" }) { continue }
-    $m = New-Object HcDisp+DEVMODE; $m.dmSize = [uint16][Runtime.InteropServices.Marshal]::SizeOf([type][HcDisp+DEVMODE])
-    [void][HcDisp]::EnumDisplaySettingsW($a.DeviceName, -1, [ref]$m)
+    $dmode = New-Object HcDisp+DEVMODE; $dmode.dmSize = [uint16][Runtime.InteropServices.Marshal]::SizeOf([type][HcDisp+DEVMODE])
+    [void][HcDisp]::EnumDisplaySettingsW($a.DeviceName, -1, [ref]$dmode)
     $max = 0; $j = 0
-    while ($true) { $n = New-Object HcDisp+DEVMODE; $n.dmSize = $m.dmSize; if (-not [HcDisp]::EnumDisplaySettingsW($a.DeviceName, $j, [ref]$n)) { break }
-        if ($n.dmPelsWidth -eq $m.dmPelsWidth -and $n.dmPelsHeight -eq $m.dmPelsHeight -and $n.dmDisplayFrequency -gt $max) { $max = $n.dmDisplayFrequency }; $j++ }
-    if ($max -gt $m.dmDisplayFrequency + 2) { "Reminder: $($mon.DeviceString) runs at $($m.dmDisplayFrequency)Hz but supports ${max}Hz" }
+    while ($true) { $dm2 = New-Object HcDisp+DEVMODE; $dm2.dmSize = $dmode.dmSize; if (-not [HcDisp]::EnumDisplaySettingsW($a.DeviceName, $j, [ref]$dm2)) { break }
+        if ($dm2.dmPelsWidth -eq $dmode.dmPelsWidth -and $dm2.dmPelsHeight -eq $dmode.dmPelsHeight -and $dm2.dmDisplayFrequency -gt $max) { $max = $dm2.dmDisplayFrequency }; $j++ }
+    if ($max -gt $dmode.dmDisplayFrequency + 2) { "Reminder: $($mon.DeviceString) runs at $($dmode.dmDisplayFrequency)Hz but supports ${max}Hz" }
 }
 
 # --- System warnings ---
@@ -141,11 +146,13 @@ if (Test-Path $base) {
     $new = @($auto | Where-Object { $_ -notin @(Get-Content $base) })
     if ($new) { "Reminder: new auto-start item(s) since last check: $($new -join ', ') (turn off any you don't want: Task Manager > Startup apps)" }
 }
-if ($auto) { $auto | Set-Content $base }
+Set-Content $base -Value $auto   # also when empty (a clean PC): no baseline file would keep the first new item unreported
 
 # --- Wired network link speed (a gigabit+ adapter stuck at 100 Mbps / 10 Mbps usually means a bad cable or port) ---
 Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' -and $_.MediaType -eq '802.3' -and $_.ReceiveLinkSpeed -lt 1e9 -and $_.InterfaceDescription -match 'Gigabit|GbE|2\.5G|5G|10G|Gaming|I2[0-9]{2}' } |
     ForEach-Object { "Reminder: $($_.Name) network link is only $($_.LinkSpeed) (adapter supports 1 Gbps or more) - check the cable (Cat5e or better) and router port" }
+# ping, jitter, packet loss and DNS speed over time (a slow router DNS is switched to a fast public one where safe)
+if (Test-Path "$PSScriptRoot\network-check.ps1") { & "$PSScriptRoot\network-check.ps1" }
 
 # --- Backups: impossible with one drive (a copy on the same disk dies with it); when a second/external drive shows up, offer it ---
 $fh = Test-Path "$env:LOCALAPPDATA\Microsoft\Windows\FileHistory\Configuration\Config1.xml"

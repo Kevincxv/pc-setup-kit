@@ -4,8 +4,9 @@
 #   start-ups in a row = WARNING (gets looked at)
 # - C: filling up: when it will be full at the current pace
 # - Graphics card 10+ C warmer at idle than a month ago (dust), SSD wear rising fast
-# Prints only what's worth saying. -History / -Now: test overrides.
-param([string]$History = "$PSScriptRoot\health-history.json", [datetime]$Now = (Get-Date))
+# - Games (perf-history.json from game-perf.ps1): slower since a driver or Windows update, hot while gaming
+# Prints only what's worth saying. -History / -PerfHistory / -Now: test overrides.
+param([string]$History = "$PSScriptRoot\health-history.json", [datetime]$Now = (Get-Date), [string]$PerfHistory = "$PSScriptRoot\perf-history.json")
 $ErrorActionPreference = 'SilentlyContinue'
 $j = try { Get-Content $History -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
 $h = @($j | ForEach-Object { $_ })   # PowerShell 5.1 hands a JSON array over as ONE item: unrolled here
@@ -60,3 +61,32 @@ if ($then -and $recent -and $recent -ge $then + 10) { "Reminder: the graphics ca
 # --- SSD wear: fast rise ---
 $w0 = $h | Where-Object { $null -ne $_.ssdWear -and [datetime]$_.date -gt $Now.AddDays(-31) } | Select-Object -First 1
 if ($null -ne $e.ssdWear -and $w0 -and $e.ssdWear - [int]$w0.ssdWear -ge 5) { "Reminder: the SSD wore $($e.ssdWear - [int]$w0.ssdWear)% in a month (now $($e.ssdWear)% used) - something is writing a lot" }
+
+# --- games (perf-history.json, recorded by game-perf.ps1 while playing) ---
+$pj = try { Get-Content $PerfHistory -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
+$perf = @($pj | ForEach-Object { $_ } | Where-Object { $_.date -and $_.game } | Sort-Object { [datetime]$_.date })
+# slower since a driver / Windows update: the samples since the latest change vs the ones before it (same game)
+foreach ($g in $perf | Group-Object game) {
+    $s = @($g.Group); $last = $s[-1]
+    $i = $s.Count - 1; while ($i -gt 0 -and $s[$i - 1].driver -eq $last.driver -and $s[$i - 1].build -eq $last.build) { $i-- }
+    if ($i -eq 0 -or [datetime]$s[$i].date -lt $Now.AddDays(-14)) { continue }   # no change, or reported for 2 weeks already
+    $after = @($s[$i..($s.Count - 1)]); $before = @($s[0..($i - 1)] | Select-Object -Last 5)
+    if ($after.Count -lt 2 -or $before.Count -lt 3) { continue }
+    $b1 = Median ($before | ForEach-Object { [double]$_.low1 }); $a1 = Median ($after | ForEach-Object { [double]$_.low1 })
+    $bf = Median ($before | ForEach-Object { [double]$_.fps }); $af = Median ($after | ForEach-Object { [double]$_.fps })
+    if ($a1 -le $b1 * 0.85 -and $af -le $bf * 0.92) {
+        $what = @(if ($s[$i - 1].driver -ne $last.driver) { "the graphics driver update to $($last.driver)" }; if ($s[$i - 1].build -ne $last.build) { "the Windows update to build $($last.build)" }) -join ' and '
+        "Reminder: $($g.Name) runs slower since $what - 1% lows $([int]$b1) -> $([int]$a1) fps, average $([int]$bf) -> $([int]$af) fps (the same game, before and after)"
+    }
+}
+# heat while gaming (the latest samples of the last 2 weeks) and the card warming up over the months (dust)
+$recent = @($perf | Where-Object { [datetime]$_.date -gt $Now.AddDays(-14) } | Select-Object -Last 6)
+$hot = @($recent | Where-Object { $_.gpuTemp -ge 85 -or "$($_.throttle)" -match 'heat' })
+if ($recent.Count -ge 2 -and $hot.Count -ge 2) {
+    "Reminder: the graphics card gets hot while gaming (up to $(($recent | Measure-Object gpuTemp -Maximum).Maximum) C$(if ($hot | Where-Object { "$($_.throttle)" -match 'heat' }) { ', and slows itself down to cool off' })) - clean the dust from its fans and the case filters, and check the case fans blow air through"
+}
+$gt = { param($from, $to) Median ($perf | Where-Object { $_.gpuTemp -and [datetime]$_.date -ge $from -and [datetime]$_.date -lt $to } | ForEach-Object { [int]$_.gpuTemp }) }
+$gThen = & $gt $Now.AddDays(-75) $Now.AddDays(-30); $gNow = & $gt $Now.AddDays(-14) $Now.AddMinutes(1)
+if ($gThen -and $gNow -and $gNow -ge $gThen + 8 -and $hot.Count -lt 2) { "Reminder: the graphics card runs $($gNow - $gThen) C warmer while gaming than a month or two ago ($gNow C, was $gThen C) - dust in the fans or filters? A clean usually fixes it" }
+$st = @($recent | Where-Object { $_.ssdTemp -ge 75 })
+if ($st.Count -ge 2) { "Reminder: the SSD reaches $(($recent | Measure-Object ssdTemp -Maximum).Maximum) C while gaming - a heatsink on it (most motherboards come with one) or more airflow keeps it from slowing down" }

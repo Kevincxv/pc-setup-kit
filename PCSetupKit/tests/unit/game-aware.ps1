@@ -11,6 +11,11 @@ $gl = "$Work\gc"; New-Item $gl -ItemType Directory -Force | Out-Null; Copy-Item 
 'ThisGameDoesNotRun123    # test' | Set-Content "$gl\games.txt"
 $o = & "$gl\game-check.ps1" -Explain -NoLearn
 Check 'a listed game that is not running is not reported' ("$o" -notmatch 'ThisGameDoesNotRun123') "$o"
+# a new PC has no games.txt yet: Get-Process -Name @() is an error, which stopped the whole optimize step in the
+# Windows Sandbox test (9/28) - run the way a caller's try block sees it
+[IO.File]::Delete("$gl\games.txt")
+$err = & { $ErrorActionPreference = 'Stop'; try { [void](& "$gl\game-check.ps1" -NoLearn); '' } catch { "$_" } }
+Check 'no games list yet (a new PC): no error, even under -ErrorAction Stop' (-not $err) $err
 "$((Get-Process -Id $PID).ProcessName)    # test: this PowerShell counts as a game" | Set-Content "$gl\games.txt"
 $o = & "$gl\game-check.ps1" -Explain -NoLearn
 if ("$o" -match 'fullscreen') { Skip 'a listed game running in the background is reported' "something is fullscreen right now ($o), which correctly wins" }

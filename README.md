@@ -44,14 +44,23 @@ Microsoft's Media Creation Tool USB plus `autounattend.xml` and the `PCSetupKit`
 
 - **Windows cleanup**: bloat apps, ads, telemetry, Copilot/Recall/AI features, Bing in search, background tasks.
 - **Gaming tweaks**: Ultimate Performance power plan, Game Mode, GPU scheduling, no Game DVR, no mouse acceleration,
-  no power-saving on controllers/Ethernet, monitors at their highest refresh rate.
+  no power-saving on controllers/Ethernet, every monitor at its native resolution and highest refresh rate (also one plugged in later).
 - **Zero maintenance**, hidden in the background after each login: drivers, app updates, crash detection with
   automatic dump diagnosis, antivirus/clock/TRIM checks, monthly cleanup and restore point, a benchmark every 3 months,
   dusting reminder every 6 months, full re-optimize yearly. It waits while you're gaming.
+- **Games, measured while you play**: a minute of each game's real frame rate (average and 1% lows, via Intel's
+  PresentMon) plus the graphics card's temperature and throttling - so "the last driver or Windows update made my games
+  slower" and "it runs hot while gaming" get noticed and named. Graphics driver resets (a freeze or black screen for a
+  moment) are counted too, and old shader caches are cleared once after each driver update.
+- **Network**: ping, jitter, packet loss and DNS speed over time (no speed tests, no data use); a slow router DNS on a
+  wired connection is switched to a fast public one by itself.
+- **Settings backup**: weekly, the look (wallpaper, dark mode, accent colour, taskbar, mouse, Start pins), game
+  settings and the kit's own memory go to a second drive (or the kit USB, or Documents). Reinstalling Windows with the
+  kit on the same PC brings them back by themselves - never onto a different PC.
 - **Decisions by fixed rules**: safe things are fixed right away (monitor refresh rate, leftovers of deleted programs,
   Windows version upgrades before end of support, a memory test after repeated blue screens); things only you can do
   (BIOS settings, cleaning, cables) become plain step-by-step items in the tray - and disappear once fixed.
-- **Tray icon** (next to the clock): **Status** shows what needs you and what's scheduled; small alerts appear when
+- **Tray icon** (next to the clock) and **the app**: status, what needs you, what's scheduled, and a **History** page (start-up time, disk space, temperatures, frame rates, ping over time); small alerts appear when
   something needs you (never over a game). **Optimize this PC now** re-runs the optimization anytime.
 - **Automatic updates of the kit itself**: new releases install by themselves at login.
 - **Self-testing**: weekly and after every update, the kit's test suite checks the maintenance scripts on the PC

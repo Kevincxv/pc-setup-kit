@@ -46,16 +46,21 @@ Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 
 Step 'Getting winget ready'
 # Windows brings winget with the Store's App Installer, which can take minutes to appear after the first login. Where
 # it never comes (no Store: Windows Sandbox, LTSC, a removed or broken Store) it is installed straight from Microsoft:
-# the App Installer package and the two libraries it needs (Add-AppxPackage accepts only Microsoft-signed packages).
+# the App Installer package and the libraries it needs, both from the same winget release so they always match (winget
+# 1.29 added a Windows App Runtime requirement - found by the Windows Sandbox test on 9/28). Add-AppxPackage accepts
+# only Microsoft-signed packages.
 function Install-Winget {
     $d = Join-Path $env:TEMP 'winget-setup'; New-Item $d -ItemType Directory -Force | Out-Null
     $ProgressPreference = 'SilentlyContinue'
-    foreach ($p in @(@('https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx', 'vclibs.appx'),
-            @('https://github.com/microsoft/microsoft-ui-xaml/releases/download/v2.8.6/Microsoft.UI.Xaml.2.8.x64.appx', 'uixaml.appx'),
-            @('https://aka.ms/getwinget', 'winget.msixbundle'))) {
-        try { Invoke-WebRequest $p[0] -OutFile "$d\$($p[1])" -UseBasicParsing; Add-AppxPackage "$d\$($p[1])" -ErrorAction Stop }
-        catch { if ($p[1] -eq 'winget.msixbundle') { "  winget install failed: $($_.Exception.Message)" } }   # libraries: often already there
-    }
+    $rel = 'https://github.com/microsoft/winget-cli/releases/latest/download'
+    try {
+        Invoke-WebRequest "$rel/DesktopAppInstaller_Dependencies.zip" -OutFile "$d\deps.zip" -UseBasicParsing
+        Expand-Archive "$d\deps.zip" "$d\deps" -Force
+        foreach ($a in Get-ChildItem "$d\deps\x64\*.appx") { try { Add-AppxPackage $a.FullName -ErrorAction Stop } catch {} }   # already there: fine
+        Invoke-WebRequest "$rel/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle" -OutFile "$d\winget.msixbundle" -UseBasicParsing
+        Add-AppxPackage "$d\winget.msixbundle" -ErrorAction Stop
+        '  winget installed'
+    } catch { "  winget install failed: $($_.Exception.Message)" }
 }
 for ($i = 0; $i -lt 40 -and -not (Get-Command winget -ErrorAction SilentlyContinue); $i++) {
     if ($i -eq 0) { Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe -ErrorAction SilentlyContinue }
@@ -63,15 +68,22 @@ for ($i = 0; $i -lt 40 -and -not (Get-Command winget -ErrorAction SilentlyContin
     Start-Sleep 15
 }
 $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') + ";$env:LOCALAPPDATA\Microsoft\WindowsApps"
-winget source update --accept-source-agreements | Out-Null
+$hasWinget = [bool](Get-Command winget -ErrorAction SilentlyContinue)
+if ($hasWinget) { winget source update --accept-source-agreements | Out-Null }
+else { '  winget is not available - the apps are skipped; everything else is set up (run setup.ps1 again once winget works)' }
 
 Step 'Installing apps'
 # One app, retried when winget's package list isn't there yet ("No packages were found" for everything - a new PC's
 # first minutes; seen on GitHub's test machines on 9/28): the list is fetched again and the install tried again.
 function Install-App([string]$Id) {
     for ($try = 1; $try -le 3; $try++) {
-        $out = @(winget install --id $Id -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | ForEach-Object { "$_" })
-        if (-not ($out -match 'No package(s were)? found')) { return $out | Where-Object { $_.Trim() } | Select-Object -Last 1 }
+        # --source winget: with the msstore source too, a fresh winget can find the id twice and installs nothing
+        # ("Multiple packages found" - the Windows Sandbox test, 9/28)
+        $out = @(winget install --id $Id -e --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | ForEach-Object { "$_" } | Where-Object { $_.Trim() -and $_ -notmatch '^\s*[-\\|/]\s*$|[\u2588\u2592]' })
+        if (-not ($out -match 'No package(s were)? found')) {
+            if ($out -match 'Successfully installed|already installed|No available upgrade|No newer package') { return $out | Select-Object -Last 1 }
+            return "  $Id`: NOT installed - winget said: $(($out | Select-Object -Last 4) -join ' / ')"
+        }
         if ($try -lt 3) {
             winget source reset --force 2>&1 | Out-Null
             winget source update --accept-source-agreements 2>&1 | Out-Null
@@ -82,6 +94,7 @@ function Install-App([string]$Id) {
 }
 # WinDbg: automatic crash-dump diagnosis; AutoHotkey (v2): the tray icon
 foreach ($id in 'Git.Git', 'Valve.Steam', 'Discord.Discord', 'Google.Chrome', 'Microsoft.WinDbg', 'AutoHotkey.AutoHotkey') {
+    if (-not $hasWinget) { break }
     Write-Host "  $id"
     Install-App $id
 }
@@ -106,6 +119,12 @@ $cl = "$env:USERPROFILE\.claude"
 New-Item $cl -ItemType Directory -Force | Out-Null
 Copy-Item "$kit\claude\*.ps1" $cl -Force
 "claude=$(if ($WithClaude) { 'on' } else { 'off' })" | Set-Content "$cl\kit-options.txt" -Encoding ASCII   # ai-enabled.ps1 reads it
+# Windows reinstalled on this same PC: its settings come back from the weekly backup (the look, game settings, the
+# kit's memory; only a backup made on this PC - settings-backup.ps1). Once: running setup again keeps later changes.
+if (-not (Test-Path "$cl\settings-restored.txt")) {
+    & "$cl\settings-backup.ps1" -Restore | ForEach-Object { "  $_" }
+    (Get-Date).ToString('o') | Set-Content "$cl\settings-restored.txt"
+}
 
 if ($WithClaude) {
     Step 'Installing Claude Code and Messiah (the optional Claude part)'

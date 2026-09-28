@@ -40,7 +40,7 @@ if ($why -and $fgName -and $fgName -notin $notGames) {
     if ($Explain) { "$fgName - $why" } else { $fgName }; return
 }
 if ($why) { if ($Explain) { "$fgName - $why (not a game, but fullscreen right now)" } else { $fgName }; return }   # fullscreen video: wait while it lasts
-$bg = Get-Process -Name $known -ErrorAction SilentlyContinue | Select-Object -First 1
+$bg = if ($known) { Get-Process -Name $known -ErrorAction SilentlyContinue | Select-Object -First 1 }   # none known yet (a new PC): -Name @() is an error
 if ($bg) { if ($Explain) { "$($bg.ProcessName) - known game running in the background" } else { $bg.ProcessName }; return }
 # Not seen fullscreen yet (new game, alt-tabbed): anything running from a launcher's game library folder is a game too.
 # Launchers themselves and always-on Steam tools (Wallpaper Engine, Lossless Scaling) live elsewhere or are skipped by name.

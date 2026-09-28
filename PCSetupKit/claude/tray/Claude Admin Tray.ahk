@@ -49,6 +49,7 @@ SetTimer StatusAtLogin, -8000
 known := Map()  ; pid -> true if it's a Messiah launcher window
 note := 0       ; the corner note currently shown
 SetTimer Notify, 30000
+SetTimer GamePerf, 300000   ; in-game frame rate and temperatures (game-perf.ps1)
 if AI {
     SetTimer Watch, 500
     SetTimer AutoStart, -3000
@@ -247,6 +248,13 @@ CloseNote() {
     try note.Destroy()
 }
 
+; Every 5 minutes while something is fullscreen: game-perf.ps1 records a minute of the game's frame rate and the graphics
+; card's temperature (it checks it's a game, and samples each game at most every 3 hours). Not under tests.
+GamePerf() {
+    if EnvGet("PCKIT_IN_TESTS") != "" || !IsFullscreen() || !FileExist(CL "\game-perf.ps1")
+        return
+    try Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' CL '\game-perf.ps1"', , "Hide"
+}
 ; A game/video covering its whole monitor = don't pop anything up
 IsFullscreen() {
     try {

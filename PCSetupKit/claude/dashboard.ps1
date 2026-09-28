@@ -250,7 +250,7 @@ try {
     # --- History: health over time (health-history.json, written by trends.ps1 at every check). One measure per chart,
     # each with its own scale (never two on one axis); one line, so the title names it (no legend); the current value as
     # the big number; the usual level as a faint dashed line; every point has a tooltip (date and value).
-    function Get-HealthHistory { $j = try { Get-Content "$cl\health-history.json" -Raw -ErrorAction Stop | ConvertFrom-Json } catch { $null }; @($j | ForEach-Object { $_ }) }
+    function Get-HealthHistory([string]$Name = 'health-history.json') { $j = try { Get-Content "$cl\$Name" -Raw -ErrorAction Stop | ConvertFrom-Json } catch { $null }; @($j | ForEach-Object { $_ }) }   # (also perf-history.json, net-history.json)
     function Median($v) { $s = @($v | Sort-Object); if (-not $s) { return $null }; $m = [int][Math]::Floor($s.Count / 2); if ($s.Count % 2) { $s[$m] } else { ($s[$m - 1] + $s[$m]) / 2 } }
     function New-Chart($title, $unit, $pts, [int]$decimals = 0, [double]$minSpan = 1) {   # minSpan: the smallest range shown (small wobbles stay small)
         $sp = New-Object Windows.Controls.StackPanel
@@ -369,15 +369,29 @@ try {
                     if ($PerBoot) { $rows = @($rows | Where-Object bootAt | Group-Object bootAt | ForEach-Object { $_.Group[-1] }); $rows | ForEach-Object { [pscustomobject]@{ D = [datetime]$_.bootAt; V = $_.$field } } }
                     else { $rows | ForEach-Object { [pscustomobject]@{ D = [datetime]$_.date; V = $_.$field } } } }
                 $grid = New-Object Windows.Controls.Primitives.UniformGrid -Property @{ Columns = 2 }
-                foreach ($ch in @((New-Chart 'Start-up time' ' s' (& $pt boot -PerBoot) 1 10), (New-Chart 'Free space on C:' ' GB' (& $pt freeGB) 0 20),
-                        (New-Chart 'Graphics card at idle' ' C' (& $pt gpuIdle) 0 10), (New-Chart 'SSD temperature' ' C' (& $pt ssdTemp) 0 10))) {
+                # games (game-perf.ps1, while playing): the most played game's frame rate, and the card's heat under load
+                $perf = Get-HealthHistory 'perf-history.json'; $net = Get-HealthHistory 'net-history.json'
+                $top = $perf | Group-Object game | Sort-Object Count -Descending | Select-Object -First 1
+                $gp = { param($rows, $field) @($rows | Where-Object { $null -ne $_.$field } | ForEach-Object { [pscustomobject]@{ D = [datetime]$_.date; V = $_.$field } }) }
+                $charts = @((New-Chart 'Start-up time' ' s' (& $pt boot -PerBoot) 1 10), (New-Chart 'Free space on C:' ' GB' (& $pt freeGB) 0 20),
+                    (New-Chart 'Graphics card at idle' ' C' (& $pt gpuIdle) 0 10), (New-Chart 'SSD temperature' ' C' (& $pt ssdTemp) 0 10),
+                    (New-Chart "Frame rate$(if ($top) { " - $($top.Name)" })" ' fps' (& $gp $(if ($top) { $top.Group }) fps) 0 20),
+                    (New-Chart "1% low frame rate$(if ($top) { " - $($top.Name)" })" ' fps' (& $gp $(if ($top) { $top.Group }) low1) 0 20),
+                    (New-Chart 'Graphics card while gaming' ' C' (& $gp $perf gpuTemp) 0 10), (New-Chart 'Internet ping' ' ms' (& $gp $net ping) 0 10))
+                foreach ($ch in $charts) {
                     $ch.Margin = '0,0,12,12'; [void]$grid.Children.Add($ch)
                 }
                 [void]$out.Add($grid)
+                # each game: its latest sample next to its usual (the median of its samples)
+                $games = @($perf | Group-Object game | Sort-Object { ($_.Group | Select-Object -Last 1).date } -Descending | ForEach-Object {
+                        $l = $_.Group | Select-Object -Last 1; $u = Median @($_.Group | ForEach-Object { [double]$_.low1 })
+                        , @(([datetime]$l.date).ToString('MMM d'), "$($_.Name): $([int]$l.fps) fps, 1% low $([int]$l.low1) fps (usual $([int]$u))$(if ($null -ne $l.gpuTemp) { ", card $($l.gpuTemp) C" }) - $($_.Count) sample(s)", 'info') })
+                if (-not $games) { $games = , @('', 'Nothing recorded yet - a minute of each game is measured while you play (at most every 3 hours).', 'dim') }
+                [void]$out.Add((New-Card 'Games' 'E7FC' @(New-Rows $games) $null))
                 $tl = @(Get-MaintTimeline | Select-Object -First 40)
                 $rows = if ($tl) { $tl | ForEach-Object { , @($_.When, $_.Text, 'info') } } else { , @('', 'Nothing changed yet - the checks found everything in order.', 'dim') }
                 [void]$out.Add((New-Card 'What maintenance did' 'E90F' @(New-Rows $rows) @(New-Btn 'E8A5' 'Latest report' $act.Report)))
-                [void]$out.Add((New-Card $null $null @(@{ Text = 'Recorded at every check (at each login and once a day). Temperatures are taken only while the graphics card is idle, so a game never skews them.'; Level = 'dim' }) $null))
+                [void]$out.Add((New-Card $null $null @(@{ Text = 'Recorded at every check (at each login and once a day); games while you play. Idle temperatures are taken only while the graphics card is idle, so a game never skews them.'; Level = 'dim' }) $null))
             }
             'Notifications' {
                 $notes = @(Get-Notes | Sort-Object When -Descending | Select-Object -First 60)

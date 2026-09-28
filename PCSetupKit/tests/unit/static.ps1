@@ -35,6 +35,10 @@ Check 'every module-command mock is loaded first and verified (Import-MockTarget
 # names of functions must not collide with built-in aliases (e.g. H = Get-History)
 $clash = @($all | ForEach-Object { [regex]::Matches((Get-Content $_.FullName -Raw), '(?m)^\s*function\s+([\w-]+)') | ForEach-Object { $_.Groups[1].Value } } | Where-Object { Get-Alias $_ -ErrorAction SilentlyContinue } | Select-Object -Unique)
 Check 'no function is shadowed by a built-in alias' (-not $clash) ($clash -join ', ')
+# PowerShell passes $null to a .NET/Windows string argument as "" (EnumDisplayDevices("") finds no monitor: the refresh
+# fix never ran, found 9/28) - [NullString]::Value is a real null
+$nullArg = @($all | ForEach-Object { $f = $_; Select-String -Path $f.FullName -Pattern '\]::\w+\(\s*\$null\s*,' | ForEach-Object { "$($f.Name):$($_.LineNumber)" } })
+Check 'no $null passed as a Windows API argument (it arrives as "" - use [NullString]::Value)' (-not $nullArg) ($nullArg -join ', ')
 # only where the kit is published from (the repo) or in CI - an installed PC's kit folder holds its own setup log etc.
 if ($inRepo) {
     $personal = 'Kevin|gmail|@[a-z0-9-]+\.(com|net|org)|B650I|7800X3D|RTX 5080|G2725D|PG27AQDM|CMK32|Seagate ZP|gho_|ghp_|sk-ant-'

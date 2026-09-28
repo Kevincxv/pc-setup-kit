@@ -1,4 +1,4 @@
-# trends.ps1: health over time vs this PC's own normal - start-up time (and what slowed it), C: filling up, graphics
+﻿# trends.ps1: health over time vs this PC's own normal - start-up time (and what slowed it), C: filling up, graphics
 # card warmer at idle, SSD wear - with the event log, disks and nvidia-smi mocked and a made-up history.
 . "$PSScriptRoot\..\lib.ps1"
 $trendsScript = "$Src\trends.ps1"
@@ -31,7 +31,8 @@ function New-History([double]$gpuThen = 30, [double]$gpuNow = 30, [double]$freeT
     $rows | ConvertTo-Json | Set-Content $hf
 }
 function Reset-T { $global:TR = @{ Boot = (Ev 100 $now.AddMinutes(-3) @{ BootTime = 26500 }); Slowed = @(); FreeGB = 500; Wear = 2; Gpu = 30; GpuUse = 3 } }
-function T { @(& $trendsScript -History $hf -Now $now) }
+$pf = "$Work\perf-history.json"   # (games: none unless a test writes some)
+function T { @(& $trendsScript -History $hf -PerfHistory $pf -Now $now) }
 function Hist { $j = Get-Content $hf -Raw | ConvertFrom-Json; @($j | ForEach-Object { $_ }) }   # (PowerShell 5.1 returns a JSON array as one item)
 
 Section 'a normal day'
@@ -67,4 +68,32 @@ Reset-T; [IO.File]::Delete($hf); $o = T
 Check 'no history: records, says nothing, no errors (saved as a list even with one entry)' (-not $o -and (Test-Path $hf) -and (Get-Content $hf -Raw).TrimStart().StartsWith('[')) ($o -join ' / ')
 'not json' | Set-Content $hf; $o = T
 Check 'a broken history file: starts over, no errors' (-not $o -and @(Hist).Count -eq 1) ''
+
+Section 'games (perf-history.json from game-perf.ps1)'
+# samples of one game, one a day: $changeAt days ago the driver (or Windows build) changed and the numbers with it
+function New-Perf([int]$changeAt = 3, [double]$fpsAfter = 118, [double]$lowAfter = 70, [int]$tempAfter = 72, [string]$thrAfter, [switch]$Build, [int]$days = 10) {
+    $rows = for ($i = $days; $i -ge 1; $i--) {
+        $new = $i -le $changeAt
+        [ordered]@{ date = $now.AddDays(-$i).ToString('o'); game = 'TestGame'; fps = $(if ($new) { $fpsAfter } else { 140 }); low1 = $(if ($new) { $lowAfter } else { 92 })
+            gpuTemp = $(if ($new) { $tempAfter } else { 72 }); throttle = $(if ($new) { $thrAfter }); ssdTemp = 50
+            driver = $(if ($new -and -not $Build) { '2.0' } else { '1.0' }); build = $(if ($new -and $Build) { '26200.2' } else { '26200.1' }) }
+    }
+    ConvertTo-Json -InputObject @($rows) | Set-Content $pf
+}
+Reset-T; New-History
+New-Perf -changeAt 0; $o = T
+Check 'steady games: nothing said' (-not $o) ($o -join ' / ')
+New-Perf; $o = T
+Check 'slower since a driver update: named, with before -> after' ([bool]($o -match '^Reminder: TestGame runs slower since the graphics driver update to 2\.0 - 1% lows 92 -> 70 fps, average 140 -> 118 fps')) ($o -join ' / ')
+New-Perf -Build; $o = T
+Check '... or since a Windows update' ([bool]($o -match 'runs slower since the Windows update to build 26200\.2')) ($o -join ' / ')
+New-Perf -fpsAfter 136 -lowAfter 88; $o = T
+Check 'a small change (normal variation): nothing' (-not ($o -match 'runs slower')) ($o -join ' / ')
+New-Perf -changeAt 1; $o = T
+Check 'only one sample since the change: not judged yet' (-not ($o -match 'runs slower')) ($o -join ' / ')
+New-Perf -changeAt 20 -days 30; $o = T
+Check 'a change weeks ago: no longer repeated' (-not ($o -match 'runs slower')) ($o -join ' / ')
+New-Perf -changeAt 3 -fpsAfter 140 -lowAfter 92 -tempAfter 87 -thrAfter 'heat'; $o = T
+Check 'hot and throttling while gaming: said, with what to do' ([bool]($o -match '^Reminder: the graphics card gets hot while gaming \(up to 87 C, and slows itself down to cool off\) - clean the dust')) ($o -join ' / ')
+Clear-Path $pf
 Finish

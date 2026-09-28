@@ -6,7 +6,8 @@
 # was saved and sets the hypervisor to not start - fully off at the next restart (Windows can't unload it before;
 # Claude never restarts the PC). Needs admin rights and the owner's desktop (the sandbox is a window).
 # Results: %USERPROFILE%\.claude\sandbox-test\<mode>\ (summary.txt, check.txt, setup.txt, logs) and result.txt.
-param([ValidateSet('noai', 'ai', 'both')][string]$Mode = 'both', [int]$Minutes = 100, [switch]$Cleanup, [switch]$CleanupOnly,
+# -Backup <folder with a settings backup zip>: the sandbox restores it (as on a reinstall of that PC) and checks it.
+param([ValidateSet('noai', 'ai', 'both')][string]$Mode = 'both', [int]$Minutes = 100, [switch]$Cleanup, [switch]$CleanupOnly, [string]$Backup,
     [string]$Out = "$env:USERPROFILE\.claude\sandbox-test")
 $repo = Split-Path (Split-Path (Split-Path $PSScriptRoot))   # the repo root (holds PCSetupKit\)
 $cl = "$env:USERPROFILE\.claude"
@@ -15,8 +16,10 @@ function Say($m) { $l = "$((Get-Date).ToString('g'))  $m"; Add-Content "$Out\run
 
 function Stop-Sandbox {
     foreach ($n in 'WindowsSandboxRemoteSession', 'WindowsSandboxClient', 'WindowsSandbox', 'WindowsSandboxServer') { Get-Process $n -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
+    # the VM itself outlives its window by minutes, and a new sandbox won't start while it's there (9/28: the with-Claude
+    # run never came up) - wait until only the saved template is left in hcsdiag's list
     $w = [Diagnostics.Stopwatch]::StartNew()
-    while ((Get-Process 'vmmemWindowsSandbox', 'WindowsSandbox*' -ErrorAction SilentlyContinue) -and $w.Elapsed.TotalSeconds -lt 60) { Start-Sleep 2 }
+    while (((Get-Process 'vmmemWindowsSandbox', 'WindowsSandbox*' -ErrorAction SilentlyContinue) -or (hcsdiag list 2>$null | Select-String 'VM,' | Where-Object { $_ -notmatch 'Template' })) -and $w.Elapsed.TotalMinutes -lt 10) { Start-Sleep 5 }
 }
 
 function Invoke-Cleanup {
@@ -57,7 +60,7 @@ foreach ($m in $(if ($Mode -eq 'both') { 'noai', 'ai' } else { $Mode })) {
   <Networking>Enable</Networking>
   <MappedFolders>
     <MappedFolder><HostFolder>$repo</HostFolder><SandboxFolder>C:\KitRO</SandboxFolder><ReadOnly>true</ReadOnly></MappedFolder>
-    <MappedFolder><HostFolder>$res</HostFolder><SandboxFolder>C:\Results</SandboxFolder><ReadOnly>false</ReadOnly></MappedFolder>
+    <MappedFolder><HostFolder>$res</HostFolder><SandboxFolder>C:\Results</SandboxFolder><ReadOnly>false</ReadOnly></MappedFolder>$(if ($Backup) { "`n    <MappedFolder><HostFolder>$Backup</HostFolder><SandboxFolder>C:\Backup</SandboxFolder><ReadOnly>true</ReadOnly></MappedFolder>" })
   </MappedFolders>
   <LogonCommand><Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -File C:\KitRO\PCSetupKit\tests\sandbox\inside.ps1 -Mode $m</Command></LogonCommand>
 </Configuration>
@@ -66,9 +69,24 @@ foreach ($m in $(if ($Mode -eq 'both') { 'noai', 'ai' } else { $Mode })) {
     Say "Sandbox ($m): starting a clean Windows 11 and installing the kit in it (up to $Minutes min)"
     Start-Process $wsb
     $w = [Diagnostics.Stopwatch]::StartNew()
+    # started? inside.ps1 writes its log within minutes; if not, the sandbox didn't come up - one more try
+    while (-not (Test-Path "$res\inside.log") -and $w.Elapsed.TotalMinutes -lt 10) { Start-Sleep 20 }
+    if (-not (Test-Path "$res\inside.log")) { Say "Sandbox ($m): didn't start in 10 min - trying once more"; Stop-Sandbox; Start-Process $wsb }
     while (-not (Test-Path "$res\done.txt") -and $w.Elapsed.TotalMinutes -lt $Minutes) { Start-Sleep 20 }
     $done = Test-Path "$res\done.txt"
-    Start-Sleep 5; Stop-Sandbox
+    Start-Sleep 5
+    # how the Sandbox window looks on the owner's desktop at the end (PrintWindow: works under other windows too)
+    try {
+        if (-not ('SbShot.W' -as [type])) { Add-Type -Namespace SbShot -Name W -MemberDefinition '[DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint f); [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r); public struct RECT { public int L, T, R, B; }' }
+        Add-Type -AssemblyName System.Drawing
+        $hw = (Get-Process 'WindowsSandbox*' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1).MainWindowHandle
+        $rc = New-Object SbShot.W+RECT
+        if ($hw -and [SbShot.W]::GetWindowRect($hw, [ref]$rc) -and $rc.R -gt $rc.L) {
+            $bmp = New-Object Drawing.Bitmap ($rc.R - $rc.L), ($rc.B - $rc.T); $g = [Drawing.Graphics]::FromImage($bmp); $dc = $g.GetHdc()
+            [void][SbShot.W]::PrintWindow($hw, $dc, 2); $g.ReleaseHdc($dc); $bmp.Save("$res\host-sandbox-window.png"); $g.Dispose(); $bmp.Dispose()
+        }
+    } catch { }
+    Stop-Sandbox
     $sum = @(Get-Content "$res\summary.txt" -ErrorAction SilentlyContinue)
     $ok = $done -and ($sum -match 'install checks: exit 0') -and ($sum -match 'self-test: Self-test \(requested\): \d+ passed, 0 failed')
     $results += "$m`: $(if ($ok) { 'PASSED' } elseif (-not $done) { "DID NOT FINISH in $Minutes min" } else { 'FAILED' }) in $([int]$w.Elapsed.TotalMinutes) min - $($sum -join ' | ')"
