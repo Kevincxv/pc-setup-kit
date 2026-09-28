@@ -6,8 +6,9 @@
 #   -Kit  : the kit folder (default: the one this runner is in)
 #   -Jobs : unit test files run side by side, this many at a time (default: up to 8; 1 = one after another).
 #           Live tests always run one at a time, after the unit tests (they share the real tray and sessions).
+#   -TestMinutes : a test file still running after this long is stopped and counted as failed (default 10)
 # Results also go to tests\last-run.txt.
-param([ValidateSet('unit', 'live', 'all')][string]$Suite = 'unit', [string]$Only, [string]$Src, [string]$Kit, [string]$TrayFile, [int]$Jobs = 0)
+param([ValidateSet('unit', 'live', 'all')][string]$Suite = 'unit', [string]$Only, [string]$Src, [string]$Kit, [string]$TrayFile, [int]$Jobs = 0, [int]$TestMinutes = 10)
 $ErrorActionPreference = 'Continue'   # a test writing to stderr must never stop the runner (CI runs with Stop)
 $here = $PSScriptRoot
 if (-not $Kit) { $Kit = Split-Path $here }
@@ -41,6 +42,10 @@ function Start-Test($f) {
     $p = [Diagnostics.Process]::Start($psi)
     [pscustomobject]@{ File = $f; Proc = $p; Out = $p.StandardOutput.ReadToEndAsync(); Err = $p.StandardError.ReadToEndAsync(); Start = Get-Date; Sec = 0; Text = $null }
 }
+function Stop-Tree([int]$ProcId) {
+    Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcId" | ForEach-Object { Stop-Tree $_.ProcessId }
+    Stop-Process -Id $ProcId -Force -ErrorAction SilentlyContinue
+}
 function Complete($t) {
     $t.Sec = [int]((Get-Date) - $t.Start).TotalSeconds
     $t.Text = @(($t.Out.Result + $t.Err.Result) -split "`r?`n" | Where-Object { $_ -ne '' })
@@ -53,13 +58,18 @@ function Invoke-Files($files, [int]$Max) {
     $running = @(); $done = @{}; $next = 0
     while ($queue.Count -or $running) {
         while ($queue.Count -and $running.Count -lt $Max) { $running += Start-Test $queue.Dequeue() }
+        # a hung test is stopped at the limit and named, instead of silently holding up everything after it
+        foreach ($t in @($running | Where-Object { -not $_.Proc.HasExited -and ((Get-Date) - $_.Start).TotalMinutes -ge $TestMinutes })) {
+            Stop-Tree $t.Proc.Id; $t | Add-Member TimedOut $true -Force; [void]$t.Proc.WaitForExit(10000)
+        }
         foreach ($t in @($running | Where-Object { $_.Proc.HasExited })) { Complete $t; $done[$t.File.FullName] = $t }
         $running = @($running | Where-Object { -not $done.ContainsKey($_.File.FullName) })
         while ($next -lt $files.Count -and $done.ContainsKey($files[$next].FullName)) {
             $t = $done[$files[$next].FullName]; $next++
             Write-Host "`n[$($t.File.BaseName)]" -ForegroundColor White
             $t.Text | Where-Object { $_ -notmatch '^RESULT ' } | ForEach-Object { Write-Host $_ }
-            if (-not ($t.Text -match '^RESULT ')) { Write-Host '  FAIL  the test itself crashed (no RESULT line)' -ForegroundColor Red }
+            if ($t.TimedOut) { Write-Host "  FAIL  still running after $TestMinutes min - stopped (it hangs; the last lines above show where)" -ForegroundColor Red }
+            elseif (-not ($t.Text -match '^RESULT ')) { Write-Host '  FAIL  the test itself crashed (no RESULT line)' -ForegroundColor Red }
             # errors a test didn't handle (e.g. one that ended a try block early) land on stderr: never a silent pass
             if ($t.ErrText) { Write-Host "  FAIL  the test wrote errors: $(($t.ErrText -split '`r?`n' | Select-Object -First 2) -join ' | ')" -ForegroundColor Red }
         }

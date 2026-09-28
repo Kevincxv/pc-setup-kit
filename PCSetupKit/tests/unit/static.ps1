@@ -1,7 +1,9 @@
 ﻿# Static checks: every script parses, the tray script validates, nothing personal in the kit, docs match the files.
 . "$PSScriptRoot\..\lib.ps1"
 $repoRoot = Split-Path $Kit
-$all = @(Get-ChildItem $Src -Filter *.ps1 -File) + @(Get-ChildItem $Kit -Recurse -Filter *.ps1 -File) + @(Get-ChildItem $repoRoot -Filter *.ps1 -File)
+# only the kit's own repo (here, or GitHub's checkout) - on an installed PC the kit sits in C:\PCSetupKit and its parent is C:\
+$inRepo = Test-Path "$repoRoot\.git"
+$all = @(Get-ChildItem $Src -Filter *.ps1 -File) + @(Get-ChildItem $Kit -Recurse -Filter *.ps1 -File) + @(if ($inRepo) { Get-ChildItem $repoRoot -Filter *.ps1 -File })
 $bad = @($all | Where-Object { $e = $null; [void][Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$e); $e } | ForEach-Object FullName)
 Check "all $($all.Count) PowerShell scripts parse" (-not $bad) ($bad -join ', ')
 # PowerShell 5.1 reads BOM-less files as ANSI: any non-ASCII character needs a UTF-8 BOM
@@ -34,7 +36,7 @@ Check 'every module-command mock is loaded first and verified (Import-MockTarget
 $clash = @($all | ForEach-Object { [regex]::Matches((Get-Content $_.FullName -Raw), '(?m)^\s*function\s+([\w-]+)') | ForEach-Object { $_.Groups[1].Value } } | Where-Object { Get-Alias $_ -ErrorAction SilentlyContinue } | Select-Object -Unique)
 Check 'no function is shadowed by a built-in alias' (-not $clash) ($clash -join ', ')
 # only where the kit is published from (the repo) or in CI - an installed PC's kit folder holds its own setup log etc.
-if ((Test-Path "$repoRoot\.git") -or $env:GITHUB_ACTIONS) {
+if ($inRepo) {
     $personal = 'Kevin|gmail|@[a-z0-9-]+\.(com|net|org)|B650I|7800X3D|RTX 5080|G2725D|PG27AQDM|CMK32|Seagate ZP|gho_|ghp_|sk-ant-'
     $hits = @(Get-ChildItem $repoRoot -Recurse -File | Where-Object { $_.FullName -notmatch '\\\.git\\' -and $_.Name -ne 'last-run.txt' } | Select-String -Pattern $personal |
             Where-Object { $_.Line -notmatch 'Kevincxv/pc-setup-kit|noreply@anthropic\.com' -and $_.Line -notmatch '^\s*\$personal = ' } | ForEach-Object { "$($_.Filename):$($_.LineNumber)" })   # (the pattern line itself)

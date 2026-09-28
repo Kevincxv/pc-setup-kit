@@ -33,3 +33,13 @@ jobs:
         if: always()
         shell: powershell
         run: Get-Content C:\PCSetupKit\setup.log -ErrorAction SilentlyContinue
+      - name: Keep the logs (downloadable from the run page)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-install-logs
+          path: |
+            C:\PCSetupKit\setup.log
+            C:\Users\runneradmin\.claude\self-test.log
+            C:\Users\runneradmin\.claude\self-test.json
+          if-no-files-found: ignore
