@@ -20,7 +20,7 @@ instead of twice. A test that writes to stderr counts as failed (a crash halfway
 | M2 | Gates: release gate, CI on every push, self-improvement rollback on failing tests - each proven with a deliberate bug | Done (2026-09-27) |
 | M3 | Coverage gaps: health-check, periodic tasks, driver-check (NVIDIA + Windows Update), crash-analyze, claude-maint, maint-watch, status, tray logic, tweaks.ps1, setup.ps1, autounattend.xml - all with mocked system commands, guarded by a tripwire and mock verification | Done (2026-09-27) |
 | M4 | Ongoing self-validation: the suite runs weekly and after every kit update on each PC (self-test.ps1, from the background maintenance after its jobs); failures become a WARNING /maintain fixes; kit updates refresh the installed test suite | Done (2026-09-27) |
-| M5 | Fresh-install test: setup.ps1 runs for real on a clean Windows machine for every release (GitHub, Windows Server - fresh-install.yml), then its result is checked and the new install's own self-test must pass. A clean Windows 11 Home/Pro run (Windows Sandbox or a VM) is the owner's decision: it turns on the hypervisor the kit keeps off for gaming | In progress |
+| M5 | Fresh-install test: setup.ps1 runs for real on a clean Windows machine for every release (GitHub, Windows Server - fresh-install.yml), then its result is checked and the new install's own self-test must pass. A clean Windows 11 Home/Pro run (Windows Sandbox or a VM) is the owner's decision: it turns on the hypervisor the kit keeps off for gaming | Done on GitHub's Windows Server (2026-09-27); Windows 11 client run: owner's decision |
 
 Found and fixed by the gates and tests so far:
 - end-of-support ignored the Windows edition (CI); resume-after-shutdown trusted an old shutdown record (CI)
@@ -38,6 +38,9 @@ Found and fixed by the gates and tests so far:
 - speed audit: two tests passed while broken - a live test that crashed halfway (its cleanup check still ran) and
   the login rehearsal test (a rehearsal that stopped early still printed its summary); a unit test ran the real
   Windows Update driver search (20 s, and it could hide real updates); a 45 s wait for a hung step
+- first fresh install (M5): on an installed PC the kit sits in C:\PCSetupKit, so two repo-only checks looked at C:\
+  itself - the personal-info check searched the whole drive (the self-test hung 30 min), and the parse check would
+  have read any script in C:\ (also on real installed PCs); a hung test now gets stopped after 10 min and named
 
 Rules for mocked tests (PowerShell 5.1): variable names ignore case (`$tw` is `$TW`); aliases beat functions
 (`H`, `R`, `Rp` are built-in aliases); functions beat module commands only if defined after the module is loaded.
