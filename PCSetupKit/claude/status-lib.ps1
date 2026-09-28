@@ -35,7 +35,7 @@ function Get-KitStatus([string]$ClaudeVersion) {
     $r = @(Get-Content "$cl\maint-report.txt" -Encoding UTF8 -ErrorAction SilentlyContinue)
     if ($r) {
         Ln $r[0]
-        $notable = @($r | Where-Object { $_ -match 'WARNING|FAILED|REBOOT|Reminder|Restart check|installed|Updated|re-applied' })
+        $notable = @($r | Where-Object { $_ -match 'WARNING|FAILED|REBOOT|Reminder|Restart check|installed|Updated|re-applied|rolled back|Driver guard' })
         if ($notable) { $notable | ForEach-Object { Ln $_ $(if ($_ -match 'WARNING|FAILED') { 'warn' } else { 'info' }) } } else { Ln 'All fine' 'ok' }
     } else { Ln 'No report yet' }
 

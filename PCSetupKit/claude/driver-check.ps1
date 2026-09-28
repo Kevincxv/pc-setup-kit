@@ -52,8 +52,14 @@ try {
     $result = $searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Driver'")
     # A driver that already failed to install (e.g. for a disabled device) would retry forever: hide it instead
     $failed = @($searcher.QueryHistory(0, [Math]::Min(200, $searcher.GetTotalHistoryCount())) | Where-Object { $_.ResultCode -in 4, 5 } | ForEach-Object Title)
+    # A driver version driver-guard.ps1 rolled back after a blue screen ("provider|yyyy-MM-dd|version|inf" lines) is
+    # hidden too, instead of coming back (Windows Update shows a driver's provider and date, not its version)
+    $blocked = @(Get-Content "$PSScriptRoot\driver-blocklist.txt" -ErrorAction SilentlyContinue | Where-Object { $_ -match '\|' } | ForEach-Object { $p = $_ -split '\|'; "$($p[0])|$($p[1])" })
     foreach ($u in @($result.Updates)) {
         if ($failed -contains $u.Title) { $u.IsHidden = $true; "Driver: '$($u.Title)' failed before - hidden so it stops retrying" }
+        elseif ($blocked -contains "$($u.DriverProvider)|$(try { ([datetime]$u.DriverVerDate).ToString('yyyy-MM-dd') } catch {})") {
+            $u.IsHidden = $true; "Driver: '$($u.Title)' was rolled back after a blue screen - hidden so it isn't installed again"
+        }
     }
     $result = $searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Driver'")
     if ($result.Updates.Count -eq 0) {

@@ -310,12 +310,12 @@ try {
             }
             'Settings' {
                 $row = New-Object Windows.Controls.DockPanel
-                $sw = New-Object Windows.Controls.CheckBox -Property @{ IsChecked = ((Get-Opt 'openatlogin' 'on') -ne 'off'); VerticalAlignment = 'Center' }
+                $sw = New-Object Windows.Controls.CheckBox -Property @{ IsChecked = ((Get-Opt 'openatlogin' 'off') -eq 'on'); VerticalAlignment = 'Center' }
                 $sw.Style = $win.FindResource('Switch'); [Windows.Controls.DockPanel]::SetDock($sw, 'Right')
-                $sw.Add_Click({ Set-Opt 'openatlogin' $(if ($this.IsChecked) { 'on' } else { 'off' }); Say "Saved - $name $(if ($this.IsChecked) { 'opens' } else { 'no longer opens' }) at login." })
+                $sw.Add_Click({ Set-Opt 'openatlogin' $(if ($this.IsChecked) { 'on' } else { 'off' }); Say "Saved - $(if ($this.IsChecked) { "this window opens at login" } else { "$name starts in the hidden tray at login" })." })
                 $lbl = New-Object Windows.Controls.StackPanel
                 [void]$lbl.Children.Add((New-Text "Open $name when I log in" $brush.Text 14 'Normal' '0'))
-                [void]$lbl.Children.Add((New-Text 'Once per start-up; waits while a game is fullscreen. The tray icon is always there either way.' $brush.Sub 12 'Normal' '0,2,0,0'))
+                [void]$lbl.Children.Add((New-Text "Off: $name starts in the hidden tray (^ next to the clock) and works on its own. On: this window also opens once per start-up (not while a game is fullscreen)." $brush.Sub 12 'Normal' '0,2,0,0'))
                 [void]$row.Children.Add($sw); [void]$row.Children.Add($lbl)
                 [void]$out.Add((New-Card 'Start-up' 'E7E8' @($row) $null))
                 $kv = Get-Content 'C:\PCSetupKit\kit-version.txt' -TotalCount 1 -ErrorAction SilentlyContinue

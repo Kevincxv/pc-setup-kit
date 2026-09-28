@@ -1,7 +1,7 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 Persistent
-; The PC Setup Kit app's tray side: its icon next to the clock, small alerts when something needs the owner, and the
+; The PC Setup Kit app's tray side: it starts at login in the hidden tray (the ^ area) and runs the PC's maintenance on its own; small alerts when something needs the owner, and the
 ; parts of the app window (dashboard.ps1) that need admin rights. Clicking the icon opens the app window.
 ; With the optional Claude part (Messiah, setup.ps1 -WithClaude) it also holds the Messiah sessions (Claude Code with
 ; admin rights): minimizing one sends it to the tray, and at login it opens one hidden (continuing a conversation a
@@ -43,7 +43,7 @@ OnMessage(APPCMD, AppCommand)
 try FileOpen(CL "\tray-hwnd.txt", "w").Write(A_ScriptHwnd)
 SetTimer TodoTip, 5000
 TodoTip()
-SetTimer PinIcon, -5000
+SetTimer UnpinIcon, -5000
 SetTimer StatusAtLogin, -8000
 
 known := Map()  ; pid -> true if it's a Messiah launcher window
@@ -52,6 +52,7 @@ SetTimer Notify, 30000
 if AI {
     SetTimer Watch, 500
     SetTimer AutoStart, -3000
+    SetTimer SessionCheck, 300000
     SetTimer RefreshSession, 900000
 }
 
@@ -111,13 +112,15 @@ ShowApp() {
         Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\status.ps1"'
 }
 
-; The app window opens by itself once per boot, so the owner sees the app start at login (unless turned off in its
-; Settings: kit-options.txt "openatlogin=off"). A tray restart (update, crash, tray-app.ps1) keeps the boot and doesn't
-; reopen it; a fullscreen game holds it for up to 15 min after boot.
+; The app runs by itself: at login it starts in the hidden tray and opens no window. Only when the owner turns on
+; "Open at login" in its Settings (kit-options.txt "openatlogin=on") the window opens, once per boot: a tray restart
+; (update, crash, tray-app.ps1) keeps the boot and doesn't reopen it; a fullscreen game holds it up to 15 min after boot.
 StatusAtLogin() {
     if EnvGet("PCKIT_IN_TESTS") != ""
         return
-    try if RegExMatch(FileRead(CL "\kit-options.txt"), "im)^\s*openatlogin\s*=\s*off\s*$")
+    opts := ""
+    try opts := FileRead(CL "\kit-options.txt")
+    if !RegExMatch(opts, "im)^\s*openatlogin\s*=\s*on\s*$")
         return
     ini := CL "\tray-notified.ini"
     boot := DateAdd(A_Now, -(A_TickCount // 1000), "Seconds")
@@ -131,13 +134,14 @@ StatusAtLogin() {
         ShowApp()
 }
 
-; Pin the icon next to the clock once. Windows keeps a tray entry per program and hides new ones in the ^ area; the
-; tray runs as its own program (Messiah.exe / PC Setup Kit.exe, tray-app.ps1), so this pins only its own entry. Plain
-; AutoHotkey64.exe is shared by every AutoHotkey script: left alone. Once the owner hides it again, that choice stays.
-PinIcon() {
+; The icon lives in the hidden tray (the ^ area next to the clock), which is where Windows puts a new program's icon.
+; Versions up to 9/28 pinned it next to the clock once (recorded as "pinned=" in tray-notified.ini): that pin is undone
+; once. A pin the owner makes by hand is theirs and stays. Plain AutoHotkey64.exe (shared by every script): left alone.
+UnpinIcon() {
     static tries := 0
+    ini := CL "\tray-notified.ini"
     exe := RegExReplace(A_AhkPath, ".*\\")
-    if exe ~= "i)^AutoHotkey" || IniRead(CL "\tray-notified.ini", "shown", "pinned", "") = exe
+    if exe ~= "i)^AutoHotkey" || IniRead(ini, "shown", "pinned", "") != exe || IniRead(ini, "shown", "unpinned", "") = exe
         return
     Loop Reg, "HKCU\Control Panel\NotifyIconSettings", "K" {
         key := A_LoopRegKey "\" A_LoopRegName
@@ -146,14 +150,12 @@ PinIcon() {
             continue
         if RegExReplace(path, ".*\\") != exe
             continue
-        try RegRead(key, "IsPromoted")
-        catch   ; never set = hidden by default
-            RegWrite 1, "REG_DWORD", key, "IsPromoted"
-        IniWrite exe, CL "\tray-notified.ini", "shown", "pinned"
+        RegWrite 0, "REG_DWORD", key, "IsPromoted"
+        IniWrite exe, ini, "shown", "unpinned"
         return
     }
     if ++tries < 20   ; Windows adds the entry shortly after the icon appears
-        SetTimer PinIcon, -15000
+        SetTimer UnpinIcon, -15000
 }
 
 ; --- Alerts. Windows notifications are off on this PC (debloat), so the tray shows its own small note in the corner:
@@ -243,19 +245,31 @@ IsFullscreen() {
     return false
 }
 
-; Hidden session at login: the launcher sees CLAUDE_ADMIN_AUTOSTART and resumes or opens idle (no auto maintenance)
-AutoStart() {
+; Hidden session at login: the launcher sees CLAUDE_ADMIN_AUTOSTART and resumes or opens idle (no auto maintenance).
+; revive: the 5-minute check (SessionCheck) - a fresh idle session, never a resumed one (mode 2)
+AutoStart(revive := false) {
     ignore := RehearsalPids()
     for hwnd in Sessions() {
         try pid := WinGetPID(hwnd)
         catch
             continue   ; closed meanwhile
         if !ignore.Has(pid)
-            return
+            return false
     }
-    EnvSet "CLAUDE_ADMIN_AUTOSTART", "1"
+    EnvSet "CLAUDE_ADMIN_AUTOSTART", revive ? "2" : "1"
     try Run 'powershell.exe -NoLogo -ExecutionPolicy Bypass -File "' CL '\claude-admin-launch.ps1"', "C:\WINDOWS\system32", "Hide"
     EnvSet "CLAUDE_ADMIN_AUTOSTART"
+    return true
+}
+
+; A Messiah session is always there (the owner's rule): whatever ended the last one - closed, crashed, killed - a
+; hidden idle one is back within 5 minutes. Not during a login rehearsal (it controls the sessions itself) or tests.
+SessionCheck() {
+    f := CL "\rehearsal.txt"
+    if EnvGet("PCKIT_IN_TESTS") != "" || FileExist(f) && DateDiff(A_Now, FileGetTime(f), "Minutes") < 10
+        return
+    if AutoStart(true)
+        try FileAppend FormatTime(, "M/d/yyyy h:mm tt") "  No Messiah session was running - opened a hidden one`r`n", CL "\session-refresh.log", "UTF-8"
 }
 
 TrayClick(wParam, lParam, *) {

@@ -1,7 +1,6 @@
 # The tray as its own app: AutoHotkey runs the tray script under the app's name (Messiah.exe, or PC Setup Kit.exe
 # without Claude). Windows keeps one tray entry per program, and every AutoHotkey script otherwise shares AutoHotkey's
-# (hidden in the ^ area by default) - with its own name the tray can pin its icon next to the clock (the tray does that
-# once). Also: the login task that starts it, the app's icon, and its Start menu entry (the app window, dashboard.ps1).
+# (in the hidden ^ area) - with its own name the app has its own entry there, with its own icon. Also: the login task that starts it, the app's icon, and its Start menu entry (the app window, dashboard.ps1).
 # Safe to run again (setup, background maintenance): changes only what's missing or outdated, one line per change.
 param([string]$TrayDir = "$env:USERPROFILE\Documents\Messiah Tray", [string]$ClaudeDir = $PSScriptRoot,
     [string]$Ahk = "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe", [switch]$NoRestart, [switch]$Desktop)   # -NoRestart: setup starts the tray itself; -Desktop: also a desktop entry (setup)
@@ -69,7 +68,7 @@ if ($hasAhk) {
     if (-not $have -or $have.Length -ne $from.Length -or $have.VersionInfo.FileVersion -ne $from.VersionInfo.FileVersion) {
         # the running tray holds the old copy: stop it first (the task starts it again below)
         Get-CimInstance Win32_Process -Filter "Name='$name.exe'" -ErrorAction SilentlyContinue | Where-Object ExecutablePath -eq $exe | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $changed = $true }
-        try { Copy-Item $Ahk $exe -Force -ErrorAction Stop; "Tray: runs as $name.exe$(if ($have) { " (AutoHotkey $($from.VersionInfo.FileVersion))" } else { ' - its own icon next to the clock' })"; $changed = $true }
+        try { Copy-Item $Ahk $exe -Force -ErrorAction Stop; "Tray: runs as $name.exe$(if ($have) { " (AutoHotkey $($from.VersionInfo.FileVersion))" } else { ' - its own icon in the tray' })"; $changed = $true }
         catch {
             "Tray: couldn't copy AutoHotkey to $name.exe ($($_.Exception.Message)) - will retry"
             if ($have -and -not $NoRestart) { Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue }   # the old copy still works: never leave the tray off

@@ -38,19 +38,19 @@ function Clear-Path([string]$Path) {
 }
 # A stand-in claude.exe that records how it was called (args, stdin, env) to $env:FAKE_LOG and exits
 function Get-FakeClaude {
-    $exe = Join-Path $BinRoot 'bin\claude.exe'
+    $exe = Join-Path $BinRoot 'bin2\claude.exe'   # bin2: never crashes (a crash lands in the PC's real error log and crash reports)
     if (-not (Test-Path $exe)) {
         New-Item (Split-Path $exe) -ItemType Directory -Force | Out-Null
         Add-Type -OutputType ConsoleApplication -OutputAssembly $exe -TypeDefinition @'
 using System; using System.IO; using System.Text;
-public static class P { public static void Main(string[] a) {
+public static class P { public static void Main(string[] a) { try {
   var sb = new StringBuilder();
   sb.AppendLine("CWD=" + Environment.CurrentDirectory);
   sb.AppendLine("AUTOSTART_ENV=" + Environment.GetEnvironmentVariable("CLAUDE_ADMIN_AUTOSTART"));
   foreach (var x in a) sb.AppendLine("ARG=" + x);
   if (Console.IsInputRedirected) { var s = new StreamReader(Console.OpenStandardInput(), Encoding.UTF8).ReadToEnd(); sb.AppendLine("STDIN=" + s.Replace("\r","").Replace("\n","\\n")); }
-  var log = Environment.GetEnvironmentVariable("FAKE_LOG"); if (!string.IsNullOrEmpty(log)) File.WriteAllText(log, sb.ToString(), Encoding.UTF8);
-}}
+  var log = Environment.GetEnvironmentVariable("FAKE_LOG"); if (!string.IsNullOrEmpty(log)) { Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(log))); File.WriteAllText(log, sb.ToString(), Encoding.UTF8); }
+  } catch (Exception e) { Console.Error.WriteLine("fake claude: " + e.Message); Environment.Exit(1); } }}
 '@
     }
     $exe
@@ -108,13 +108,14 @@ function Assert-Mocks([string[]]$Names) {
 # exits with a_b_c.exit; "--version" prints version.txt, and a_b_c.newversion replaces version.txt (an update).
 # Every call is appended to $env:FAKE_DIR\calls.log.
 function Get-ScriptedClaude {
-    $exe = Join-Path $BinRoot 'scripted2\claude.exe'
+    $exe = Join-Path $BinRoot 'scripted3\claude.exe'   # scripted3: never crashes (see Get-FakeClaude)
     if (-not (Test-Path $exe)) {
         New-Item (Split-Path $exe) -ItemType Directory -Force | Out-Null
         Add-Type -OutputType ConsoleApplication -OutputAssembly $exe -TypeDefinition @'
 using System; using System.IO;
-public static class P { public static int Main(string[] a) {
-  string d = Environment.GetEnvironmentVariable("FAKE_DIR") ?? "."; string k = string.Join("_", a).Replace("-", ""); File.AppendAllText(Path.Combine(d, "calls.log"), k + Environment.NewLine);
+public static class P { public static int Main(string[] a) { try { return Run(a); } catch (Exception e) { Console.Error.WriteLine("fake claude: " + e.Message); return 1; } }
+static int Run(string[] a) {
+  string d = Environment.GetEnvironmentVariable("FAKE_DIR") ?? "."; Directory.CreateDirectory(d); string k = string.Join("_", a).Replace("-", ""); File.AppendAllText(Path.Combine(d, "calls.log"), k + Environment.NewLine);
   if (File.Exists(Path.Combine(d, k + ".sleep"))) System.Threading.Thread.Sleep(int.Parse(File.ReadAllText(Path.Combine(d, k + ".sleep")).Trim()));
   if (k == "version") { Console.WriteLine(File.Exists(Path.Combine(d, "version.txt")) ? File.ReadAllText(Path.Combine(d, "version.txt")).Trim() + " (Claude Code)" : "1.0.0 (Claude Code)"); return 0; }
   if (File.Exists(Path.Combine(d, k + ".newversion"))) File.Copy(Path.Combine(d, k + ".newversion"), Path.Combine(d, "version.txt"), true);

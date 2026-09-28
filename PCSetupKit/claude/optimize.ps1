@@ -78,7 +78,7 @@ $todo = @(Get-Content "$dir\maint-todo.txt" -Encoding UTF8 -ErrorAction Silently
 $text = @("PC Setup Kit - optimization report, $((Get-Date).ToString('f'))", '', 'THIS PC') + ($summary | ForEach-Object { "  $_" }) +
     @('', 'WHAT WAS DONE') + ($out | ForEach-Object { "  $_" }) +
     @('', 'WHAT NEEDS YOU') + $(if ($todo) { $todo | ForEach-Object { "  - $_" } } else { '  Nothing.' }) +
-    @('', 'From now on the PC maintains itself at every login. The tray icon (next to the clock) shows the status and', 'anything that needs you. Log files: C:\PCSetupKit\setup.log, %USERPROFILE%\.claude\maint-report.txt')
+    @('', 'From now on the PC maintains itself at every login. The app (Start menu, or the hidden tray icon) shows the status and', 'anything that needs you. Log files: C:\PCSetupKit\setup.log, %USERPROFILE%\.claude\maint-report.txt')
 [IO.File]::WriteAllLines($report, [string[]]$text, (New-Object Text.UTF8Encoding $false))
 "Report: $report"
 if (-not $FromMaintenance -and -not $NoOpen) { Start-Process notepad.exe "`"$report`"" }

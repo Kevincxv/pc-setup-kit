@@ -11,7 +11,7 @@ function Get-AhkFunction([string]$Name) {
     if (-not $m.Success) { $m = [regex]::Match($traySrc, "(?m)^$Name\([^)\r\n]*\)\s*=>.*$") }
     $m.Value
 }
-$funcs = foreach ($n in 'MaintRunning', 'TodoTip', 'Notify', 'RehearsalPids', 'TrayError', 'AiEnabled') { $f = Get-AhkFunction $n; Check "tray function $n found" ([bool]$f) ''; $f }
+$funcs = foreach ($n in 'MaintRunning', 'TodoTip', 'Notify', 'RehearsalPids', 'TrayError', 'AiEnabled', 'StatusAtLogin') { $f = Get-AhkFunction $n; Check "tray function $n found" ([bool]$f) ''; $f }
 @"
 #Requires AutoHotkey v2.0
 #NoTrayIcon
@@ -22,6 +22,7 @@ AI := EnvGet("TEST_AI") != "0"
 FS := A_Args.Length > 1 && A_Args[2] = "fs"
 Shown := []
 IsFullscreen() => FS
+ShowApp() => FileAppend("OPENED", "*")
 ShowNote(text, *) {
     global Shown
     Shown.Push(StrReplace(text, "``n", " \n "))
@@ -41,6 +42,7 @@ switch A_Args[1] {
         SetTimer () => WinGetPID(0x7FFFFFF0), -50
         Persistent
     case "ai": FileAppend(AiEnabled() ? "on" : "off", "*")
+    case "login": StatusAtLogin()
     case "pids":
         for k in RehearsalPids()
             FileAppend(k ",", "*")
@@ -105,4 +107,16 @@ Check 'no error message, the tray keeps running' ($o -eq 'still running') $o
 $log = Get-Content "$C\tray-errors.log" -Raw -ErrorAction SilentlyContinue
 Check '... and the error is logged for /self-improve' ($log -match 'WinGetPID') "$log"
 Check 'the real tray turns the error handler on at start' ((Get-Content $Tray -Raw) -match '(?m)^OnError TrayError\s*$') ''
+Section 'login: the app starts in the hidden tray (no window) unless the owner turned "Open at login" on'
+$saved = $env:PCKIT_IN_TESTS; $env:PCKIT_IN_TESTS = $null
+try {
+    [IO.File]::Delete("$C\tray-notified.ini"); 'claude=on' | Set-Content "$C\kit-options.txt"
+    Check 'default: no window at login' ((T login) -eq '') (T login)
+    "claude=on`nopenatlogin=off" | Set-Content "$C\kit-options.txt"
+    Check 'turned off: no window' ((T login) -eq '') ''
+    "claude=on`nopenatlogin=on" | Set-Content "$C\kit-options.txt"
+    Check 'turned on: the window opens' ((T login) -eq 'OPENED') ''
+    Check '... once per start-up (a tray restart doesn''t reopen it)' ((T login) -eq '') ''
+} finally { $env:PCKIT_IN_TESTS = $saved; [IO.File]::Delete("$C\tray-notified.ini"); [IO.File]::Delete("$C\kit-options.txt") }
+
 Finish

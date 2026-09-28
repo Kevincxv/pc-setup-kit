@@ -111,7 +111,7 @@ Check '... the hook is registered in Claude''s settings' ($s.hooks.PreToolUse[0]
 $lnk = "$cl\Messiah Session.lnk"
 Check '... session shortcut created, set to "Run as administrator"' ((Test-Path $lnk) -and (([IO.File]::ReadAllBytes($lnk)[0x15] -band 0x20) -ne 0)) ''
 $sc = if (Test-Path $lnk) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk) }
-Check '... it starts the launcher in System32 with PowerShell' ($sc -and $sc.TargetPath -match 'powershell\.exe$' -and $sc.Arguments -match [regex]::Escape("$cl\claude-admin-launch.ps1") -and $sc.WorkingDirectory -match 'System32$') "$($sc.Arguments)"
+Check '... it starts the launcher in System32 with PowerShell' ($sc -and $sc.TargetPath -match 'powershell\.exe$' -and $sc.Arguments -match [regex]::Escape("$cl\claude-admin-launch.ps1") -and $sc.WorkingDirectory -match 'System32$') "target=$($sc.TargetPath) | dir=$($sc.WorkingDirectory) | args=$($sc.Arguments)"
 $app = "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk"
 $sc = if (Test-Path $app) { (New-Object -ComObject WScript.Shell).CreateShortcut($app) }
 Check '... Start menu and desktop "Messiah" open the app window (not elevated: no UAC prompt)' ($sc -and $sc.Arguments -match 'dashboard\.ps1"$' -and (Test-Path "$H\Desktop\Messiah.lnk") -and (([IO.File]::ReadAllBytes($app)[0x15] -band 0x20) -eq 0)) "$($sc.Arguments)"

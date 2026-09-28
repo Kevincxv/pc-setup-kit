@@ -20,6 +20,8 @@ foreach ($b in $bsods) {
     "WARNING: blue screen $code at $($b.TimeCreated.ToString('g'))"
 }
 foreach ($h in $hard) { "WARNING: unexpected shutdown/freeze at $($h.TimeCreated.ToString('g')) (no blue screen recorded)" }
+# a blue screen right after a driver update: the previous version goes back by itself (driver-guard.ps1)
+if ($bsods -and (Test-Path "$PSScriptRoot\driver-guard.ps1")) { & "$PSScriptRoot\driver-guard.ps1" -Crashes @($bsods | ForEach-Object TimeCreated) }
 $whea = (Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WHEA-Logger'; StartTime = $since }).Count
 if ($whea) { "WARNING: $whea hardware error(s) logged (WHEA) - possible RAM/CPU instability" }
 if (-not $bsods -and -not $hard -and -not $whea) { 'Crashes: none since last check' }
@@ -28,6 +30,9 @@ $dumps = @(Get-ChildItem 'C:\Windows\Minidump\*.dmp', 'C:\Windows\MEMORY.DMP' | 
 # MEMORY.DMP is the same crash as the minidump written with it; analyzing both repeats the line and is slow
 $dumps = @($dumps | Where-Object { $d = $_; $d.Name -ne 'MEMORY.DMP' -or -not ($dumps | Where-Object { $_.Name -ne 'MEMORY.DMP' -and [Math]::Abs(($_.LastWriteTime - $d.LastWriteTime).TotalMinutes) -lt 10 }) } | Select-Object -First 2)
 foreach ($d in $dumps) { "WARNING: crash dump $($d.Name) - $(& "$PSScriptRoot\crash-analyze.ps1" -Dump $d.FullName)" }
+
+# --- Health over time (start-up time, disk space, temperatures, SSD wear vs this PC's own normal) ---
+if (Test-Path "$PSScriptRoot\trends.ps1") { & "$PSScriptRoot\trends.ps1" }
 
 # --- Tweak guard (shared tweaks + this PC's own extras) ---
 $fixed = @()

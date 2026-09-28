@@ -27,7 +27,7 @@ function Reset([hashtable]$state, [string[]]$report, [string[]]$todo) {
 function Transcript($id, [datetime]$when) { $f = "$proj\$id.jsonl"; '{}' | Set-Content $f; (Get-Item $f).LastWriteTime = $when; $f }
 
 # Runs the launcher like the tray (-Auto) or the Start menu shortcut; returns the fake claude's recorded args
-function Launch([switch]$Auto, [string[]]$LaunchArgs) {
+function Launch([switch]$Auto, [string[]]$LaunchArgs, [switch]$Revive) {   # -Revive: the tray's 5-minute session check (mode 2)
     $log = "$sb\fake.log"; Remove-Item $log -ErrorAction SilentlyContinue
     $psi = New-Object Diagnostics.ProcessStartInfo 'powershell.exe'
     $a = '-NoProfile -NoLogo -ExecutionPolicy Bypass -File "' + "$cl\claude-admin-launch.ps1" + '"'
@@ -36,7 +36,7 @@ function Launch([switch]$Auto, [string[]]$LaunchArgs) {
     $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
     $psi.EnvironmentVariables['USERPROFILE'] = $home2; $psi.EnvironmentVariables['FAKE_LOG'] = $log
     $token = [guid]::NewGuid().ToString(); $psi.EnvironmentVariables['PCKIT_LAUNCH_TOKEN'] = $token
-    if ($Auto) { $psi.EnvironmentVariables['CLAUDE_ADMIN_AUTOSTART'] = '1' } else { $psi.EnvironmentVariables.Remove('CLAUDE_ADMIN_AUTOSTART') }
+    if ($Auto) { $psi.EnvironmentVariables['CLAUDE_ADMIN_AUTOSTART'] = $(if ($Revive) { '2' } else { '1' }) } else { $psi.EnvironmentVariables.Remove('CLAUDE_ADMIN_AUTOSTART') }
     $p = [Diagnostics.Process]::Start($psi); $out = $p.StandardOutput.ReadToEnd(); $err = $p.StandardError.ReadToEnd(); [void]$p.WaitForExit(30000)
     $r = [pscustomobject]@{ Args = @(); Env = $null; Out = $out; Err = $err }
     # bg-maint is fire-and-forget: its marker can appear a moment later - only the checks that ask wait for it (up to 2 s)
@@ -115,6 +115,13 @@ Transcript $a $boot.AddMinutes(-1) | Out-Null; Transcript $b $boot.AddMinutes(-2
 $r = Launch -Auto
 Check 'autostart, two sessions: resumes the most recently active' ((After $r '--resume') -eq $a) ($r.Args -join ' ')
 
+Reset
+$id = [guid]::NewGuid().ToString(); $id | Set-Content "$cl\admin-sessions.txt"; Transcript $id $boot.AddMinutes(-2) | Out-Null
+"$id`tFinish the thing" | Set-Content "$cl\resume-after-login.txt"
+$r = Launch -Auto -Revive
+Check 'session check mid-day (mode 2): always a fresh idle session - never resumes (not even a cut-off one), no prompt' ((Has $r '--session-id') -and -not (Has $r '--resume') -and -not ($r.Args -match 'Finish the thing')) ($r.Args -join ' ')
+Check '... hidden-start rules otherwise: no bg-maint, the login resume request is left for the next login' ((-not $r.Kicked) -and (Test-Path "$cl\resume-after-login.txt")) ''
+Clear-Path "$cl\resume-after-login.txt"
 Reset
 '00000000-dead-beef-0000-000000000000' | Set-Content "$cl\admin-sessions.txt"
 $r = Launch -Auto

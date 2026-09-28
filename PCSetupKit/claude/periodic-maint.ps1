@@ -19,9 +19,21 @@ if ($game -and ((Due 'weekly-apps' 7) -or (Due 'monthly-cleanup' 30))) { "App up
 if (-not $game -and (Due 'weekly-apps' 7)) {
     $skip = 'Valve.Steam', 'Discord.Discord', 'Google.Chrome', 'Nvidia.', 'Microsoft.Edge'   # (Edge and WebView2 update themselves)
     try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}   # winget writes UTF-8 (a shortened name ends in "...")
+    # A table of updates, or "No installed package found" = winget answered. Anything else (no answer, "No packages
+    # were found", a source error) = its package list is missing or broken: fetched again, then asked once more.
+    # Still no answer: not marked done, so the next run tries again - never a silently skipped week.
+    $answered = { param($r) [array]::FindIndex($r, [Predicate[object]] { param($l) "$l" -match 'Name\s+Id\s+Version' }) -ge 0 -or ($r -match 'No installed package found') }
     $raw = @(winget upgrade --accept-source-agreements --disable-interactivity 2>$null)
+    if (-not (& $answered $raw)) {
+        winget source reset --force 2>&1 | Out-Null; winget source update --accept-source-agreements 2>&1 | Out-Null
+        $raw = @(winget upgrade --accept-source-agreements --disable-interactivity 2>$null)
+        if (& $answered $raw) { 'App updates: winget''s package list was broken - fetched it again' }
+    }
     $h = [array]::FindIndex($raw, [Predicate[object]] { param($l) "$l" -match 'Name\s+Id\s+Version' })
-    if ($h -ge 0) {
+    # one miss (offline, winget busy) is "held"; three weeks without app updates is a FAILED line (it gets looked at).
+    # winget's own message stays out of the line: its "Failed when searching..." would read as FAILED.
+    if (-not (& $answered $raw)) { "App updates $(if (Due 'weekly-apps' 21) { 'FAILED' } else { 'held' }): winget couldn't load its package list - trying again next run" }
+    elseif ($h -ge 0) {
         # each row read from the right (Id, Version, Available, Source never contain spaces): a shortened or oddly
         # encoded name can't shift the columns
         for ($i = $h + 2; $i -lt $raw.Count -and $raw[$i] -match '\S' -and $raw[$i] -notmatch 'upgrades? available|explicit targeting'; $i++) {
@@ -31,7 +43,7 @@ if (-not $game -and (Due 'weekly-apps' 7)) {
             if ($o -match 'Successfully installed') { "Updated app: $id" } else { "App update FAILED: $id" }
         }
     }
-    Done 'weekly-apps'
+    if (& $answered $raw) { Done 'weekly-apps' }
 }
 
 # --- Monthly: cleanup, restore point, orphans, driver store ---
@@ -59,7 +71,10 @@ if (-not $game -and (Due 'monthly-cleanup' 30)) {
     # Old driver versions (in-use packages are refused by pnputil without /force, so this only removes stale ones)
     $pk = [regex]::Matches((pnputil /enum-drivers | Out-String), 'Published Name:\s+(\S+)\s+Original Name:\s+(\S+)[\s\S]*?Driver Version:\s+\S+\s+(\S+)') |
         ForEach-Object { [pscustomobject]@{ Pub = $_.Groups[1].Value; Orig = $_.Groups[2].Value; Ver = [version]($_.Groups[3].Value -replace '[^\d.]', '') } }
-    foreach ($g in $pk | Group-Object Orig | Where-Object Count -gt 1) {
+    # A driver updated in the last 30 days keeps its previous version: driver-guard.ps1 goes back to it if the new
+    # one causes blue screens (arrival time = its driver store folder's creation time)
+    $recent = @(Get-WindowsDriver -Online | Where-Object { (Get-Item -LiteralPath (Split-Path $_.OriginalFileName)).CreationTime -gt (Get-Date).AddDays(-30) } | ForEach-Object { Split-Path $_.OriginalFileName -Leaf })
+    foreach ($g in $pk | Group-Object Orig | Where-Object { $_.Count -gt 1 -and $_.Name -notin $recent }) {
         foreach ($old in $g.Group | Sort-Object Ver -Descending | Select-Object -Skip 1) {
             if ((pnputil /delete-driver $old.Pub 2>&1 | Out-String) -match 'deleted successfully') { "Removed old driver $($old.Orig) $($old.Ver)" }
         }

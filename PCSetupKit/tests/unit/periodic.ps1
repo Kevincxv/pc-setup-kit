@@ -5,7 +5,7 @@ $d = "$Work\pm"; New-Item $d -ItemType Directory -Force | Out-Null
 Copy-Item "$Src\periodic-maint.ps1" $d; '' | Set-Content "$d\game-check.ps1"
 $mocked = 'winget', 'DISM', 'Start-Process', 'Stop-Process', 'Checkpoint-Computer', 'Get-ComputerRestorePoint', 'pnputil', 'Get-NetFirewallApplicationFilter',
     'Get-NetFirewallRule', 'Remove-NetFirewallRule', 'Optimize-Volume', 'Set-ItemProperty', 'Remove-ItemProperty', 'Get-PSDrive', 'Get-ScheduledTask',
-    'Get-ScheduledTaskInfo', 'Get-CimInstance'
+    'Get-ScheduledTaskInfo', 'Get-CimInstance', 'Get-WindowsDriver'
 if (-not (Test-Tripwire "$d\periodic-maint.ps1" $mocked -Guarded 'Get-ChildItem')) { Finish }   # (Get-ChildItem only reads the Disk Cleanup category list)
 
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
@@ -13,13 +13,14 @@ $now = Get-Date
 function RestorePt($daysAgo) { $o = [pscustomobject]@{ CreationTime = $now.AddDays(-$daysAgo) }; $o | Add-Member ScriptMethod ConvertToDateTime { param($t) $t }; $o }
 function Reset-M {
     $global:PM = @{
-        Winget = @('No installed package found matching input criteria.'); WingetOk = @('Vendor.Good')
+        Winget = @('No installed package found matching input criteria.'); WingetOk = @('Vendor.Good'); WinDrivers = @()
         Rps = @(RestorePt 10); RpWorks = $true; Reboot = $false; Free = 100GB; FreeAfter = 102GB; CleanmgrHangs = $false
         Drivers = ''; FwFilters = @(); Services = @(); Tasks = @(); DefragLast = $now.AddDays(-2)
     }
     $global:PMcalls = New-Object System.Collections.Generic.List[string]
 }
-function winget { if ("$args" -match '--id (\S+)') { $global:PMcalls.Add("winget upgrade $($Matches[1])"); if ($PM.WingetOk -contains $Matches[1]) { 'Successfully installed' } else { 'Installer failed with exit code: 1603' } } else { $PM.Winget } }
+function winget { if ("$args" -match '^source (reset|update)') { $global:PMcalls.Add("winget source $($Matches[1])"); if ($Matches[1] -eq 'update' -and $PM.FixedByRefresh) { $PM.Winget = @('No installed package found matching input criteria.') }; return }; if ("$args" -match '--id (\S+)') { $global:PMcalls.Add("winget upgrade $($Matches[1])"); if ($PM.WingetOk -contains $Matches[1]) { 'Successfully installed' } else { 'Installer failed with exit code: 1603' } } else { $PM.Winget } }
+function Get-WindowsDriver { param([switch]$Online) $PM.WinDrivers }
 function DISM { $global:PMcalls.Add("DISM $args") }
 function Start-Process { $global:PMcalls.Add("Start-Process $args"); $p = [pscustomobject]@{ Id = 4242 }; $h = $PM.CleanmgrHangs; $p | Add-Member ScriptMethod WaitForExit ([scriptblock]::Create("param(`$ms) -not `$$h")); $p }
 function Stop-Process { $global:PMcalls.Add("Stop-Process $args") }
@@ -70,6 +71,12 @@ Check 'Edge (updates itself) is never touched' (-not ($PMcalls -match 'Microsoft
 Check 'marked done for this week' ((St).'weekly-apps' -ne $old) ''
 Reset-M; State @{ 'weekly-apps' = $old }; $o = PM
 Check 'nothing to update: no lines, still marked done' (-not ($o -match 'Updated app|FAILED') -and (St).'weekly-apps' -ne $old) ($o -join ' / ')
+Reset-M; State @{ 'weekly-apps' = $now.AddDays(-8).ToString('o') }; $PM.Winget = @('No packages were found among the working sources.'); $PM.FixedByRefresh = $true; $o = PM
+Check 'winget''s package list broken: fetched again, then the updates run (and marked done)' (($PMcalls -contains 'winget source reset') -and ($PMcalls -contains 'winget source update') -and ($o -match 'package list was broken - fetched it again') -and (St).'weekly-apps' -ne $now.AddDays(-8).ToString('o')) ($o -join ' / ')
+$was = $now.AddDays(-8).ToString('o'); Reset-M; State @{ 'weekly-apps' = $was }; $PM.Winget = @('Failed when searching source: winget'); $o = PM
+Check '... still broken: "held" (no alarm for one miss), NOT marked done - the next run tries again' (($o -match '^App updates held: winget couldn''t load') -and -not ($o -match 'FAIL') -and ([datetime]((St).'weekly-apps')) -lt $now.AddDays(-7)) "state: $((St).'weekly-apps') | $($o -join ' / ')"
+Reset-M; State @{ 'weekly-apps' = $old }; $PM.Winget = @(); $o = PM
+Check '... no app updates for 3+ weeks: FAILED (gets looked at)' ($o -match '^App updates FAILED: winget couldn''t load') ($o -join ' / ')
 
 Section 'monthly cleanup'
 Reset-M; State @{ 'monthly-cleanup' = $old }
@@ -121,6 +128,15 @@ Check '... never Recycle Bin, Downloads, shader cache, crash dumps, previous Win
 Check '... Disk Cleanup started with the kit''s own preset' ([bool]($PMcalls -match 'cleanmgr.exe.*sagerun:78')) ''
 Check 'old driver version removed, the newest kept' (($PMcalls -contains 'pnputil delete oem7.inf') -and -not ($PMcalls -contains 'pnputil delete oem8.inf') -and ($o -match 'Removed old driver nvlddmkm.inf 32.0.15.9000')) ($PMcalls -join ', ')
 Check 'a driver still in use is not reported as removed' (-not ($o -match 'rt640x64')) ($o -join ' / ')
+# the NVIDIA driver was updated 5 days ago (its driver store folder is new): the previous version stays, so
+# driver-guard.ps1 can go back to it after a blue screen
+$store = "$Work\store\nvlddmkm.inf_amd64_new"; New-Item $store -ItemType Directory -Force | Out-Null; (Get-Item $store).CreationTime = (Get-Date).AddDays(-5)
+$PM.WinDrivers = @([pscustomobject]@{ Driver = 'oem8.inf'; OriginalFileName = "$store\nvlddmkm.inf" }); $PM.Reboot = $false
+$global:PMcalls.Clear(); State @{ 'monthly-cleanup' = $old }; $o = PM
+Check 'a driver updated in the last 30 days keeps its previous version (rollback after a blue screen)' (-not ($PMcalls -contains 'pnputil delete oem7.inf') -and -not ($o -match 'Removed old driver nvlddmkm')) ($PMcalls -join ', ')
+(Get-Item $store).CreationTime = (Get-Date).AddDays(-31); $global:PMcalls.Clear(); State @{ 'monthly-cleanup' = $old }; $o = PM
+Check '... after 30 days it is cleaned up as usual' ($PMcalls -contains 'pnputil delete oem7.inf') ($PMcalls -join ', ')
+$PM.WinDrivers = @()
 Check 'only the firewall rule of the deleted program is removed' ((@($PMcalls -match '^remove firewall').Count -eq 1) -and ($PMcalls -match 'remove firewall rule-C:\\Games\\Removed') -and ($o -match 'Removed 1 firewall rules')) ($PMcalls -join ', ')
 $w = @($o -match 'WARNING: leftovers')
 Check 'orphaned service and task reported for Claude' (($w -match 'service GoneSvc') -and ($w -match 'task \\GoneUpdater') -and ($w -match 'service DrvSvc')) ($w -join ' / ')

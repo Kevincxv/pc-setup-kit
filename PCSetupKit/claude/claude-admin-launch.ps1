@@ -27,9 +27,12 @@ if ((Test-Path $rf) -and ((Get-Date) - (Get-Item $rf).LastWriteTime).TotalMinute
     Get-Content $rf | ForEach-Object { $k, $v = $_ -split '=', 2; if ($v) { $reh[$k.Trim()] = $v.Trim() } }
 }
 
-$auto = $env:CLAUDE_ADMIN_AUTOSTART -eq '1'
+# CLAUDE_ADMIN_AUTOSTART=2: the tray's session check found no session running during the day - always a fresh idle
+# one (continuing a conversation belongs to login only; mid-day it would bring back one the owner just closed)
+$auto = $env:CLAUDE_ADMIN_AUTOSTART -in '1', '2'
+$revive = $env:CLAUDE_ADMIN_AUTOSTART -eq '2'
 Remove-Item Env:CLAUDE_ADMIN_AUTOSTART -ErrorAction SilentlyContinue
-if ($auto -and -not $cargs) {
+if ($auto -and -not $revive -and -not $cargs) {
     if (Test-Path $resumeFile) {
         $fresh = ((Get-Date) - (Get-Item $resumeFile).LastWriteTime).TotalHours -lt 24   # don't replay an old request days later
         $id, $prompt = "$(Get-Content $resumeFile -Raw)".Trim() -split "`t", 2

@@ -93,6 +93,14 @@ Check 'a driver that failed before is hidden, not retried forever' (($o -match "
 Check 'the rest are installed: success and failure reported per driver' (($o -contains 'Driver: Realtek - Net - 10.70 - installed') -and ($o -contains 'Driver: Logitech - HID - 1.2 - FAILED') -and -not ($o -match 'Driver: AMD - Display - 32.0 -')) ($o -join ' / ')
 Check 'licence terms accepted for them' ($DC.Updates[0].EulaAccepted -and $DC.Updates[2].EulaAccepted) ''
 Check 'restart needed: REBOOT line (finishes at the owner''s next restart)' ([bool]($o -match '^REBOOT required to finish driver installs')) ''
+Reset-D; Rec @((Drv '617.14'))
+$bad = New-WUUpdate 'Realtek - Net - 10.71'; $bad | Add-Member DriverProvider 'Realtek'; $bad | Add-Member DriverVerDate ([datetime]'2026-09-01')
+$other = New-WUUpdate 'Realtek - Net - 10.72'; $other | Add-Member DriverProvider 'Realtek'; $other | Add-Member DriverVerDate ([datetime]'2026-09-20')
+$DC.Updates = @($bad, $other); $DC.Results = @{ 'Realtek - Net - 10.72' = 2 }
+'Realtek|2026-09-01|10.71.0.0|rt640x64.inf' | Set-Content "$d\driver-blocklist.txt"
+$o = DC; [IO.File]::Delete("$d\driver-blocklist.txt")
+Check 'a driver rolled back after a blue screen (driver-blocklist.txt) is hidden, not installed again' ($bad.IsHidden -and ($o -match "'Realtek - Net - 10.71' was rolled back after a blue screen - hidden") -and -not ($o -match 'Driver: Realtek - Net - 10.71 -')) ($o -join ' / ')
+Check '... a different version from the same maker still installs' ((-not $other.IsHidden) -and ($o -contains 'Driver: Realtek - Net - 10.72 - installed')) ($o -join ' / ')
 Section 'a game is running: installs wait (moved here from game-aware: mocked, so it also runs without an NVIDIA card)'
 '"TestGame"' | Set-Content "$d\game-check.ps1"
 Reset-D; Rec @((Drv '620.36')); $DC.Updates = @((New-WUUpdate 'Realtek - Net - 10.70')); $o = DC

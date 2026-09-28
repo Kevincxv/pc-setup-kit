@@ -1,4 +1,4 @@
-﻿# PC Setup Kit - first-logon setup. Started automatically by autounattend.xml (FirstLogonCommands) from the USB.
+# PC Setup Kit - first-logon setup. Started automatically by autounattend.xml (FirstLogonCommands) from the USB.
 # Can also be run by hand on an existing Windows 11 PC: right-click > Run with PowerShell (it asks for admin).
 # Steps: copy kit to C:\PCSetupKit > tweaks > power plan > remove OneDrive > install apps > maintenance (scripts, login
 # task, tray). No AI needed: everything is scripts.
@@ -119,13 +119,13 @@ $daily.StartBoundary = (Get-Date -Hour 12 -Minute 0 -Second 0).ToString('s')   #
 Register-ScheduledTask -TaskName 'Claude Background Maintenance' -Action $act -Trigger @($trg, $daily) -Principal $prn -Force `
     -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 4) -Priority 7) | Out-Null
 
-# Tray icon (next to the clock): status, the to-do list and small alerts when something needs the owner; with Claude
+# Tray icon (hidden tray, the ^ next to the clock): status, the to-do list and small alerts when something needs the owner; with Claude
 # it also keeps a Messiah session open hidden from every login and continues work a shutdown cut off
 $trayDir = "$env:USERPROFILE\Documents\Messiah Tray"
 New-Item $trayDir -ItemType Directory -Force | Out-Null
 Copy-Item "$kit\claude\tray\Messiah Tray.ahk" $trayDir -Force
 # the app: its icon, Start menu and desktop entries (the app window; with Claude also the session shortcut), and the
-# tray under its own program name (own tray entry, pinned next to the clock) with its login task
+# tray under its own program name (its own entry in the hidden tray) with its login task
 & "$cl\tray-app.ps1" -TrayDir $trayDir -NoRestart -Desktop | Out-Null
 if (-not (Test-Path "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe")) { '  AutoHotkey is missing - no tray icon (run setup.ps1 again once winget works)' }
 
@@ -139,7 +139,7 @@ if (-not $WithClaude) {
 
   Setup finished. From now on the PC maintains itself at every login (updates, drivers, cleanup, crash checks).
   The report (Documents\PC Setup Kit report.txt) shows what was done and anything that needs you; the tray
-  icon next to the clock and the "PC Setup Kit" app (Start menu and desktop) keep showing the status.
+  icon in the hidden tray and the "PC Setup Kit" app (Start menu and desktop) show the status.
   You can unplug the USB drive now. Log: C:\PCSetupKit\setup.log
 '@ -ForegroundColor Green
     Stop-Transcript | Out-Null

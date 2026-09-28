@@ -27,7 +27,7 @@ if ($Only) { $unit = @($unit | Where-Object BaseName -match $Only); $live = @($l
 Write-Host "PC Setup Kit tests ($Suite) - scripts: $Src$(if ($unit.Count -gt 1 -and $Jobs -gt 1) { " - $Jobs at a time" })" -ForegroundColor Cyan
 
 # scratch folders of runs more than 2 days old go (the weekly self-test would otherwise pile them up)
-Get-ChildItem $scratch -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin 'bin', 'sleeper', 'scripted2', 'dbg' -and $_.LastWriteTime -lt (Get-Date).AddDays(-2) } |
+Get-ChildItem $scratch -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin 'bin2', 'sleeper', 'scripted3', 'dbg' -and $_.LastWriteTime -lt (Get-Date).AddDays(-2) } |
     ForEach-Object { try { [IO.Directory]::Delete($_.FullName, $true) } catch {} }
 # build the compiled stand-ins once, before tests start side by side (two tests compiling the same file would clash)
 & powershell -NoProfile -ExecutionPolicy Bypass -Command ". '$here\lib.ps1'; [void](Get-FakeClaude); [void](Get-SleeperClaude); [void](Get-ScriptedClaude)" *> $null
@@ -84,7 +84,13 @@ function Invoke-Files($files, [int]$Max) {
 
 $t0 = Get-Date
 $rows = @(if ($unit) { Invoke-Files $unit $Jobs }) + @(if ($live) { Invoke-Files $live 1 })
-$p = ($rows | Measure-Object Pass -Sum).Sum; $fl = ($rows | Measure-Object Fail -Sum).Sum; $sk = ($rows | Measure-Object Skip -Sum).Sum
+# a stand-in program that crashed during the run left a real "application crash" in the PC's error log (and a crash
+# report) - the maintenance reads that log to diagnose real crashes, so the tests must never add to it
+$crashes = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000; StartTime = $t0 } -ErrorAction SilentlyContinue |
+        Where-Object { $_.Message -match 'Faulting application path: (.+)' -and $Matches[1] -match 'pckit-tests' })   # every stand-in lives under %TEMP%\pckit-tests
+$rows += [pscustomobject]@{ Test = 'no-crash-leftovers'; Pass = [int](-not $crashes); Fail = [int][bool]$crashes; Skip = 0; Sec = 0 }
+if ($crashes) { Write-Host "  FAIL  test stand-ins crashed $($crashes.Count) time(s) - they land in the PC's error log: $(@($crashes | ForEach-Object { if ($_.Message -match 'Faulting application path: (.+)') { $Matches[1].Trim() } } | Sort-Object -Unique) -join ', ')" -ForegroundColor Red }
+$p =($rows | Measure-Object Pass -Sum).Sum; $fl = ($rows | Measure-Object Fail -Sum).Sum; $sk = ($rows | Measure-Object Skip -Sum).Sum
 $summary = @("PC Setup Kit tests ($Suite) $((Get-Date).ToString('g')) in $([int]((Get-Date) - $t0).TotalSeconds)s: $p passed, $fl failed, $sk skipped") +
     ($rows | ForEach-Object { '  {0,-22} {1,4} passed {2,3} failed {3,3} skipped {4,5}s' -f $_.Test, $_.Pass, $_.Fail, $_.Skip, $_.Sec })
 Write-Host ''; $summary | ForEach-Object { Write-Host $_ -ForegroundColor $(if ($fl) { 'Red' } else { 'Green' }) }
