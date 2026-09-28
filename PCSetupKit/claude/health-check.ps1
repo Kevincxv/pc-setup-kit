@@ -40,19 +40,20 @@ $mp = Get-MpComputerStatus
 if ($mp -and -not $mp.RealTimeProtectionEnabled) { 'WARNING: Defender real-time protection is OFF' }
 if ($mp -and $mp.QuickScanAge -gt 7 -and -not (& "$PSScriptRoot\game-check.ps1")) {   # never scan under a running game
     Start-Process "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -ArgumentList '-Scan', '-ScanType', '1' -WindowStyle Hidden
-    "Security: started a quick virus scan (last one $($mp.QuickScanAge) days ago)"
+    "Security: started a quick virus scan (last one $(if ($mp.QuickScanAge -ge 10000) { 'never' } else { "$($mp.QuickScanAge) days ago" }))"
 }
 $lastSync = [datetime]::MinValue
 $sync = w32tm /query /status | Select-String 'Last Successful Sync Time: (.+)$'
 if ($sync) { try { $lastSync = [datetime]$sync.Matches[0].Groups[1].Value.Trim() } catch {} }
 if ($lastSync -lt (Get-Date).AddDays(-8)) { w32tm /resync /force | Out-Null }
 # App updates: read the Name column of winget's table (header positions tell where the Id column starts)
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}   # winget writes UTF-8
 $raw = @(winget upgrade --accept-source-agreements --disable-interactivity 2>$null)
 $h = [array]::FindIndex($raw, [Predicate[object]] { param($l) "$l" -match 'Name\s+Id\s+Version' })
 if ($h -ge 0) {
-    $hdr = $raw[$h].Substring($raw[$h].IndexOf('Name')); $idCol = $hdr.IndexOf('Id')
+    # rows read from the right (Id, Version, Available, Source never contain spaces): a shortened name can't shift them
     $up = @(for ($i = $h + 2; $i -lt $raw.Count -and $raw[$i] -match '\S' -and $raw[$i] -notmatch 'upgrades? available|explicit targeting'; $i++) {
-        $raw[$i].Substring(0, [Math]::Min($idCol, $raw[$i].Length)).Trim() })
+        if ("$($raw[$i])" -match '^(?<name>.+?)\s+(?<id>\S+)\s+(?<ver>(<\s)?\S+)\s+(?<avail>\S+)\s+(?<src>\S+)\s*$') { $Matches['name'].Trim() } })
     if ($up) { "Apps: $($up.Count) update(s) available ($($up -join ', ')) - the weekly app update installs them" }
 }
 

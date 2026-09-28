@@ -29,7 +29,7 @@ $jobs = foreach ($j in @(
         @{ Name = 'Claude Code'; Script = 'claude-maint.ps1'; Timeout = 300 },    # its own steps can take 120+45+45 s (+45 per plugin)
         @{ Name = 'PC health'; Script = 'health-check.ps1'; Timeout = 900 },     # long limit: first crash-dump analysis downloads symbols
         @{ Name = 'Periodic'; Script = 'periodic-maint.ps1'; Timeout = 3600 },   # weekly app updates, monthly cleanup (only when due)
-        @{ Name = 'Kit'; Script = 'kit-update.ps1'; Timeout = 300 })) {          # PCs installed from the kit: newest published version
+        @{ Name = 'Kit'; Script = 'kit-update.ps1'; Timeout = 900 })) {          # PCs installed from the kit: newest published version
     if (-not (Test-Path "$dir\$($j.Script)")) { continue }
     if ($j.Script -eq 'claude-maint.ps1' -and -not $ai) { continue }
     # this run's own file names: another run at the same time (a test copy, a manual run) must never mix into this report
@@ -149,4 +149,6 @@ if ($Unattended -and $ai) {
     [IO.File]::Delete($busy)
     Get-ChildItem $logDir -Filter '*.md' | Sort-Object Name -Descending | Select-Object -Skip 30 | ForEach-Object { [IO.File]::Delete($_.FullName) }
 }
+# last (it changes the task this run belongs to): the daily run for PCs that stay on for days (ensure-schedule.ps1)
+if (Test-Path "$dir\ensure-schedule.ps1") { $es = @(& "$dir\ensure-schedule.ps1"); if ($es) { Add-Content $report $es -Encoding UTF8 } }
 $mutex.ReleaseMutex()

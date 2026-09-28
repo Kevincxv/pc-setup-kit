@@ -50,7 +50,7 @@ $mocked = 'Register-ScheduledTask', 'Step', 'Invoke-RestMethod'
 $ok = Test-Tripwire "$Work\setup-part.ps1" $mocked -Guarded 'New-ScheduledTaskAction', 'New-ScheduledTaskTrigger', 'New-ScheduledTaskPrincipal', 'New-ScheduledTaskSettingsSet'
 if (-not $ok) { Finish }
 Import-MockTargets $mocked   # load their modules BEFORE defining the mocks (see lib.ps1)
-function Register-ScheduledTask { param($TaskName, $Action, $Trigger, $Principal, $Settings, [switch]$Force) $global:tasks[$TaskName] = [pscustomobject]@{ Action = $Action; Settings = $Settings; Principal = $Principal }; [pscustomobject]@{ TaskName = $TaskName } }
+function Register-ScheduledTask { param($TaskName, $Action, $Trigger, $Principal, $Settings, [switch]$Force) $global:tasks[$TaskName] = [pscustomobject]@{ Action = $Action; Settings = $Settings; Principal = $Principal; Trigger = @($Trigger) }; [pscustomobject]@{ TaskName = $TaskName } }
 function Step($m) { }
 function Invoke-RestMethod { param($Uri) $global:downloads += "$Uri"; '' }   # the Claude Code installer is never really downloaded here
 if (-not (Assert-Mocks $mocked)) { Finish }
@@ -70,6 +70,7 @@ Check '... Claude Code not downloaded, no skills, no hook, no Claude settings' (
 Check '... no Messiah shortcut' (-not (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk") -and -not (Test-Path "$H\Desktop\Messiah.lnk")) ''
 $bg = $global:tasks['Claude Background Maintenance']
 Check '... login maintenance task: hidden (conhost --headless), unattended, elevated, 2 min delay, 4 h limit' ($bg -and $bg.Action.Arguments -match '^--headless powershell\.exe .*claude-bg-maint\.ps1" -Force -Unattended$' -and $bg.Principal.RunLevel -eq 'Highest' -and $bg.Settings.ExecutionTimeLimit -eq 'PT4H') ''
+Check '... and once a day at 12:00, catching up after a missed start (PCs that stay on for days)' ($bg.Trigger.Count -eq 2 -and ($bg.Trigger | Where-Object { $_.DaysInterval -eq 1 -and $_.StartBoundary -match 'T12:00:00$' }) -and $bg.Settings.StartWhenAvailable) ''
 if (Test-Path "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe") {
     $tr = $global:tasks['Messiah Tray']
     Check '... tray task: runs the tray script at login, elevated, no time limit' ($tr -and $tr.Action.Arguments -match [regex]::Escape("$H\Documents\Messiah Tray\Messiah Tray.ahk") -and $tr.Settings.ExecutionTimeLimit -eq 'PT0S') ''

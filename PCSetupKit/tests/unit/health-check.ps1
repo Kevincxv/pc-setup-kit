@@ -88,6 +88,11 @@ Check 'Defender real-time protection off = WARNING' ([bool]($o -match 'WARNING: 
 Check 'a virus scan older than 7 days starts a quick scan' (($global:HCcalls -match 'MpCmdRun') -and ($o -match 'started a quick virus scan \(last one 9 days')) ($global:HCcalls -join ', ')
 Check 'clock not synced for 10 days -> resync' ([bool]($global:HCcalls -contains 'w32tm resync')) ($global:HCcalls -join ', ')
 Check 'app updates listed by name' ([bool]($o -match 'Apps: 2 update\(s\) available \(App One, App Two Long\)')) ($o -join ' / ')
+Healthy; $M.Mp = [pscustomobject]@{ RealTimeProtectionEnabled = $true; QuickScanAge = 4294967295 }
+$M.Winget = @('Name           Id              Version  Available  Source', '----------------------------------------------------------', ('Long App Na' + [string][char]0xE2 + [char]0x20AC + [char]0xA6 + ' Vendor.LongApp   1.0      1.1        winget'), 'Odd Version    Vendor.Odd      < 2.0    2.1        winget', '2 upgrades available.')
+$o = HC
+Check 'a never-run virus scan says "never" (Windows reports 4294967295 days)' ([bool]($o -match 'last one never\)')) ($o -join ' / ')
+Check 'app names read right even when a shortened name shifts the columns' ([bool]($o -match 'Apps: 2 update\(s\) available \(Long App Na.+, Odd Version\)')) ($o -join ' / ')
 Healthy; $M.Mp.QuickScanAge = 9; 'x' | Set-Content "$d\gaming.flag"
 $o = HC
 Check 'no virus scan while a game runs' (-not ($global:HCcalls -match 'MpCmdRun')) ($global:HCcalls -join ', ')

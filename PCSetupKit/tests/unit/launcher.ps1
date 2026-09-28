@@ -9,6 +9,9 @@ New-Item "$home2\.local\bin", $proj -ItemType Directory -Force | Out-Null
 Copy-Item (Get-FakeClaude) "$home2\.local\bin\claude.exe" -Force
 
 function Reset([hashtable]$state, [string[]]$report, [string[]]$todo) {
+    # the previous launch's fire-and-forget bg-maint stand-in may still be starting (it holds its script open): let it finish
+    $w = [Diagnostics.Stopwatch]::StartNew()
+    while ($w.Elapsed.TotalSeconds -lt 10 -and (Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like "*$cl\claude-bg-maint.ps1*" })) { Start-Sleep -Milliseconds 100 }
     Get-ChildItem $cl -File | Remove-Item -Force
     Get-ChildItem $proj -File | Remove-Item -Force
     Copy-Item "$real\claude-admin-launch.ps1", "$real\maint-due.ps1", "$real\resume-after-restart.ps1", "$real\session-lib.ps1" $cl

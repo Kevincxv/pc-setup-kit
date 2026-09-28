@@ -108,8 +108,10 @@ if ($WithClaude) {
 $act = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\conhost.exe" -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$cl\claude-bg-maint.ps1`" -Force -Unattended"
 $trg = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"; $trg.Delay = 'PT2M'
 $prn = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
-Register-ScheduledTask -TaskName 'Claude Background Maintenance' -Action $act -Trigger $trg -Principal $prn -Force `
-    -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 4) -Priority 7) | Out-Null
+$daily = New-ScheduledTaskTrigger -Daily -At 12:00   # also once a day: a PC that stays on for days still gets updates and checks
+$daily.StartBoundary = (Get-Date -Hour 12 -Minute 0 -Second 0).ToString('s')   # local 12:00 (the default is UTC: an hour off after a clock change)
+Register-ScheduledTask -TaskName 'Claude Background Maintenance' -Action $act -Trigger @($trg, $daily) -Principal $prn -Force `
+    -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 4) -Priority 7) | Out-Null
 
 # Tray icon (hidden icons area): status, the to-do list and small alerts when something needs the owner; with Claude
 # it also keeps a Messiah session open hidden from every login and continues work a shutdown cut off

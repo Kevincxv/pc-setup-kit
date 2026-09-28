@@ -53,12 +53,20 @@ $PM.Winget = @('   - \ ', 'Name                                  Id             
     'Good App With A Long Name             Vendor.Good               1.0.0     1.1.0      winget',
     'Bad App                               Vendor.Bad                3.0       3.1        winget',
     'NVIDIA App                            Nvidia.App                11.0      11.1       winget',
-    '4 upgrades available.', '', '1 package(s) have version numbers that cannot be determined.')
+    # a name winget shortened with an ellipsis, read in the wrong encoding: 3 characters instead of 1, so everything after it
+    # sits 2 columns further right (seen on a real run: "App update FAILED: ¦ ImageMagick.ImageMagick")
+    ('ImageMagick 7.1.2-25 Q16-HDRI (64-bit) â€¦' + ' ImageMagick.ImageMagick   7.1.2.25  7.1.2.26   winget'),
+    'Old Tool                              Vendor.OldTool            < 1.0     2.0        winget',
+    'Microsoft Edge                        Microsoft.Edge            140.0     141.0      winget',
+    '7 upgrades available.', '', '1 package(s) have version numbers that cannot be determined.')
 $o = PM
 Check 'an app updates: "Updated app"' ([bool]($o -contains 'Updated app: Vendor.Good')) ($o -join ' / ')
 Check 'a failing update: "App update FAILED" (so Claude looks at it)' ([bool]($o -contains 'App update FAILED: Vendor.Bad')) ''
 Check 'self-updating apps (Steam, NVIDIA) are never touched' (-not ($PMcalls -match 'Valve.Steam|Nvidia')) ($PMcalls -join ', ')
-Check 'the spinner line and footer are not parsed as apps' (@($PMcalls -match 'winget upgrade').Count -eq 2) ($PMcalls -join ', ')
+Check 'the spinner line and footer are not parsed as apps' (@($PMcalls -match 'winget upgrade').Count -eq 4) ($PMcalls -join ', ')
+Check 'a shortened, wrongly encoded name does not shift the columns (the right id is updated)' (($PMcalls -contains 'winget upgrade ImageMagick.ImageMagick') -and -not ($o -match '¦')) (($PMcalls + $o) -join ', ')
+Check 'a version shown as "< 1.0" is read too' ($PMcalls -contains 'winget upgrade Vendor.OldTool') ($PMcalls -join ', ')
+Check 'Edge (updates itself) is never touched' (-not ($PMcalls -match 'Microsoft.Edge')) ($PMcalls -join ', ')
 Check 'marked done for this week' ((St).'weekly-apps' -ne $old) ''
 Reset-M; State @{ 'weekly-apps' = $old }; $o = PM
 Check 'nothing to update: no lines, still marked done' (-not ($o -match 'Updated app|FAILED') -and (St).'weekly-apps' -ne $old) ($o -join ' / ')

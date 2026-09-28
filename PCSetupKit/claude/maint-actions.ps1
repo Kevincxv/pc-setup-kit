@@ -137,6 +137,12 @@ if (($l = Line '^WARNING: leftovers pointing at deleted programs: (.+)$') -and $
     }
 }
 
+# --- Restore points failing because System Protection is off for C: - Windows' own undo points, switched on ---
+if (Line '^Restore point FAILED') {
+    try { Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop; 'Restore points: turned System Protection on for C: (the monthly restore point works from next month)' }
+    catch { "Restore points: couldn't turn System Protection on ($($_.Exception.Message))" }
+}
+
 # --- Windows near its end of support: ask Windows Update for the newest version (installs like any update) ---
 $msFile = "$Dir\maint-state.json"
 function Read-MaintState { $s = @{}; try { (Get-Content $msFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop).PSObject.Properties | ForEach-Object { $s[$_.Name] = $_.Value } } catch {}; $s }

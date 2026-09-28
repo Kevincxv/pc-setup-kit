@@ -57,7 +57,7 @@ if ($withClaude) {
 
 Section 'scheduled tasks'
 $bm = Get-ScheduledTask 'Claude Background Maintenance' -ErrorAction SilentlyContinue
-Check 'background maintenance at every login: 2 min delay, windowless, elevated, below-normal priority, 4 h limit' ($bm -and $bm.Triggers[0].Delay -eq 'PT2M' -and $bm.Actions[0].Execute -match 'conhost\.exe' -and $bm.Actions[0].Arguments -match '--headless .*claude-bg-maint\.ps1.* -Unattended' -and $bm.Principal.RunLevel -eq 'Highest' -and $bm.Settings.Priority -eq 7 -and $bm.Settings.ExecutionTimeLimit -eq 'PT4H') ''
+Check 'background maintenance at every login and once a day: 2 min delay, windowless, elevated, below-normal priority, 4 h limit' ($bm -and $bm.Triggers.Count -eq 2 -and $bm.Settings.StartWhenAvailable -and $bm.Triggers[0].Delay -eq 'PT2M' -and $bm.Actions[0].Execute -match 'conhost\.exe' -and $bm.Actions[0].Arguments -match '--headless .*claude-bg-maint\.ps1.* -Unattended' -and $bm.Principal.RunLevel -eq 'Highest' -and $bm.Settings.Priority -eq 7 -and $bm.Settings.ExecutionTimeLimit -eq 'PT4H') ''
 $tt = Get-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue
 Check 'tray at every login: elevated, no time limit, restarts on failure' ($tt -and $tt.Actions[0].Arguments -match 'Messiah Tray\\Messiah Tray\.ahk' -and $tt.Principal.RunLevel -eq 'Highest' -and $tt.Settings.ExecutionTimeLimit -eq 'PT0S' -and $tt.Settings.RestartCount -eq 3) ''
 Check 'tray script in Documents\Messiah Tray' (Test-Path "$env:USERPROFILE\Documents\Messiah Tray\Messiah Tray.ahk") ''

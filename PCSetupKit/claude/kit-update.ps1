@@ -14,6 +14,9 @@ try { $rel = Invoke-RestMethod "https://api.github.com/repos/$($cfg.repo)/releas
 catch { return }   # offline or rate-limited: quietly try again next time
 $tag = $rel.tag_name
 if (-not $tag -or ($tag -eq $cur -and -not $Reinstall)) { return }
+# never back to an older release (e.g. while a newer one waits as a pre-release)
+function Ver([string]$t) { $v = $null; if ([version]::TryParse(($t -replace '^v', ''), [ref]$v)) { $v } }
+if ((Ver $tag) -and (Ver $cur) -and (Ver $tag) -lt (Ver $cur)) { return }
 
 $tmp = Join-Path $env:TEMP "pc-setup-kit-update"; if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
 New-Item $tmp -ItemType Directory -Force | Out-Null
@@ -35,9 +38,13 @@ try {
     foreach ($d in 'tests', 'claude') { if (Test-Path "$k\$d") { Remove-Item "$KitDir\$d" -Recurse -Force -ErrorAction SilentlyContinue; Copy-Item "$k\$d" $KitDir -Recurse -Force } }
     if (Test-Path "$KitDir\tests") { $tag | Set-Content "$KitDir\tests\tests-version.txt" }   # which release these tests belong to (self-test.ps1)
     Copy-Item "$k\claude\*.ps1" $ClaudeDir -Force                         # maintenance scripts
-    New-Item "$ClaudeDir\hooks", "$ClaudeDir\skills" -ItemType Directory -Force | Out-Null
-    Copy-Item "$k\claude\hooks\*" "$ClaudeDir\hooks" -Force
-    Copy-Item "$k\claude\skills\*" "$ClaudeDir\skills" -Recurse -Force
+    # Claude's skills and its no-shutdown hook only where the optional Claude part is on
+    $ai = if (Test-Path "$ClaudeDir\ai-enabled.ps1") { & "$ClaudeDir\ai-enabled.ps1" } else { $true }
+    if ($ai) {
+        New-Item "$ClaudeDir\hooks", "$ClaudeDir\skills" -ItemType Directory -Force | Out-Null
+        Copy-Item "$k\claude\hooks\*" "$ClaudeDir\hooks" -Force
+        Copy-Item "$k\claude\skills\*" "$ClaudeDir\skills" -Recurse -Force
+    }
     if (Test-Path $TrayDir) {
         Copy-Item "$k\claude\tray\$trayFile" "$TrayDir\Messiah Tray.ahk" -Force
         if (-not $Force -and (Get-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue)) {   # reload the tray (it won't open a second session)

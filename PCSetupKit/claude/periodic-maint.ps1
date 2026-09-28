@@ -17,13 +17,15 @@ $rebootPending = (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Com
 $game = & "$PSScriptRoot\game-check.ps1"   # heavy work waits for the game to close (not marked done, so it runs next time)
 if ($game -and ((Due 'weekly-apps' 7) -or (Due 'monthly-cleanup' 30))) { "App updates / cleanup held while $game is running (next run)" }
 if (-not $game -and (Due 'weekly-apps' 7)) {
-    $skip = 'Valve.Steam', 'Discord.Discord', 'Google.Chrome', 'Nvidia.'
+    $skip = 'Valve.Steam', 'Discord.Discord', 'Google.Chrome', 'Nvidia.', 'Microsoft.Edge'   # (Edge and WebView2 update themselves)
+    try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}   # winget writes UTF-8 (a shortened name ends in "...")
     $raw = @(winget upgrade --accept-source-agreements --disable-interactivity 2>$null)
     $h = [array]::FindIndex($raw, [Predicate[object]] { param($l) "$l" -match 'Name\s+Id\s+Version' })
     if ($h -ge 0) {
-        $hdr = $raw[$h].Substring($raw[$h].IndexOf('Name')); $idCol = $hdr.IndexOf('Id'); $verCol = $hdr.IndexOf('Version')
+        # each row read from the right (Id, Version, Available, Source never contain spaces): a shortened or oddly
+        # encoded name can't shift the columns
         for ($i = $h + 2; $i -lt $raw.Count -and $raw[$i] -match '\S' -and $raw[$i] -notmatch 'upgrades? available|explicit targeting'; $i++) {
-            $id = $raw[$i].Substring($idCol, [Math]::Max(0, [Math]::Min($verCol, $raw[$i].Length) - $idCol)).Trim()
+            $id = if ("$($raw[$i])" -match '^(?<name>.+?)\s+(?<id>\S+)\s+(?<ver>(<\s)?\S+)\s+(?<avail>\S+)\s+(?<src>\S+)\s*$') { $Matches['id'] }
             if (-not $id -or ($skip | Where-Object { $id -like "$_*" })) { continue }
             $o = winget upgrade --id $id -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | Out-String
             if ($o -match 'Successfully installed') { "Updated app: $id" } else { "App update FAILED: $id" }

@@ -7,7 +7,11 @@ Work goes milestone by milestone. Every change is validated before it can reach 
 3. **CI gate**: GitHub runs the unit suite on a clean Windows machine for every push (`.github/workflows/tests.yml`).
 4. **Self-improvement gate**: the daily hidden self-improvement pass is undone completely if any test fails afterwards.
 5. **Self-test on every PC**: weekly and after each kit update the suite runs against the PC's installed scripts; a
-   failure is a WARNING that the hidden /maintain fixes.
+   failure is a WARNING (with Claude, the hidden /maintain fixes it).
+6. **Release gate for other PCs**: releases are published as pre-releases, which installed PCs and the installer never
+   take. GitHub makes one the latest only after the real setup passed on a clean machine both ways (no AI, with Claude)
+   and the unit tests of the same commit passed (fresh-install.yml, "promote"). Installed PCs check for it at every login
+   and once a day, and never go back to an older release.
 
 Run the tests: `PCSetupKit\tests\run-tests.ps1 -Suite unit|live|all` (summary in `tests\last-run.txt`).
 Unit test files run side by side (`-Jobs`, default up to 8; each gets its own TEMP), live ones one at a time after
@@ -47,6 +51,12 @@ Found and fixed by the gates and tests so far:
 - no-AI work (M6-M8): background maintenance named its job output files after the job, so a test copy running at
   the same time wrote into the owner's real report (seen at 13:39 on 2026-09-27: "driver-check ran"); each run now
   has its own files. A test used the owner's real RAM part number as sample data (the privacy check caught it).
+- first no-AI fresh install (M6-M8): the updater copied Claude's skills and hook onto PCs without Claude; winget app
+  names shortened with an ellipsis (read in the wrong encoding) shifted the columns, so those apps could never update;
+  Edge (updates itself) would have become a false "keeps failing" item; "last virus scan 4294967295 days ago" (= never);
+  the optimizer ran twice during setup; monthly restore points failed forever where System Protection is off (now
+  switched on); the fresh-install test was quietly testing the published release instead of the new one
+- a PC that stays on for days only updated at login: the maintenance now also runs daily at 12:00
 
 Rules for mocked tests (PowerShell 5.1): variable names ignore case (`$tw` is `$TW`); aliases beat functions
 (`H`, `R`, `Rp` are built-in aliases); functions beat module commands only if defined after the module is loaded.

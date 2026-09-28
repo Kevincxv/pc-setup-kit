@@ -20,6 +20,9 @@ jobs:
       FRESH_WITH_CLAUDE: ${{ matrix.claude && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Test this version, not the published one (the kit updater stays off here; it has its own tests)
+        shell: powershell
+        run: Remove-Item .\PCSetupKit\kit-source.txt
       - name: Run setup.ps1 (for real, opening nothing at the end)
         shell: powershell
         run: |
@@ -53,3 +56,36 @@ jobs:
             C:\Users\runneradmin\.claude\maint-report.txt
             C:\Users\runneradmin\Documents\PC Setup Kit report.txt
           if-no-files-found: ignore
+
+  # Releases are published as pre-releases (publish-kit.ps1); installed PCs and the installer only take the "latest"
+  # release. It becomes the latest only here: both fresh installs passed, and the unit tests of the same commit too.
+  promote:
+    name: release to everyone
+    needs: setup
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Wait for the unit tests of this commit, then make the release the latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          c=""
+          for i in $(seq 1 60); do
+            c=$(gh run list -R "$GITHUB_REPOSITORY" --workflow tests.yml --commit "$SHA" --json status,conclusion --jq '.[0] | "\(.status) \(.conclusion)"')
+            case "$c" in "completed success") break;; completed*) echo "unit tests: $c - not released"; exit 1;; esac
+            sleep 30
+          done
+          [ "$c" = "completed success" ] || { echo "unit tests did not finish ($c) - not released"; exit 1; }
+          newest=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName')
+          if [ "$newest" = "$TAG" ]; then
+            gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --prerelease=false --latest
+            echo "$TAG is now the latest release: installed PCs get it at their next login or daily run"
+          else
+            gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --prerelease=false --latest=false
+            echo "$TAG passed, but $newest is newer - $TAG is released without becoming the latest"
+          fi

@@ -63,13 +63,14 @@ if ($apps) {
 # --- Benchmark, then the full maintenance (drivers, app updates, checks, cleanup, self-test, fixes, to-do items) ---
 Invoke-Benchmark
 if (-not $FromMaintenance) {
-    Say 'Maintenance: running everything now (drivers, app updates, checks, cleanup, self-test)...'
-    & "$dir\claude-bg-maint.ps1" -Force -Unattended
-    Get-Content "$dir\maint-report.txt" -Encoding UTF8 -ErrorAction SilentlyContinue | Select-Object -Skip 1 | ForEach-Object { $out.Add("  $_") }
-    # the scheduled checks count from today (quarterly benchmark, half-year cleaning reminder, yearly re-optimize)
+    # the scheduled checks count from today (quarterly benchmark, half-year cleaning reminder, yearly re-optimize) -
+    # set first: the maintenance run below would otherwise find the yearly re-optimize "due" and start it again
     $ms = "$dir\maint-state.json"; $s = @{}; try { (Get-Content $ms -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop).PSObject.Properties | ForEach-Object { $s[$_.Name] = $_.Value } } catch {}
     foreach ($k in 'claude-quarterly', 'claude-halfyear', 'claude-yearly') { $s[$k] = (Get-Date).ToString('o') }
     $s | ConvertTo-Json | Set-Content "$ms.tmp" -Encoding UTF8; Move-Item "$ms.tmp" $ms -Force
+    Say 'Maintenance: running everything now (drivers, app updates, checks, cleanup, self-test)...'
+    & "$dir\claude-bg-maint.ps1" -Force -Unattended
+    Get-Content "$dir\maint-report.txt" -Encoding UTF8 -ErrorAction SilentlyContinue | Select-Object -Skip 1 | ForEach-Object { $out.Add("  $_") }
 }
 
 # --- The report ---

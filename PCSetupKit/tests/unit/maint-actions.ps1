@@ -3,12 +3,13 @@
 . "$PSScriptRoot\..\lib.ps1"
 $D = "$Work\cl"; New-Item $D -ItemType Directory -Force | Out-Null
 Copy-Item "$Src\maint-actions.ps1", "$Src\todo.ps1" $D
-$mocked = 'bcdedit', 'Disable-ScheduledTask', 'Set-Service', 'Set-ItemProperty', 'New-Item', 'Invoke-WebRequest', 'Get-WinEvent', 'Get-CimInstance', 'Get-ItemProperty'
+$mocked = 'bcdedit', 'Enable-ComputerRestore', 'Disable-ScheduledTask', 'Set-Service', 'Set-ItemProperty', 'New-Item', 'Invoke-WebRequest', 'Get-WinEvent', 'Get-CimInstance', 'Get-ItemProperty'
 if (-not (Test-Tripwire "$D\maint-actions.ps1" $mocked)) { Finish }
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
 $global:MA = @{}
 function Reset-MA { $global:MA = @{ Calls = New-Object System.Collections.Generic.List[string]; Ram = 6000; Events = @(); Services = @{}; Page = 'Version 24H2 ... Version 25H2 ...'; CurVer = '24H2'; Memdiag = $true } }
 function bcdedit { $global:MA.Calls.Add("bcdedit $args"); if ("$args" -match 'enum') { if ($global:MA.Memdiag) { 'Windows Memory Tester  identifier {memdiag}' } else { 'The boot configuration data store could not be opened.' } } else { 'The operation completed successfully.' } }
+function Enable-ComputerRestore { param($Drive) if ($global:MA.NoRestore) { throw 'not supported on this Windows' }; $global:MA.Calls.Add("restore on $Drive") }
 function Disable-ScheduledTask { param($TaskPath, $TaskName) $global:MA.Calls.Add("disable task $TaskPath$TaskName") }
 function Set-Service { param($Name, $StartupType) $global:MA.Calls.Add("service $Name $StartupType") }
 function Set-ItemProperty { param($Path, $Name, $Value, $Type) $global:MA.Calls.Add("reg $Name=$Value") }
@@ -95,6 +96,12 @@ $MA.Services['RunSvc'] = [pscustomobject]@{ Name = 'RunSvc'; State = 'Running'; 
 $o = Act 'WARNING: leftovers pointing at deleted programs: task \Vendor\Updater, service OldSvc, service WinSvc, service RunSvc'
 Check 'the task and the stopped third-party service are disabled (and said so)' (($MA.Calls -contains 'disable task \Vendor\Updater') -and ($MA.Calls -contains 'service OldSvc Disabled') -and ($o -match 'disabled task') -and ($o -match 'disabled service OldSvc')) (($MA.Calls + $o) -join ' / ')
 Check '... anything in the Windows folder or still running is left alone' (-not ($MA.Calls -match 'WinSvc|RunSvc')) ($MA.Calls -join ' / ')
+
+Section 'restore points failing (System Protection off)'
+Fresh; $o = Act 'Restore point FAILED (is System Protection on for C:?)'
+Check 'System Protection switched on for C: (Windows'' own undo points), said so' (($MA.Calls -match '^restore on C:') -and ($o -match 'turned System Protection on')) (($MA.Calls + $o) -join ' / ')
+Fresh; $MA.NoRestore = $true; $o = Act 'Restore point FAILED (is System Protection on for C:?)'
+Check '... where Windows can''t (e.g. a server): says so, no error' ([bool]($o -match "couldn't turn System Protection on")) ($o -join ' / ')
 
 Section 'Windows near its end of support'
 Fresh; $s = Get-Content "$D\maint-state.json" -Raw | ConvertFrom-Json; $s | Add-Member 'claude-winver-due' 'yes'; $s | ConvertTo-Json | Set-Content "$D\maint-state.json"

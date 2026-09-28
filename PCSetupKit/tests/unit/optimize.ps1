@@ -4,7 +4,7 @@
 $H = "$Work\home"; $D = "$H\.claude"; New-Item $D, "$H\Documents" -ItemType Directory -Force | Out-Null
 Copy-Item "$Src\optimize.ps1", "$Src\todo.ps1" $D
 '"Monitor: Fast Monitor set to 165Hz (was 60Hz)"' | Set-Content "$D\display-refresh.ps1"
-'param([switch]$Force, [switch]$Unattended) "bg-maint Force=$Force Unattended=$Unattended" | Add-Content "$PSScriptRoot\calls.txt"; "Checked now in 9s", "[Drivers]", "NVIDIA: 617.14 is up to date" | Set-Content "$PSScriptRoot\maint-report.txt"' | Set-Content "$D\claude-bg-maint.ps1"
+'param([switch]$Force, [switch]$Unattended) "bg-maint Force=$Force Unattended=$Unattended" | Add-Content "$PSScriptRoot\calls.txt"; "yearly-at-run=$((Get-Content "$PSScriptRoot\maint-state.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json).''claude-yearly'')" | Add-Content "$PSScriptRoot\calls.txt"; "Checked now in 9s", "[Drivers]", "NVIDIA: 617.14 is up to date" | Set-Content "$PSScriptRoot\maint-report.txt"' | Set-Content "$D\claude-bg-maint.ps1"
 $mocked = 'Start-Process', 'Get-CimInstance', 'Get-PhysicalDisk', 'Get-ItemProperty'
 if (-not (Test-Tripwire "$D\optimize.ps1" $mocked)) { Finish }
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
@@ -33,6 +33,8 @@ Check 'vendor background apps pointed out as an item (never removed); other prog
 Check 'benchmark run (WinSAT formal) and saved as the baseline' ((Calls) -match 'run winsat formal' -and $o -match 'saved as the baseline' -and @(Get-Content "$D\benchmarks.json" -Raw | ConvertFrom-Json | ForEach-Object { $_ }).Count -eq 1) ((Calls) -join ' / ')
 Check 'then the full maintenance, once' (@(Calls | Where-Object { $_ -match '^bg-maint' }).Count -eq 1 -and (Calls) -contains 'bg-maint Force=True Unattended=True') ((Calls) -join ' / ')
 $ms = Get-Content "$D\maint-state.json" -Raw | ConvertFrom-Json
+$y = ((Calls) | Where-Object { $_ -like 'yearly-at-run=*' }) -replace '^yearly-at-run='
+Check '... already set when its maintenance run starts (else that run would start the yearly optimize again)' ($y -and ([datetime]$y) -gt (Get-Date).AddMinutes(-1)) ((Calls) -join ' / ')
 Check 'scheduled checks count from today' ((([datetime]$ms.'claude-quarterly') -gt (Get-Date).AddMinutes(-1)) -and (([datetime]$ms.'claude-yearly') -gt (Get-Date).AddMinutes(-1)) -and (([datetime]$ms.'claude-halfyear') -gt (Get-Date).AddMinutes(-1))) ''
 Check 'a readable report in Documents: this PC, what was done (incl. the maintenance), what needs you' ($rep -match 'THIS PC' -and $rep -match 'CPU: Test CPU 8-Core' -and $rep -match 'TestBoard Inc\. X650, BIOS 3\.20' -and $rep -match 'RAM: 32 GB, 2 stick\(s\) at 6000 MT/s \(KIT-6000\)' -and $rep -match 'Graphics: Test GPU 9000' -and $rep -notmatch 'Basic Display' -and $rep -match 'Drive: Test NVMe, 2000 GB, Healthy' -and $rep -match 'NVIDIA: 617\.14 is up to date' -and $rep -match 'WHAT NEEDS YOU\s+- These came with the PC') $rep
 Check '... and opened for the owner' ((Calls) -match 'run notepad\.exe') ((Calls) -join ' / ')
