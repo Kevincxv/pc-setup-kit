@@ -14,7 +14,12 @@ Optional: **Messiah**, a Claude Code setup on top, for people who want an AI ass
 
 ## Install on an existing Windows 11 PC
 
-Open **PowerShell** and run (it asks for administrator rights by itself):
+**Easiest:** open the install page, **https://kevincxv.github.io/pc-setup-kit/**, and click the download button. Open the
+file; if Windows says "Windows protected your PC", click **More info > Run anyway** (the file isn't signed by a paid
+certificate). Afterwards the tray icon next to the clock and **PC Setup Kit Status** in the Start menu show what the PC
+is doing.
+
+Or open **PowerShell** and run (it asks for administrator rights by itself):
 
 ```powershell
 irm https://raw.githubusercontent.com/Kevincxv/pc-setup-kit/main/install.ps1 | iex

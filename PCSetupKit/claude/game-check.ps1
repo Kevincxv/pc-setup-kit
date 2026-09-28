@@ -22,7 +22,7 @@ public struct MONITORINFO { public int cbSize; public RECT rcMonitor, rcWork; pu
 # Never learned as games: shells, browsers, video players, office/presentation apps
 $notGames = 'explorer', 'ApplicationFrameHost', 'ShellExperienceHost', 'StartMenuExperienceHost', 'SearchHost', 'LockApp', 'chrome', 'msedge', 'firefox',
     'opera', 'brave', 'vivaldi', 'vlc', 'mpc-hc64', 'mpc-be64', 'PotPlayerMini64', 'mpv', 'Video.UI', 'Microsoft.Media.Player', 'POWERPNT', 'Teams',
-    'Discord', 'steamwebhelper', 'powershell', 'WindowsTerminal', 'conhost', 'AutoHotkey64', 'obs64'
+    'Discord', 'steamwebhelper', 'powershell', 'WindowsTerminal', 'conhost', 'AutoHotkey64', 'Messiah', 'PC Setup Kit', 'obs64'
 
 $fg = [GameCheck.W]::GetForegroundWindow(); $fgName = $null; $why = $null
 if ($fg -ne [IntPtr]::Zero) {

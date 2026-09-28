@@ -48,7 +48,7 @@ try {
     if (Test-Path $TrayDir) {
         Copy-Item "$k\claude\tray\$trayFile" "$TrayDir\Messiah Tray.ahk" -Force
         if (-not $Force -and (Get-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue)) {   # reload the tray (it won't open a second session)
-            Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+            Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe' OR Name='Messiah.exe' OR Name='PC Setup Kit.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
             Start-ScheduledTask 'Messiah Tray'
         }
     }

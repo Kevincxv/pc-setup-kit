@@ -44,6 +44,7 @@ tray.ClickCount := 1
 OnMessage(0x404, TrayClick)
 SetTimer TodoTip, 5000
 TodoTip()
+SetTimer PinIcon, -5000
 
 known := Map()  ; pid -> true if it's a Messiah launcher window
 note := 0       ; the corner note currently shown
@@ -76,7 +77,38 @@ RefreshSession() {
     try Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\refresh-session.ps1"', , "Hide"
 }
 
-ShowStatus() => Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\status.ps1"')
+; The Status window (dashboard.ps1; it falls back to the text status.ps1 by itself). Installs from before it: text.
+ShowStatus() {
+    if FileExist(CL "\dashboard.ps1")
+        Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\dashboard.ps1"', , "Hide"
+    else
+        Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\status.ps1"'
+}
+
+; Pin the icon next to the clock once. Windows keeps a tray entry per program and hides new ones in the ^ area; the
+; tray runs as its own program (Messiah.exe / PC Setup Kit.exe, tray-app.ps1), so this pins only its own entry. Plain
+; AutoHotkey64.exe is shared by every AutoHotkey script: left alone. Once the owner hides it again, that choice stays.
+PinIcon() {
+    static tries := 0
+    exe := RegExReplace(A_AhkPath, ".*\\")
+    if exe ~= "i)^AutoHotkey" || IniRead(CL "\tray-notified.ini", "shown", "pinned", "") = exe
+        return
+    Loop Reg, "HKCU\Control Panel\NotifyIconSettings", "K" {
+        key := A_LoopRegKey "\" A_LoopRegName
+        try path := RegRead(key, "ExecutablePath")
+        catch
+            continue
+        if RegExReplace(path, ".*\\") != exe
+            continue
+        try RegRead(key, "IsPromoted")
+        catch   ; never set = hidden by default
+            RegWrite 1, "REG_DWORD", key, "IsPromoted"
+        IniWrite exe, CL "\tray-notified.ini", "shown", "pinned"
+        return
+    }
+    if ++tries < 20   ; Windows adds the entry shortly after the icon appears
+        SetTimer PinIcon, -15000
+}
 
 ; --- Alerts. Windows notifications are off on this PC (debloat), so the tray shows its own small note in the corner:
 ; it never takes focus, waits while a game or video is fullscreen, closes after 20 s, and each thing is shown once.

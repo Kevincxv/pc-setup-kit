@@ -113,17 +113,14 @@ $daily.StartBoundary = (Get-Date -Hour 12 -Minute 0 -Second 0).ToString('s')   #
 Register-ScheduledTask -TaskName 'Claude Background Maintenance' -Action $act -Trigger @($trg, $daily) -Principal $prn -Force `
     -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 4) -Priority 7) | Out-Null
 
-# Tray icon (hidden icons area): status, the to-do list and small alerts when something needs the owner; with Claude
+# Tray icon (next to the clock): status, the to-do list and small alerts when something needs the owner; with Claude
 # it also keeps a Messiah session open hidden from every login and continues work a shutdown cut off
 $trayDir = "$env:USERPROFILE\Documents\Messiah Tray"
 New-Item $trayDir -ItemType Directory -Force | Out-Null
 Copy-Item "$kit\claude\tray\Messiah Tray.ahk" $trayDir -Force
-$ahk = "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe"
-if (Test-Path $ahk) {
-    $act = New-ScheduledTaskAction -Execute $ahk -Argument "`"$trayDir\Messiah Tray.ahk`""
-    $trg = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
-    $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable
-    Register-ScheduledTask -TaskName 'Messiah Tray' -Action $act -Trigger $trg -Principal $prn -Settings $set -Force | Out-Null
+# under its own program name (own tray entry, pinned next to the clock), the login task and the Start menu Status entry
+if (Test-Path "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe") {
+    & "$cl\tray-app.ps1" -TrayDir $trayDir -NoRestart | Out-Null
 } else { '  AutoHotkey is missing - no tray icon (run setup.ps1 again once winget works)' }
 
 if (-not $WithClaude) {
@@ -136,7 +133,7 @@ if (-not $WithClaude) {
 
   Setup finished. From now on the PC maintains itself at every login (updates, drivers, cleanup, crash checks).
   The report (Documents\PC Setup Kit report.txt) shows what was done and anything that needs you; the tray
-  icon next to the clock (in the hidden icons) keeps showing the status.
+  icon next to the clock and "PC Setup Kit Status" in the Start menu keep showing the status.
   You can unplug the USB drive now. Log: C:\PCSetupKit\setup.log
 '@ -ForegroundColor Green
     Stop-Transcript | Out-Null

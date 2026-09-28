@@ -75,6 +75,8 @@ if (Test-Path "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe") {
     $tr = $global:tasks['Messiah Tray']
     Check '... tray task: runs the tray script at login, elevated, no time limit' ($tr -and $tr.Action.Arguments -match [regex]::Escape("$H\Documents\Messiah Tray\Messiah Tray.ahk") -and $tr.Settings.ExecutionTimeLimit -eq 'PT0S') ''
     Check '... tray script copied to Documents' (Test-Path "$H\Documents\Messiah Tray\Messiah Tray.ahk") ''
+    Check '... the tray runs as its own program "PC Setup Kit.exe" (own tray entry next to the clock)' ($tr.Action.Execute -eq "$H\Documents\Messiah Tray\PC Setup Kit.exe" -and (Test-Path $tr.Action.Execute)) "$($tr.Action.Execute)"
+    Check '... Start menu "PC Setup Kit Status" opens the Status window' (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\PC Setup Kit Status.lnk") ''
 } else { Skip 'tray task' 'AutoHotkey not installed here (setup installs it first)' }
 
 # with Claude (-WithClaude / with-claude.txt): the same plus Messiah
@@ -90,6 +92,7 @@ $sc = if (Test-Path $lnk) { (New-Object -ComObject WScript.Shell).CreateShortcut
 Check '... it starts the launcher in System32 with PowerShell' ($sc -and $sc.TargetPath -match 'powershell\.exe$' -and $sc.Arguments -match [regex]::Escape("$cl\claude-admin-launch.ps1") -and $sc.WorkingDirectory -match 'System32$') "$($sc.Arguments)"
 Check '... desktop shortcut too' (Test-Path "$H\Desktop\Messiah.lnk") ''
 Check '... the same login maintenance task' ([bool]$global:tasks['Claude Background Maintenance']) ''
+if ($global:tasks['Messiah Tray']) { Check '... the tray runs as "Messiah.exe", with a "Messiah Status" Start menu entry' ($global:tasks['Messiah Tray'].Action.Execute -eq "$H\Documents\Messiah Tray\Messiah.exe" -and (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah Status.lnk")) "$($global:tasks['Messiah Tray'].Action.Execute)" }
 
 Section 'setup.ps1: things on the internet it depends on'
 if (-not (Test-Online)) { Skip 'online checks' 'offline'; Finish }

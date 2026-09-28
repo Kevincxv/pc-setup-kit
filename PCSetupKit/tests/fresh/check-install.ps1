@@ -61,5 +61,10 @@ Check 'background maintenance at every login and once a day: 2 min delay, window
 $tt = Get-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue
 Check 'tray at every login: elevated, no time limit, restarts on failure' ($tt -and $tt.Actions[0].Arguments -match 'Messiah Tray\\Messiah Tray\.ahk' -and $tt.Principal.RunLevel -eq 'Highest' -and $tt.Settings.ExecutionTimeLimit -eq 'PT0S' -and $tt.Settings.RestartCount -eq 3) ''
 Check 'tray script in Documents\Messiah Tray' (Test-Path "$env:USERPROFILE\Documents\Messiah Tray\Messiah Tray.ahk") ''
+$app = if ($withClaude) { 'Messiah' } else { 'PC Setup Kit' }
+Check "the tray runs as its own program ($app.exe: its own tray entry next to the clock)" ($tt -and $tt.Actions[0].Execute -eq "$env:USERPROFILE\Documents\Messiah Tray\$app.exe" -and (Test-Path $tt.Actions[0].Execute)) "$($tt.Actions[0].Execute)"
+Check "Start menu '$app Status' (the Status window)" (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$app Status.lnk") ''
+$d = & powershell -NoProfile -ExecutionPolicy Bypass -File "$cl\dashboard.ps1" -Test 2>&1 | Out-String
+Check '... the Status window builds on this PC' ($d -match "WINDOW: $app Status" -and $d -match 'CARD: Needs you') $d
 Check 'no leftovers of the old name' (-not (Get-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue) -and -not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk")) ''
 Finish

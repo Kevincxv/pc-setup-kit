@@ -16,10 +16,10 @@ foreach ($case in 'none', 'existing', 'corrupt') {
     Check "settings $case`: hook added, valid JSON, no BOM" (($j.hooks.PreToolUse[0].hooks[0].command -match 'no-power-off') -and $b[0] -ne 0xEF) (Get-Content "$cl\settings.json" -Raw)
     if ($case -eq 'existing') { Check '... existing settings kept' ($j.theme -eq 'dark') '' }
 }
-Section 'setup.ps1: tray task'
+Section 'tray task (tray-app.ps1) and login maintenance task (setup.ps1)'
 if (Test-IsAdmin) {
     $s = Get-Content "$Kit\setup.ps1" -Raw
-    $blk = [regex]::Match($s, '(?s)\$set = New-ScheduledTaskSettingsSet[^\r\n]*').Value
+    $blk = [regex]::Match((Get-Content "$Kit\claude\tray-app.ps1" -Raw), '(?s)\$set = New-ScheduledTaskSettingsSet[^\r\n]*').Value   # the tray task's settings (tray-app.ps1)
     $act = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c exit'; $trg = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
     $prn = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
     . ([scriptblock]::Create($blk))

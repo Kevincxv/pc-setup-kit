@@ -7,11 +7,17 @@ $rs = "$Src\refresh-session.ps1"; . "$Src\session-lib.ps1"
 
 function Start-Hidden([string[]]$ExtraArgs) {   # a hidden session exactly like the tray starts one
     $env:CLAUDE_ADMIN_AUTOSTART = '1'
+    # a fresh one must not depend on this PC's real history: a conversation active shortly before the last shutdown
+    # would be resumed instead (the launcher's login behavior). Pinned with the launcher's rehearsal file: "the PC
+    # started long ago", so no conversation counts as cut off. (Only read by the launcher, and only for 10 minutes.)
+    $rf = "$cl\rehearsal.txt"; $had = if (Test-Path $rf) { Get-Content $rf -Raw }
+    if (-not $ExtraArgs) { "boot=2000-01-01T00:00:00`r`nshutdown=2000-01-01T00:00:00" | Set-Content $rf }
     $p = Start-Process powershell.exe -ArgumentList @(@('-NoLogo', '-ExecutionPolicy', 'Bypass', '-File', "`"$cl\claude-admin-launch.ps1`"") + $ExtraArgs | Where-Object { $_ }) -WorkingDirectory "$env:WINDIR\System32" -WindowStyle Hidden -PassThru
     Remove-Item Env:CLAUDE_ADMIN_AUTOSTART; $t0 = Get-Date; $script:cleanup += $p.Id   # cleaned up even if a wait below fails
     # ready = its claude.exe runs, and a resumed one has written to its transcript (resuming does that right away;
     # the test backdates the transcript afterwards). Polled instead of a fixed wait; the limits are generous.
     Wait-Until { (Session $p.Id).ClaudePid } 30
+    if (-not $ExtraArgs) { if ($null -ne $had) { Set-Content $rf $had -NoNewline } else { [IO.File]::Delete($rf) } }   # the launcher read it by now
     $i = if ($ExtraArgs) { [array]::IndexOf($ExtraArgs, '--resume') } else { -1 }
     if ($i -ge 0) { $tr = "$proj\$($ExtraArgs[$i + 1]).jsonl"; Wait-Until { (Get-Item $tr).LastWriteTime -gt $t0 } 30; Start-Sleep 1 }
     $p.Id

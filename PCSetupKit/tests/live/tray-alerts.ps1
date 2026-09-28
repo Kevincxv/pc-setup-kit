@@ -3,7 +3,7 @@
 . "$PSScriptRoot\..\lib.ps1"
 if ($env:PCKIT_VISUAL -ne '1') { Skip 'tray alert on screen' 'visible test - run with $env:PCKIT_VISUAL=1'; Finish }
 if (& "$Src\game-check.ps1") { Skip 'tray alert on screen' 'a game is running'; Finish }
-$tp = { (Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk').ProcessId }
+$tp = { (Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe' OR Name='Messiah.exe' OR Name='PC Setup Kit.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk').ProcessId }
 if (-not (& $tp)) { Skip 'tray alert on screen' 'the tray is not running'; Finish }
 Add-Type -Namespace TA -Name W -MemberDefinition @'
 public delegate bool EnumProc(System.IntPtr h, System.IntPtr l);

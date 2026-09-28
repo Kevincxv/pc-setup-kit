@@ -1,8 +1,9 @@
-﻿# The windows the tray menu opens: "Watch maintenance live" (maint-watch.ps1) and "Status" (status.ps1), in a sandbox home.
+﻿# The windows the tray menu opens: "Watch maintenance live" (maint-watch.ps1), "Status" (the window, dashboard.ps1, and
+# its text fallback status.ps1), in a sandbox home.
 . "$PSScriptRoot\..\lib.ps1"
 $H = "$Work\home"; $C = "$H\.claude"; $P = "$C\projects\C--WINDOWS-system32"
 New-Item $P, "$C\maint-claude-log", "$H\.local\bin" -ItemType Directory -Force | Out-Null
-Copy-Item "$Src\maint-watch.ps1", "$Src\status.ps1", "$Src\session-lib.ps1", "$Src\ai-enabled.ps1" $C; 'claude=on' | Set-Content "$C\kit-options.txt"
+Copy-Item "$Src\maint-watch.ps1", "$Src\status.ps1", "$Src\status-lib.ps1", "$Src\dashboard.ps1", "$Src\session-lib.ps1", "$Src\ai-enabled.ps1" $C; 'claude=on' | Set-Content "$C\kit-options.txt"
 Copy-Item (Get-ScriptedClaude) "$H\.local\bin\claude.exe"
 $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
 function Asst($text, $tool, $desc) {
@@ -57,4 +58,18 @@ Check 'a brand-new install with no data yet: no errors, sensible defaults' ((-no
 'claude=off' | Set-Content "$C\kit-options.txt"; (Get-Date).AddHours(-5).ToString('o') | Set-Content "$C\selfimprove-last"
 $r = Invoke-As $H "$C\status.ps1" @('-NoWait')
 Check 'without Claude: no Claude sections (sessions, hidden Claude runs), no errors' ((-not $r.Err.Trim()) -and ($r.Out -notmatch 'Messiah|Claude Code|Session|Self-improvement') -and ($r.Out -match 'Needs you') -and ($r.Out -match 'Scheduled checks')) ($r.Err + $r.Out)
+
+Section 'Status window (dashboard.ps1)'
+'Turn EXPO back on in the BIOS.' | Set-Content "$C\maint-todo.txt" -Encoding UTF8
+'Checked 9/27/2026 12:00 PM in 18s', '[Drivers]', 'NVIDIA: 617.14 is up to date' | Set-Content "$C\maint-report.txt"
+$r = Invoke-As $H "$C\dashboard.ps1" @('-Test')
+$d = $r.Out
+Check 'without Claude: opens as "PC Setup Kit Status", no errors' ((-not $r.Err.Trim()) -and ($d -match 'WINDOW: PC Setup Kit Status')) ($r.Err + $d)
+Check '... what needs the owner comes first and sets the headline' (($d -match 'SUMMARY: 1 thing needs you') -and ($d -match 'SUMMARY[^\n]*\s+CARD: Needs you\s+\S+ Turn EXPO back on')) $d
+Check '... last check shown; no Claude card or live-watch button' (($d -match 'Checked 9/27/2026 12:00 PM') -and ($d -notmatch 'CARD: Messiah|Watch maintenance live') -and ($d -match 'BUTTONS: Run maintenance now \| Optimize this PC \| Full report')) $d
+'claude=on' | Set-Content "$C\kit-options.txt"; Clear-Path "$C\maint-todo.txt"
+$r = Invoke-As $H "$C\dashboard.ps1" @('-Test') @{ FAKE_DIR = "$Work\fake" }
+$d = $r.Out
+Check 'with Claude: "Messiah Status" with the Messiah card and the live-watch button' ((-not $r.Err.Trim()) -and ($d -match 'WINDOW: Messiah Status') -and ($d -match 'CARD: Messiah') -and ($d -match 'Watch maintenance live')) ($r.Err + $d)
+Check '... nothing to do: "All good"' ($d -match 'SUMMARY: All good - nothing needs you') $d
 Finish

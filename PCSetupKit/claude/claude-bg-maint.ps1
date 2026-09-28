@@ -43,7 +43,7 @@ foreach ($j in $jobs) {
     if ($left -le 0 -or -not $j.Proc.WaitForExit($left)) { Stop-Process -Id $j.Proc.Id -Force -ErrorAction SilentlyContinue; $j | Add-Member TimedOut $true }
 }
 
-$lines = @("Checked $((Get-Date).ToString('g')) in $([int]((Get-Date) - $start).TotalSeconds)s") + @($gameNote, $renamed | Where-Object { $_ })
+$lines = @("Checked $((Get-Date).ToString('g')) in $([int]((Get-Date) - $start).TotalSeconds)s") + @($gameNote, $renamed, $trayApp | Where-Object { $_ })
 foreach ($j in $jobs) {
     $out = @(if (Test-Path $j.Out) { Get-Content $j.Out | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() }; Remove-Item $j.Out -Force })
     if ($j.TimedOut) { $out = @('WARNING: timed out') + $out }

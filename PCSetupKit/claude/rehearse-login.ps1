@@ -30,7 +30,7 @@ function Stop-Tree([int]$ProcId) {
     Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcId" | ForEach-Object { Stop-Tree $_.ProcessId }
     Stop-Process -Id $ProcId -Force -ErrorAction SilentlyContinue
 }
-function Restart-Tray { Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+function Restart-Tray { Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe' OR Name='Messiah.exe' OR Name='PC Setup Kit.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
     Start-ScheduledTask 'Messiah Tray' }
 # A small real session made headless with a cheap model; -KillAfter cuts it off mid-task like a shutdown would
 function New-TestSession([string]$Prompt, [int]$KillAfter) {

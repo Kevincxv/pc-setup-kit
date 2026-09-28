@@ -39,8 +39,13 @@ Check 'no function is shadowed by a built-in alias' (-not $clash) ($clash -join 
 if ($inRepo) {
     $personal = 'Kevin|gmail|@[a-z0-9-]+\.(com|net|org)|B650I|7800X3D|RTX 5080|G2725D|PG27AQDM|CMK32|Seagate ZP|gho_|ghp_|sk-ant-'
     $hits = @(Get-ChildItem $repoRoot -Recurse -File | Where-Object { $_.FullName -notmatch '\\\.git\\' -and $_.Name -ne 'last-run.txt' } | Select-String -Pattern $personal |
-            Where-Object { $_.Line -notmatch 'Kevincxv/pc-setup-kit|noreply@anthropic\.com' -and $_.Line -notmatch '^\s*\$personal = ' } | ForEach-Object { "$($_.Filename):$($_.LineNumber)" })   # (the pattern line itself)
+            Where-Object { $_.Line -notmatch 'Kevincxv/pc-setup-kit|kevincxv\.github\.io/pc-setup-kit|noreply@anthropic\.com' -and $_.Line -notmatch '^\s*\$personal = ' } | ForEach-Object { "$($_.Filename):$($_.LineNumber)" })   # (the pattern line itself)
     Check 'nothing personal in the kit (names, email, hardware, tokens)' (-not $hits) ($hits -join ', ')
+    # the install page (GitHub Pages, docs\): its download buttons point at files that run the real one-line installer
+    $page = Get-Content "$repoRoot\docs\index.html" -Raw -ErrorAction SilentlyContinue
+    $links = @([regex]::Matches("$page", 'href="([^"]+\.cmd)" download') | ForEach-Object { [uri]::UnescapeDataString($_.Groups[1].Value) })
+    $bad = @($links | Where-Object { $f = "$repoRoot\docs\$_"; -not (Test-Path $f) -or (Get-Content $f -Raw) -notmatch 'raw\.githubusercontent\.com/Kevincxv/pc-setup-kit/main/install\.ps1' -or [IO.File]::ReadAllText($f) -match '[^\r]\n' })
+    Check 'install page: both download buttons (without / with Messiah) lead to CRLF batch files running install.ps1' ($links.Count -eq 2 -and -not $bad -and ($links -match 'Messiah').Count -eq 1 -and (Get-Content "$repoRoot\docs\$($links -match 'Messiah')" -Raw) -match '-WithClaude') "links: $($links -join ', '); bad: $($bad -join ', ')"
 } else { Skip 'nothing personal in the kit' 'checked where the kit is published from' }
 # every script the kit installs is known to the uninstaller, so nothing is left behind
 $un = Get-Content "$Kit\uninstall.ps1" -Raw
