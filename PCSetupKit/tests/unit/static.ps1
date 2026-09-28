@@ -47,6 +47,9 @@ if ($inRepo) {
     $bad = @($links | Where-Object { $f = "$repoRoot\docs\$_"; -not (Test-Path $f) -or (Get-Content $f -Raw) -notmatch 'raw\.githubusercontent\.com/Kevincxv/pc-setup-kit/main/install\.ps1' -or [IO.File]::ReadAllText($f) -match '[^\r]\n' })
     Check 'install page: both download buttons (without / with Messiah) lead to CRLF batch files running install.ps1' ($links.Count -eq 2 -and -not $bad -and ($links -match 'Messiah').Count -eq 1 -and (Get-Content "$repoRoot\docs\$($links -match 'Messiah')" -Raw) -match '-WithClaude') "links: $($links -join ', '); bad: $($bad -join ', ')"
 } else { Skip 'nothing personal in the kit' 'checked where the kit is published from' }
+# scratch files belong in $Work: anything else in the tests folder's root gets published with the kit (9/27: '-report.txt' was)
+$stray = @(Get-ChildItem -LiteralPath (Split-Path $PSScriptRoot) -File | Where-Object { $_.Name -notin 'lib.ps1', 'run-tests.ps1', 'last-run.txt' } | ForEach-Object Name)
+Check 'no stray files in the tests folder' (-not $stray) ($stray -join ', ')
 # every script the kit installs is known to the uninstaller, so nothing is left behind
 $un = Get-Content "$Kit\uninstall.ps1" -Raw
 $missing = @(Get-ChildItem "$Kit\claude\*.ps1" | Where-Object { $un -notmatch [regex]::Escape("'$($_.Name)'") } | ForEach-Object Name)

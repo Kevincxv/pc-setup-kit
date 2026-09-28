@@ -41,5 +41,11 @@ if ($why -and $fgName -and $fgName -notin $notGames) {
 }
 if ($why) { if ($Explain) { "$fgName - $why (not a game, but fullscreen right now)" } else { $fgName }; return }   # fullscreen video: wait while it lasts
 $bg = Get-Process -Name $known -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($bg) { if ($Explain) { "$($bg.ProcessName) - known game running in the background" } else { $bg.ProcessName } }
+if ($bg) { if ($Explain) { "$($bg.ProcessName) - known game running in the background" } else { $bg.ProcessName }; return }
+# Not seen fullscreen yet (new game, alt-tabbed): anything running from a launcher's game library folder is a game too.
+# Launchers themselves and always-on Steam tools (Wallpaper Engine, Lossless Scaling) live elsewhere or are skipped by name.
+$libs = '\\steamapps\\common\\|\\Epic Games\\(?!Launcher\\)|\\XboxGames\\(?!GameSave\\)|\\EA Games\\|\\GOG Galaxy\\Games\\|\\GOG Games\\|\\Ubisoft Game Launcher\\games\\'
+$tools = 'wallpaper32', 'wallpaper64', 'webwallpaper32', 'ui32', 'LosslessScaling', 'UnityCrashHandler64', 'UnityCrashHandler32', 'CrashReportClient'
+$lib = Get-Process | Where-Object { $_.Path -match $libs -and $_.ProcessName -notin $tools -and $_.ProcessName -notin $notGames } | Select-Object -First 1
+if ($lib) { if ($Explain) { "$($lib.ProcessName) - running from a game library ($(Split-Path $lib.Path))" } else { $lib.ProcessName } }
 elseif ($Explain) { "no game (foreground: $fgName)" }

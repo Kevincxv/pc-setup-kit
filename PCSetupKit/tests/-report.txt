@@ -1,3 +1,0 @@
-Checked 9/27/2026 12:00 PM in 18s
-[Drivers]
-NVIDIA: 617.14 is up to date

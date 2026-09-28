@@ -69,6 +69,7 @@ function Invoke-As([string]$Home_, [string]$Script, [string[]]$ArgList = @(), [h
     $psi = New-Object Diagnostics.ProcessStartInfo 'powershell.exe'
     $psi.Arguments = "-NoProfile -NoLogo -ExecutionPolicy Bypass -File `"$Script`" " + (($ArgList | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' ')
     $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
+    $psi.WorkingDirectory = $Work   # relative writes (a stand-in's calls.log without FAKE_DIR) stay in the sandbox, not the kit
     $psi.EnvironmentVariables['USERPROFILE'] = $Home_
     foreach ($k in $Env.Keys) { if ($null -eq $Env[$k]) { $psi.EnvironmentVariables.Remove($k) } else { $psi.EnvironmentVariables[$k] = $Env[$k] } }
     $p = [Diagnostics.Process]::Start($psi); $o = $p.StandardOutput.ReadToEndAsync(); $e = $p.StandardError.ReadToEndAsync()

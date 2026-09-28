@@ -15,6 +15,16 @@ Check 'a listed game that is not running is not reported' ("$o" -notmatch 'ThisG
 $o = & "$gl\game-check.ps1" -Explain -NoLearn
 if ("$o" -match 'fullscreen') { Skip 'a listed game running in the background is reported' "something is fullscreen right now ($o), which correctly wins" }
 else { Check 'a listed game running in the background is reported' ("$o" -match 'known game running') "$o" }
+# a game never seen fullscreen, running from a Steam library folder (a copy of ping.exe stands in for it)
+'' | Set-Content "$gl\games.txt"
+$fake = "$Work\Steam\steamapps\common\FakeGame"; New-Item $fake -ItemType Directory -Force | Out-Null; Copy-Item "$env:SystemRoot\System32\PING.EXE" "$fake\FakeGame123.exe"
+$fp = Start-Process "$fake\FakeGame123.exe" -ArgumentList '-n', '30', '127.0.0.1' -WindowStyle Hidden -PassThru; Start-Sleep -Milliseconds 500
+$o = & "$gl\game-check.ps1" -Explain -NoLearn
+if ("$o" -match 'fullscreen') { Skip 'a game running from a game library folder is reported' "something is fullscreen right now ($o)" }
+else { Check 'a game running from a game library folder is reported' ("$o" -match '^FakeGame123 - running from a game library') "$o" }
+Stop-Process -Id $fp.Id -Force -ErrorAction SilentlyContinue; $fp.WaitForExit(5000) | Out-Null
+$o = & "$gl\game-check.ps1" -NoLearn
+Check '... and not once it has closed' ("$o" -notmatch 'FakeGame123') "$o"
 
 Section 'periodic: weekly app updates while a game runs'
 $d = "$Work\periodic"; New-Item $d -ItemType Directory -Force | Out-Null; Copy-Item "$Src\periodic-maint.ps1" $d; $stub | Set-Content "$d\game-check.ps1"; '-1' | Set-Content "$d\gamecalls.txt"

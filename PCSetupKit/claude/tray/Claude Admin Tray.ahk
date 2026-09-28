@@ -45,6 +45,7 @@ OnMessage(0x404, TrayClick)
 SetTimer TodoTip, 5000
 TodoTip()
 SetTimer PinIcon, -5000
+SetTimer StatusAtLogin, -8000
 
 known := Map()  ; pid -> true if it's a Messiah launcher window
 note := 0       ; the corner note currently shown
@@ -83,6 +84,23 @@ ShowStatus() {
         Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\dashboard.ps1"', , "Hide"
     else
         Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\status.ps1"'
+}
+
+; The Status window opens by itself once per boot, so the owner sees the app start at login. A tray restart (update,
+; crash, tray-app.ps1) keeps the boot and doesn't reopen it; a fullscreen game holds it for up to 15 min after boot.
+StatusAtLogin() {
+    if EnvGet("PCKIT_IN_TESTS") != ""
+        return
+    ini := CL "\tray-notified.ini"
+    boot := DateAdd(A_Now, -(A_TickCount // 1000), "Seconds")
+    last := IniRead(ini, "shown", "status-boot", "")
+    if last != "" && Abs(DateDiff(boot, last, "Seconds")) < 120
+        return
+    if IsFullscreen() && A_TickCount < 900000
+        return SetTimer(StatusAtLogin, -60000)
+    IniWrite boot, ini, "shown", "status-boot"
+    if !IsFullscreen()
+        ShowStatus()
 }
 
 ; Pin the icon next to the clock once. Windows keeps a tray entry per program and hides new ones in the ^ area; the
