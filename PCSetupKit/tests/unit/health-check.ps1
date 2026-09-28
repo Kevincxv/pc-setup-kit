@@ -141,6 +141,8 @@ Check 'a new startup task is mentioned once (GUID suffix stripped)' ([bool]($o -
 $o = HC; Check '... and not again' (-not ($o -match 'SneakyUpdater')) ''
 $M.Tasks += [pscustomobject]@{ TaskName = 'SneakyUpdater_{99999999-2222-3333-4444-555555555555}'; TaskPath = '\'; State = 'Ready' }; $o = HC
 Check 'an updater renaming its task (new GUID) stays quiet' (-not ($o -match 'SneakyUpdater')) ''
+$M.Tasks += [pscustomobject]@{ TaskName = 'Claude Resume After Restart'; TaskPath = '\'; State = 'Ready' }, [pscustomobject]@{ TaskName = 'PCSetupKit Tray TEST'; TaskPath = '\'; State = 'Ready' }, [pscustomobject]@{ TaskName = 'PCSetupKitRevertTest'; TaskPath = '\PCSetupKitTest\'; State = 'Ready' }; $o = HC
+Check 'the kit''s own tasks (one-shot resume task, test runs'' throwaway tasks) are not reported as new' (-not ($o -match 'auto-start')) ($o -join ' / ')
 Healthy; $M.Nics = @([pscustomobject]@{ Name = 'Ethernet'; Status = 'Up'; MediaType = '802.3'; ReceiveLinkSpeed = 100e6; LinkSpeed = '100 Mbps'; InterfaceDescription = 'Intel(R) Ethernet Controller I225-V' }); $o = HC
 Check 'gigabit adapter stuck at 100 Mbps -> cable reminder' ([bool]($o -match 'Reminder: Ethernet network link is only 100 Mbps')) ($o -join ' / ')
 Healthy; $M.AllDisks += [pscustomobject]@{ Number = 1; FriendlyName = 'WD Elements'; BusType = 'USB'; Size = 4TB }; $o = HC

@@ -19,7 +19,11 @@ if (-not $have -or $have.Length -ne $from.Length -or $have.VersionInfo.FileVersi
     # the running tray holds the old copy: stop it first (the task starts it again below)
     Get-CimInstance Win32_Process -Filter "Name='$name.exe'" -ErrorAction SilentlyContinue | Where-Object ExecutablePath -eq $exe | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $changed = $true }
     try { Copy-Item $Ahk $exe -Force -ErrorAction Stop; "Tray: runs as $name.exe$(if ($have) { " (AutoHotkey $($from.VersionInfo.FileVersion))" } else { ' - its own icon next to the clock' })"; $changed = $true }
-    catch { "Tray: couldn't copy AutoHotkey to $name.exe ($($_.Exception.Message)) - will retry"; return }
+    catch {
+        "Tray: couldn't copy AutoHotkey to $name.exe ($($_.Exception.Message)) - will retry"
+        if ($have -and -not $NoRestart) { Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue }   # the old copy still works: never leave the tray off
+        return
+    }
 }
 
 # the login task: elevated (it hides admin windows), no time limit, restarts if it ever stops

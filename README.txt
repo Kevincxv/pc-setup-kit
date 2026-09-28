@@ -68,9 +68,12 @@ NOTES
   the owner's apps or BIOS steps). Only add it for friends who are OK with that; its hidden maintenance uses their
   Claude account's usage.
 
-THE TRAY ICON (hidden icons area, next to the clock)
-- Click it (or right-click > Status): one page with what needs you, what waits for the next restart, the last
-  check and when the next checks are.
+THE TRAY ICON (next to the clock) AND THE STATUS WINDOW
+- The tray icon pins itself next to the clock once (hide it again in Settings > Personalization > Taskbar if you
+  like; it stays hidden then).
+- Click it (or right-click > Status), or open "PC Setup Kit Status" ("Messiah Status" with Messiah) in the Start
+  menu: a window with what needs you, what waits for the next restart, the last check and when the next checks
+  are. It updates by itself and has buttons to run maintenance, optimize the PC and open the full report.
 - Small alerts appear in the corner when something needs the owner (never over a fullscreen game; they wait).
 - Right-click menu: Status, maintenance to-do list, last maintenance report, run maintenance now,
   Optimize this PC now.

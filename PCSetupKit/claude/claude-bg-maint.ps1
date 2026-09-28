@@ -85,6 +85,8 @@ if ($Unattended -and $ai) {
     if (-not (Test-Path $si) -or ((Get-Date) - (Get-Item $si).LastWriteTime).TotalHours -ge 20) { $runs += @{ Mode = 'improve'; Minutes = 30 } }
     $tray = "$env:USERPROFILE\Documents\Messiah Tray\Messiah Tray.ahk"
     $ahk = "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe"
+    # reload the tray after a rollback - never from inside the test suite: the task is the owner's real tray
+    function Restart-Tray { if (-not $env:PCKIT_IN_TESTS) { Stop-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue; Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue } }
     foreach ($r in $runs) {
         # Hidden Claude runs wait for a game to close too (up to 30 min); self-improvement then waits for another day.
         # Worst case 45 + ~5 + 30 + 45 + 30 + 30 min fits the login task's 4 h limit.
@@ -119,7 +121,7 @@ if ($Unattended -and $ai) {
                 $v = Start-Process $ahk -ArgumentList '/ErrorStdOut', '/Validate', "`"$tray`"" -Wait -PassThru -WindowStyle Hidden
                 if ($v.ExitCode -ne 0) {
                     Copy-Item "$snap\Messiah Tray.ahk" $tray -Force; Add-Content $log "`nROLLED BACK Messiah Tray.ahk (failed to validate)"
-                    Stop-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue; Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue
+                    Restart-Tray
                 }
             }
             # Test gate: everything must still pass after self-improvement - otherwise ALL of its changes are undone
@@ -140,7 +142,7 @@ if ($Unattended -and $ai) {
                     Add-Content $log "`nROLLED BACK all self-improvement changes - the test suite failed afterwards: $sum (details: $tlog)"
                     & powershell -NoProfile -ExecutionPolicy Bypass -File "$tests\run-tests.ps1" -Suite unit -Src $dir -TrayFile $tray *> "$tlog.after-rollback.txt"
                     Add-Content $log "Tests after the rollback: $(Get-Content "$tests\last-run.txt" -TotalCount 1 -ErrorAction SilentlyContinue)"
-                    Stop-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue; Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue
+                    Restart-Tray
                 }
             }
             Get-ChildItem "$dir\selfimprove-backup" -Directory | Where-Object Name -match '^\d{8}-\d{6}$' | Sort-Object Name -Descending | Select-Object -Skip 10 | Remove-Item -Recurse -Force

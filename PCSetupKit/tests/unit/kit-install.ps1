@@ -33,35 +33,59 @@ if (Test-IsAdmin) {
 Section 'uninstall.ps1 end to end (sandbox profile, real processes and tasks untouched)'
 $H = "$Work\uhome"; $cl = "$H\.claude"; $A = "$H\AppData\Roaming"; $kf = "$Work\ukit"
 New-Item "$cl\hooks", "$cl\skills\maintain", "$cl\skills\my-own-skill", "$cl\projects\p", "$A\Microsoft\Windows\Start Menu\Programs", "$H\Desktop", "$H\Documents\Messiah Tray", $kf -ItemType Directory -Force | Out-Null
-foreach ($f in 'claude-admin-launch.ps1', 'health-check.ps1', 'maint-state.json', 'games.txt', 'hooks\no-power-off.ps1', 'skills\maintain\SKILL.md', 'skills\my-own-skill\SKILL.md', 'projects\p\conv.jsonl', 'CLAUDE.md') { 'x' | Set-Content "$cl\$f" }
-foreach ($f in "$A\Microsoft\Windows\Start Menu\Programs\Messiah.lnk", "$H\Desktop\Messiah.lnk", "$H\Documents\Messiah Tray\Messiah Tray.ahk", "$kf\setup.log") { 'x' | Set-Content $f }
+foreach ($f in 'claude-admin-launch.ps1', 'health-check.ps1', 'dashboard.ps1', 'status-lib.ps1', 'tray-app.ps1', 'maint-state.json', 'games.txt', 'hooks\no-power-off.ps1', 'skills\maintain\SKILL.md', 'skills\my-own-skill\SKILL.md', 'projects\p\conv.jsonl', 'CLAUDE.md') { 'x' | Set-Content "$cl\$f" }
+$newParts = "$A\Microsoft\Windows\Start Menu\Programs\Messiah Status.lnk", "$A\Microsoft\Windows\Start Menu\Programs\PC Setup Kit Status.lnk", "$H\Documents\Messiah Tray\Messiah.exe", "$cl\dashboard.ps1", "$cl\status-lib.ps1", "$cl\tray-app.ps1"
+foreach ($f in @("$A\Microsoft\Windows\Start Menu\Programs\Messiah.lnk", "$H\Desktop\Messiah.lnk", "$H\Documents\Messiah Tray\Messiah Tray.ahk", "$kf\setup.log") + $newParts[0..2]) { 'x' | Set-Content $f }
 @'
 { "theme": "dark", "hooks": { "PreToolUse": [ { "matcher": "Bash|PowerShell", "hooks": [ { "type": "command", "command": "powershell.exe -File \"C:\\x\\hooks\\no-power-off.ps1\"" } ] },
                               { "matcher": "Edit", "hooks": [ { "type": "command", "command": "my-own-hook.cmd" } ] } ] } }
 '@ | Set-Content "$cl\settings.json"
 $unText = Get-Content "$Kit\uninstall.ps1" -Raw
-$a = $unText.IndexOf('    Write-Host "`n=== Stopping Messiah"'); $b = $unText.IndexOf('    Write-Host "`n=== Shortcuts and tray icon"')
-$safe = ($unText.Substring(0, $a) + $unText.Substring($b)).Replace("'C:\PCSetupKit'", "'$kf'")
+$ia = $unText.IndexOf('    Write-Host "`n=== Stopping Messiah"'); $ib = $unText.IndexOf('    Write-Host "`n=== Shortcuts and tray icon"')
+$safe = ($unText.Substring(0, $ia) + $unText.Substring($ib)).Replace("'C:\PCSetupKit'", "'$kf'")
 Check 'sandbox copy cannot touch real processes, tasks or C:\PCSetupKit' (-not ($safe -match 'Stop-Process|Unregister-ScheduledTask') -and $safe -notmatch [regex]::Escape("Stash 'C:\PCSetupKit'")) ''
 Set-Content "$Work\uninstall-sandbox.ps1" $safe
 $r = Invoke-As $H "$Work\uninstall-sandbox.ps1" @('-Yes') @{ APPDATA = $A }
 $s = Get-Content "$cl\settings.json" -Raw | ConvertFrom-Json
 Check 'our hook removed, the owner''s own hook and settings kept, settings backed up' (-not ($s.hooks.PreToolUse.hooks.command -match 'no-power-off') -and ($s.hooks.PreToolUse.hooks.command -match 'my-own-hook') -and $s.theme -eq 'dark' -and (Test-Path "$cl\settings.json.before-uninstall")) $r.Out
 Check 'kit files, shortcuts, tray and kit folder gone' (-not (Test-Path "$cl\claude-admin-launch.ps1") -and -not (Test-Path "$cl\skills\maintain") -and -not (Test-Path "$A\Microsoft\Windows\Start Menu\Programs\Messiah.lnk") -and -not (Test-Path "$H\Desktop\Messiah.lnk") -and -not (Test-Path "$H\Documents\Messiah Tray") -and -not (Test-Path $kf)) $r.Out
+$left = @($newParts | Where-Object { Test-Path $_ })
+Check 'the tray program, Status window scripts and both Status Start menu entries gone' (-not $left) ($left -join ', ')
 Check 'conversations, own skills and CLAUDE.md kept' ((Test-Path "$cl\projects\p\conv.jsonl") -and (Test-Path "$cl\skills\my-own-skill") -and (Test-Path "$cl\CLAUDE.md")) ''
 $st = Get-ChildItem $cl -Directory -Filter 'pc-setup-kit-removed-*'
 Check 'nothing deleted: everything is in the removed-files folder' (@(Get-ChildItem $st.FullName -Recurse -File).Count -ge 9) ''
 $o = & "$Kit\uninstall.ps1" -WhatIf 2>&1 | Out-String
 Check 'the real uninstaller dry run (-WhatIf) changes nothing and has no errors' ($o -match 'Nothing was changed' -and $o -notmatch 'Exception|FAILED') $o
 
+Section 'GitHub API not answering (hourly limit, outage): installer and updater still take the latest tested release'
+$fbRepo = (@(Get-Content "$Kit\kit-source.txt" -ErrorAction SilentlyContinue) -match '^repo=' | Select-Object -First 1) -replace '^repo=\s*'
+$page = try { Invoke-WebRequest "https://github.com/$fbRepo/releases/latest" -Method Head -UseBasicParsing -TimeoutSec 20 } catch { $null }
+$latest = if ("$($page.BaseResponse.ResponseUri)" -match '/releases/tag/([^/?#]+)$') { $Matches[1] }
+if (-not $fbRepo) { Skip 'API fallback' 'this kit has no update source (kit-source.txt)' }
+elseif (-not $latest) { Skip 'API fallback' 'github.com not reachable' }
+else {
+    function Invoke-RestMethod { throw 'The remote server returned an error: (403) Forbidden. (rate limit)' }   # the API refuses every request
+    $root = Split-Path $Kit
+    if (Test-Path "$root\install.ps1") {
+        $o = & "$root\install.ps1" -DownloadOnly "$Work\fb-dl" 2>&1 | Out-String
+        $v = Get-Content "$Work\fb-dl\x\*\PCSetupKit\kit-version.txt" -ErrorAction SilentlyContinue
+        Check "installer: downloads the latest tested release ($latest) from the release page, never the unreleased main branch" ($v -eq $latest -and $o -notmatch '\bmain\b') $o
+    }
+    $fk = "$Work\fb-kit"; New-Item $fk, "$Work\fb-cl" -ItemType Directory -Force | Out-Null
+    "repo=$fbRepo" | Set-Content "$fk\kit-source.txt"; 'v2000.01.01' | Set-Content "$fk\kit-version.txt"
+    $o = & "$Src\kit-update.ps1" -KitDir $fk -ClaudeDir "$Work\fb-cl" -TrayDir "$Work\fb-td" -Force 2>&1 | Out-String
+    Check "updater: finds and installs $latest the same way" ((Get-Content "$fk\kit-version.txt") -eq $latest -and $o -match [regex]::Escape($latest)) $o
+    Remove-Item Function:\Invoke-RestMethod
+}
+
 Section 'GitHub: install.ps1 and kit-update.ps1 against the real release'
-if (-not (Test-Online)) { Skip 'GitHub tests' 'offline'; Finish }
+if (-not (Test-Online)) { Skip 'GitHub tests' $OfflineWhy; Finish }
 if (-not (Test-Path "$Kit\kit-source.txt")) { Skip 'GitHub tests' 'this kit has no update source (kit-source.txt)'; Finish }
 $repoRoot = Split-Path $Kit
 # GitHub's release API sometimes doesn't answer for a moment (the kit then quietly waits for the next login - correct).
 # A step that got no answer is tried again; if GitHub stays unreachable, the rest is skipped (with the reason), never
 # failed. If GitHub answers and the step still fails, that is a real failure.
-$repo = ((Get-Content "$Kit\kit-source.txt") -match '^repo=' | Select-Object -First 1) -replace '^repo=\s*'
+$repo = (@(Get-Content "$Kit\kit-source.txt") -match '^repo=' | Select-Object -First 1) -replace '^repo=\s*'
 function Test-ReleaseApi { try { [void](Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{ 'User-Agent' = 'pc-setup-kit-tests' } -TimeoutSec 20); $true } catch { $false } }
 function GitHubStep([scriptblock]$Action, [scriptblock]$Ok) {
     for ($i = 1; $i -le 3; $i++) { $o = & $Action; if ((& $Ok $o) -or (Test-ReleaseApi)) { return $o }; Start-Sleep 10 }

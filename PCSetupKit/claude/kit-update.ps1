@@ -10,9 +10,12 @@ if (-not $Force -and (Test-Path "$env:USERPROFILE\Documents\PC Setup Kit\.git"))
 $cfg = @{}; Get-Content $srcFile | ForEach-Object { $k, $v = $_ -split '=', 2; if ($v) { $cfg[$k.Trim()] = $v.Trim() } }
 if ($cfg.repo -notmatch '^[\w.-]+/[\w.-]+$') { return }
 $verFile = "$KitDir\kit-version.txt"; $cur = if (Test-Path $verFile) { (Get-Content $verFile -Raw).Trim() } else { '' }
-try { $rel = Invoke-RestMethod "https://api.github.com/repos/$($cfg.repo)/releases/latest" -Headers @{ 'User-Agent' = 'pc-setup-kit' } -TimeoutSec 20 }
-catch { return }   # offline or rate-limited: quietly try again next time
-$tag = $rel.tag_name
+# the newest release that passed its test installs: GitHub's API, else the release page's redirect (the API allows only
+# 60 requests an hour per network - shared networks can run out); offline: quietly try again next time
+$tag = try { (Invoke-RestMethod "https://api.github.com/repos/$($cfg.repo)/releases/latest" -Headers @{ 'User-Agent' = 'pc-setup-kit' } -TimeoutSec 20).tag_name } catch { $null }
+if (-not $tag) {
+    try { $r = Invoke-WebRequest "https://github.com/$($cfg.repo)/releases/latest" -Method Head -UseBasicParsing -TimeoutSec 20; if ("$($r.BaseResponse.ResponseUri)" -match '/releases/tag/([^/?#]+)$') { $tag = $Matches[1] } } catch {}
+}
 if (-not $tag -or ($tag -eq $cur -and -not $Reinstall)) { return }
 # never back to an older release (e.g. while a newer one waits as a pre-release)
 function Ver([string]$t) { $v = $null; if ([version]::TryParse(($t -replace '^v', ''), [ref]$v)) { $v } }

@@ -125,7 +125,9 @@ foreach ($k in 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run', 'HKLM:\Sof
     $auto += $item.Property | Where-Object { $v = if ($ok) { $ok.GetValue($_) }; -not ($v -and ($v[0] -band 1)) }
 }
 $auto += (Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\*", "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\*" -Exclude desktop.ini).BaseName
-$auto += Get-ScheduledTask | Where-Object { $_.TaskPath -notlike '\Microsoft\*' -and $_.State -ne 'Disabled' } | ForEach-Object { "task: $($_.TaskName -replace '_?\{[0-9A-Fa-f-]+\}$' -replace '\d+(\.\d+)+$')" }
+# (the kit's own tasks aren't news: the tray, the maintenance, the one-shot resume task, test runs' throwaway tasks)
+$own = '^(Messiah Tray|Claude Admin Tray|Claude Background Maintenance|Claude Resume After Restart)$|^PCSetupKit|KITTEST'
+$auto += Get-ScheduledTask | Where-Object { $_.TaskPath -notlike '\Microsoft\*' -and $_.TaskPath -notlike '\PCSetupKit*' -and $_.State -ne 'Disabled' -and $_.TaskName -notmatch $own } | ForEach-Object { "task: $($_.TaskName -replace '_?\{[0-9A-Fa-f-]+\}$' -replace '\d+(\.\d+)+$')" }
 $auto = @($auto | Where-Object { $_ } | Sort-Object -Unique)
 $base = "$env:USERPROFILE\.claude\startup-baseline.txt"
 if (Test-Path $base) {

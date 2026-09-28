@@ -101,6 +101,10 @@ try {
         else { $ui.Summary.Text = 'All good - nothing needs you'; $ui.Dot.Fill = $brush.Ok }
         $last = ($secs | Where-Object Title -eq 'Last background check').Lines | Where-Object { $_.Text -match '^(Checked|No report)' } | Select-Object -First 1
         $ui.Sub.Text = "$(if ($last) { $last.Text } else { 'No check yet' })  $([char]0xB7)  updates by itself"
+        # redraw only when something changed (no flicker, the scroll position stays while reading)
+        $sig = ($secs | ForEach-Object { $_.Title; $_.Lines | ForEach-Object { "$($_.Level)|$($_.Text)" } }) -join "`n"
+        if ($sig -eq $script:shown) { return }
+        $script:shown = $sig
         $ui.Cards.Children.Clear()
         foreach ($s in $secs) {
             $card = New-Object Windows.Controls.Border -Property @{ Background = $brush.Card; BorderBrush = $brush.Border; BorderThickness = 1; CornerRadius = 8; Padding = '16,12'; Margin = '0,0,0,10' }

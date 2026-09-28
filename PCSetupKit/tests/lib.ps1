@@ -124,5 +124,9 @@ public static class P { public static int Main(string[] a) {
     }
     $exe
 }
-function Test-Online { try { [void](Invoke-WebRequest 'https://api.github.com' -UseBasicParsing -TimeoutSec 10); $true } catch { $false } }
+# online = GitHub answers; $global:OfflineWhy says why not ("offline", or GitHub's hourly limit for requests without an account)
+function Test-Online {
+    try { [void](Invoke-WebRequest 'https://api.github.com' -UseBasicParsing -TimeoutSec 10); $global:OfflineWhy = $null; $true }
+    catch { $global:OfflineWhy = if ("$($_.Exception.Message)" -match '\(403\)|rate limit') { 'GitHub''s hourly request limit is used up - try again within the hour' } else { 'offline' }; $false }
+}
 function Test-IsAdmin { ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }

@@ -95,7 +95,7 @@ Check '... the same login maintenance task' ([bool]$global:tasks['Claude Backgro
 if ($global:tasks['Messiah Tray']) { Check '... the tray runs as "Messiah.exe", with a "Messiah Status" Start menu entry' ($global:tasks['Messiah Tray'].Action.Execute -eq "$H\Documents\Messiah Tray\Messiah.exe" -and (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah Status.lnk")) "$($global:tasks['Messiah Tray'].Action.Execute)" }
 
 Section 'setup.ps1: things on the internet it depends on'
-if (-not (Test-Online)) { Skip 'online checks' 'offline'; Finish }
+if (-not (Test-Online)) { Skip 'online checks' $OfflineWhy; Finish }
 $ids = [regex]::Match($setup, "foreach \(\`$id in ([^)]+)\)").Groups[1].Value -split ',' | ForEach-Object { $_.Trim(" '") } | Where-Object { $_ }
 if (Get-Command winget -ErrorAction SilentlyContinue) {
     $missing = @($ids | Where-Object { -not ((winget show --id $_ -e --accept-source-agreements --disable-interactivity 2>$null | Out-String) -match "\[$([regex]::Escape($_))\]") })

@@ -3,6 +3,9 @@
 $H = "$Work\home"; $C = "$H\.claude"; $trayDir = "$H\Documents\Messiah Tray"
 New-Item $C, $trayDir -ItemType Directory -Force | Out-Null
 $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+# the owner's real tray (if it runs here): the rollbacks below must never restart it
+$realTray = { @(Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe' OR Name='Messiah.exe' OR Name='PC Setup Kit.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk' | Where-Object CommandLine -notmatch ([regex]::Escape($Work)) | ForEach-Object ProcessId) -join ',' }
+$trayBefore = & $realTray
 function New-Case([hashtable]$Jobs, [string]$Unattended, [switch]$Short) {
     $t = (Get-Content "$Src\claude-bg-maint.ps1" -Raw).Replace("'Global\ClaudeBgMaint'", "'Global\ClaudeBgMaintT$PID'")
     if ($Short) { $t = $t.Replace("Script = 'driver-check.ps1'; Timeout = 1200", "Script = 'driver-check.ps1'; Timeout = 4") }
@@ -172,4 +175,6 @@ if ($Mode -eq 'improve') { '"health-check ok"; "SEMANTIC-BUG"' | Set-Content "$P
 $before = @(Get-ChildItem "$C\maint-claude-log" -Filter '*-tests.txt').Count
 Run
 Check 'inside a test run the gate never starts the real suite (no suite-in-suite loop)' (@(Get-ChildItem "$C\maint-claude-log" -Filter '*-tests.txt').Count -eq $before) ''
+if ($trayBefore) { $after = & $realTray; Check 'the tray rollbacks never restarted the owner''s real tray' ($after -eq $trayBefore) "before $trayBefore, after $after" }
+else { Skip 'real tray untouched' 'no tray running on this PC' }
 Finish

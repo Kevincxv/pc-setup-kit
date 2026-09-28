@@ -38,8 +38,14 @@ if (-not $DownloadOnly) {
 }
 
 $ProgressPreference = 'SilentlyContinue'
-$tag = try { (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{ 'User-Agent' = 'pc-setup-kit' }).tag_name } catch { $null }
-$url = if ($tag) { "https://github.com/$repo/archive/refs/tags/$tag.zip" } else { "https://github.com/$repo/archive/refs/heads/main.zip" }
+# The newest release that passed its test installs ("latest"): GitHub's API, else the web page's redirect (the API
+# allows only 60 requests an hour per network). Never the unreleased main branch - it may hold a release still being tested.
+$tag = try { (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{ 'User-Agent' = 'pc-setup-kit' } -TimeoutSec 30).tag_name } catch { $null }
+if (-not $tag) {
+    try { $r = Invoke-WebRequest "https://github.com/$repo/releases/latest" -Method Head -UseBasicParsing -TimeoutSec 30; if ("$($r.BaseResponse.ResponseUri)" -match '/releases/tag/([^/?#]+)$') { $tag = $Matches[1] } } catch {}
+}
+if (-not $tag) { throw "Couldn't reach GitHub to find the newest release - check the internet connection and try again in a few minutes. Nothing was changed." }
+$url = "https://github.com/$repo/archive/refs/tags/$tag.zip"
 $dest = if ($DownloadOnly) { $DownloadOnly } else { Join-Path $env:TEMP 'pc-setup-kit' }
 if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
 New-Item $dest -ItemType Directory -Force | Out-Null
