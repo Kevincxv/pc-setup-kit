@@ -44,10 +44,25 @@ foreach ($o in "$env:SystemRoot\System32\OneDriveSetup.exe", "$env:SystemRoot\Sy
 Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name OneDrive -ErrorAction SilentlyContinue
 
 Step 'Getting winget ready'
+# Windows brings winget with the Store's App Installer, which can take minutes to appear after the first login. Where
+# it never comes (no Store: Windows Sandbox, LTSC, a removed or broken Store) it is installed straight from Microsoft:
+# the App Installer package and the two libraries it needs (Add-AppxPackage accepts only Microsoft-signed packages).
+function Install-Winget {
+    $d = Join-Path $env:TEMP 'winget-setup'; New-Item $d -ItemType Directory -Force | Out-Null
+    $ProgressPreference = 'SilentlyContinue'
+    foreach ($p in @(@('https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx', 'vclibs.appx'),
+            @('https://github.com/microsoft/microsoft-ui-xaml/releases/download/v2.8.6/Microsoft.UI.Xaml.2.8.x64.appx', 'uixaml.appx'),
+            @('https://aka.ms/getwinget', 'winget.msixbundle'))) {
+        try { Invoke-WebRequest $p[0] -OutFile "$d\$($p[1])" -UseBasicParsing; Add-AppxPackage "$d\$($p[1])" -ErrorAction Stop }
+        catch { if ($p[1] -eq 'winget.msixbundle') { "  winget install failed: $($_.Exception.Message)" } }   # libraries: often already there
+    }
+}
 for ($i = 0; $i -lt 40 -and -not (Get-Command winget -ErrorAction SilentlyContinue); $i++) {
     if ($i -eq 0) { Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe -ErrorAction SilentlyContinue }
+    if ($i -eq 12) { '  winget did not appear by itself - installing it from Microsoft'; Install-Winget }   # after 3 minutes
     Start-Sleep 15
 }
+$env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') + ";$env:LOCALAPPDATA\Microsoft\WindowsApps"
 winget source update --accept-source-agreements | Out-Null
 
 Step 'Installing apps'

@@ -1,7 +1,7 @@
 # PC Setup Kit - one-command install on an existing Windows 11 PC. In PowerShell (it asks for admin by itself):
-#   irm https://raw.githubusercontent.com/Kevincxv/pc-setup-kit/main/install.ps1 | iex
+#   irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1 | iex
 # With the optional Claude part (Messiah):
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Kevincxv/pc-setup-kit/main/install.ps1))) -WithClaude
+#   & ([scriptblock]::Create((irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1))) -WithClaude
 # Downloads the newest release, then runs PCSetupKit\setup.ps1 (tweaks, apps, zero maintenance - no AI needed).
 # -DownloadOnly <folder>: only download and unpack (used for testing).
 param([string]$DownloadOnly, [switch]$WithClaude)
@@ -10,7 +10,7 @@ $repo = 'Kevincxv/pc-setup-kit'
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $DownloadOnly -and -not $isAdmin) {
     Write-Host 'Asking for administrator rights...' -ForegroundColor Cyan
-    $cmd = "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/$repo/main/install.ps1)))$(if ($WithClaude) { ' -WithClaude' })"
+    $cmd = "& ([scriptblock]::Create((irm https://github.com/$repo/releases/latest/download/install.ps1)))$(if ($WithClaude) { ' -WithClaude' })"
     Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $cmd
     return
 }

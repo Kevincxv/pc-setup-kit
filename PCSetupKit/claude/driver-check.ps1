@@ -6,6 +6,21 @@
 # Prints one line per finding; "REBOOT" in the output means a restart is needed to finish.
 $ErrorActionPreference = 'Continue'
 
+# A restore point right before the first driver install of this run: a full undo if a driver breaks Windows (on top of
+# driver-guard.ps1, which rolls a driver back after a blue screen). Windows allows one per 24 h by default: the limit
+# is lifted for this one and put back.
+function New-DriverRestorePoint {
+    if ($script:rpDone) { return }; $script:rpDone = $true
+    $k = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore'
+    $was = (Get-ItemProperty $k -ErrorAction SilentlyContinue).SystemRestorePointCreationFrequency
+    Set-ItemProperty $k SystemRestorePointCreationFrequency 0 -Type DWord -ErrorAction SilentlyContinue
+    $before = @(Get-ComputerRestorePoint -ErrorAction SilentlyContinue).Count
+    Checkpoint-Computer -Description 'Before driver updates (PC Setup Kit)' -RestorePointType DEVICE_DRIVER_INSTALL -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+    if ($null -eq $was) { Remove-ItemProperty $k SystemRestorePointCreationFrequency -ErrorAction SilentlyContinue } else { Set-ItemProperty $k SystemRestorePointCreationFrequency $was -Type DWord -ErrorAction SilentlyContinue }
+    if (@(Get-ComputerRestorePoint -ErrorAction SilentlyContinue).Count -gt $before) { 'Restore point created before the driver install' }
+    else { 'Restore point: none could be made (System Protection off?) - installing anyway' }
+}
+
 # --- NVIDIA ---
 # (PCs without an NVIDIA card - AMD/Intel graphics - skip this silently; a missing nvidia-smi used to throw an error
 #  whose "failed" woke /maintain at every login)
@@ -37,6 +52,7 @@ if (Get-CimInstance Win32_VideoController | Where-Object Name -match 'NVIDIA') {
             if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'NVIDIA') {
                 "NVIDIA: download failed signature check - not installing"
             } else {
+                New-DriverRestorePoint
                 $p = Start-Process $exe -ArgumentList '-s -noreboot -noeula' -Wait -PassThru
                 if ($p.ExitCode -eq 0) { "NVIDIA: installed $($latest.version)" } else { "NVIDIA: installer exit code $($p.ExitCode)" }
                 Remove-Item $exe -Force -ErrorAction SilentlyContinue
@@ -70,6 +86,7 @@ try {
         $coll = New-Object -ComObject Microsoft.Update.UpdateColl
         foreach ($u in $result.Updates) { if (-not $u.EulaAccepted) { $u.AcceptEula() }; [void]$coll.Add($u) }
         $dl = $session.CreateUpdateDownloader(); $dl.Updates = $coll; [void]$dl.Download()
+        New-DriverRestorePoint
         $inst = $session.CreateUpdateInstaller(); $inst.Updates = $coll; $res = $inst.Install()
         for ($i = 0; $i -lt $coll.Count; $i++) {
             $ok = $res.GetUpdateResult($i).ResultCode -eq 2

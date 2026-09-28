@@ -65,7 +65,21 @@ Section 'the app window (dashboard.ps1)'
 $r = Invoke-As $H "$C\dashboard.ps1" @('-Test')
 $d = $r.Out
 Check 'without Claude: opens as "PC Setup Kit", no errors' ((-not $r.Err.Trim()) -and ($d -match '(?m)^WINDOW: PC Setup Kit\s*$')) ($r.Err + $d)
-Check '... pages: Overview, Maintenance, Schedule, Settings (no Sessions)' ($d -match '(?m)^NAV: Home \| Maintenance \| Schedule \| Settings\s*$') $d
+Check '... pages: Overview, Maintenance, History, Schedule, Notifications, Settings (no Sessions)' ($d -match '(?m)^NAV: Home \| Maintenance \| History \| Schedule \| Notifications \| Settings\s*$') $d
+Check '... History: a chart per measure; with no history yet it says it is collecting' (($d -match 'CHART: Start-up time \| 0 point') -and ($d -match 'CHART: Free space on C: \|') -and ($d -match 'CHART: Graphics card at idle \|') -and ($d -match 'CHART: SSD temperature \|')) $d
+Check '... Notifications: none yet' ($d -match 'CARD: Alerts\s+: No alerts yet') $d
+# with a history, saved reports and alerts
+$now = Get-Date
+$rows = for ($i = 10; $i -ge 0; $i--) { [ordered]@{ date = $now.AddDays(-$i).ToString('o'); bootAt = $now.AddDays(-$i).AddMinutes(-3).ToString('o'); boot = 26 + ($i % 2); freeGB = 500 - $i; gpuIdle = 30; ssdTemp = 45 } }
+ConvertTo-Json -InputObject @($rows) | Set-Content "$C\health-history.json"
+New-Item "$C\maint-history" -ItemType Directory -Force | Out-Null
+'Checked 9/20/2026 9:00 AM in 30s', '[Periodic]', 'Updated app: Vendor.Tool', 'Tweaks: all still applied' | Set-Content "$C\maint-history\report-20260920-090000.txt"
+"$($now.ToString('yyyy-MM-dd')) 10:00|Maintenance started in the background. / The result shows here" | Set-Content "$C\notifications.log" -Encoding UTF8
+$r = Invoke-As $H "$C\dashboard.ps1" @('-Test'); $d = $r.Out
+Check '... History: 11 start-ups charted, now and usual values' (($d -match 'CHART: Start-up time \| 11 points, now 26 s, usual 26\.\d s|CHART: Start-up time \| 11 points, now 26 s, usual 26 s') -and ($d -match 'CHART: Free space on C: \| 11 points, now 500 GB')) $d
+Check '... "What maintenance did" lists what changed, not routine lines' (($d -match '9/20/2026 9:00 AM: Updated app: Vendor\.Tool') -and ($d -notmatch 'all still applied')) $d
+Check '... Notifications: past alerts with their time, and a Clear button' (($d -match 'CARD: Alerts\s+\S+ \S+ \d+, 10:00 AM: Maintenance started in the background') -and ($d -match 'BUTTONS: Clear')) $d
+Clear-Path "$C\health-history.json", "$C\maint-history", "$C\notifications.log"
 Check '... the overview leads with what needs the owner' (($d -match 'PAGE: Overview\s+CARD: -\s+1 thing needs you') -and ($d -match 'CARD: Needs you\s+\S+\s+Turn EXPO back on')) $d
 Check '... the overview has the main actions' ($d -match 'BUTTONS: Run maintenance now \| Optimize this PC') $d
 Check '... the maintenance page shows the last check; no Claude parts' (($d -match 'PAGE: Maintenance\s+CARD: Last background check\s+Checked 9/27/2026 12:00 PM') -and ($d -match 'BUTTONS: Run maintenance now \| Full report') -and ($d -notmatch 'CARD: Messiah|Watch live|Hidden Claude|New session')) $d

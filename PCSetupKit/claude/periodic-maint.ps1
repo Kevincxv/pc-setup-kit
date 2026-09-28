@@ -2,7 +2,7 @@
 # Tracks what ran when in .claude\maint-state.json and only does tasks that are due. Prints one line per action.
 # Tasks that need judgment (BIOS, firmware, Windows version upgrades, re-benchmarks) are marked due here and done
 # by Claude itself: the launcher opens Claude with /maintain when anything in "claude" is due.
-param([string]$TestDisplayVersion, [string]$TestEdition, [string]$TestInstallType, [string]$TestToday)
+param([string]$TestDisplayVersion, [string]$TestEdition, [string]$TestInstallType, [string]$TestToday, [ValidateSet('', 'yes', 'no')][string]$TestRebootPending)   # -Test*: tests (-TestRebootPending: this PC may really have a restart pending)
 $ErrorActionPreference = 'SilentlyContinue'
 $stateFile = "$PSScriptRoot\maint-state.json"
 function Read-State { $h = @{}; try { $j = Get-Content $stateFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $j = $null }
@@ -12,6 +12,7 @@ function Due($key, $days) { $d = [datetime]::MinValue; -not [datetime]::TryParse
 function Done($key) { $state[$key] = (Get-Date).ToString('o') }
 $rebootPending = (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
     (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired')
+if ($TestRebootPending) { $rebootPending = $TestRebootPending -eq 'yes' }
 
 # --- Weekly: app updates (apps that don't update themselves; Steam/Discord/Chrome/NVIDIA update on their own) ---
 $game = & "$PSScriptRoot\game-check.ps1"   # heavy work waits for the game to close (not marked done, so it runs next time)

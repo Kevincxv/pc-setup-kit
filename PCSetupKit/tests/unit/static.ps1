@@ -44,9 +44,12 @@ if ($inRepo) {
     # the install page (GitHub Pages, docs\): its download buttons point at files that run the real one-line installer
     $page = Get-Content "$repoRoot\docs\index.html" -Raw -ErrorAction SilentlyContinue
     $links = @([regex]::Matches("$page", 'href="([^"]+\.cmd)" download') | ForEach-Object { [uri]::UnescapeDataString($_.Groups[1].Value) })
-    $bad = @($links | Where-Object { $f = "$repoRoot\docs\$_"; -not (Test-Path $f) -or (Get-Content $f -Raw) -notmatch 'raw\.githubusercontent\.com/Kevincxv/pc-setup-kit/main/install\.ps1' -or [IO.File]::ReadAllText($f) -match '[^\r]\n' })
+    $bad = @($links | Where-Object { $f = "$repoRoot\docs\$_"; -not (Test-Path $f) -or (Get-Content $f -Raw) -notmatch 'github\.com/Kevincxv/pc-setup-kit/releases/latest/download/install\.ps1' -or [IO.File]::ReadAllText($f) -match '[^\r]\n' })
     Check 'install page: both download buttons (without / with Messiah) lead to CRLF batch files running install.ps1' ($links.Count -eq 2 -and -not $bad -and ($links -match 'Messiah').Count -eq 1 -and (Get-Content "$repoRoot\docs\$($links -match 'Messiah')" -Raw) -match '-WithClaude') "links: $($links -join ', '); bad: $($bad -join ', ')"
-} else { Skip 'nothing personal in the kit' 'checked where the kit is published from' }
+    # the installer is release-gated: fetched from the latest release that passed every test, never from main
+    $raw = @(Get-ChildItem $repoRoot -Recurse -File -Include *.ps1, *.cmd, *.html, *.md, *.txt | Where-Object { $_.FullName -notmatch '\\\.git\\|\\tests\\' } |
+            Where-Object { (Get-Content $_.FullName -Raw) -match 'raw\.githubusercontent\.com/[^\s"'']*/main/install\.ps1' } | ForEach-Object Name)
+    Check 'the installer is always fetched from the latest tested release (releases/latest/download), never from main' (-not $raw) ($raw -join ', ')} else { Skip 'nothing personal in the kit' 'checked where the kit is published from' }
 # scratch files belong in $Work: anything else in the tests folder's root gets published with the kit (9/27: '-report.txt' was)
 $stray = @(Get-ChildItem -LiteralPath (Split-Path $PSScriptRoot) -File | Where-Object { $_.Name -notin 'lib.ps1', 'run-tests.ps1', 'last-run.txt' } | ForEach-Object Name)
 Check 'no stray files in the tests folder' (-not $stray) ($stray -join ', ')

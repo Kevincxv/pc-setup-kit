@@ -11,7 +11,7 @@ function Get-AhkFunction([string]$Name) {
     if (-not $m.Success) { $m = [regex]::Match($traySrc, "(?m)^$Name\([^)\r\n]*\)\s*=>.*$") }
     $m.Value
 }
-$funcs = foreach ($n in 'MaintRunning', 'TodoTip', 'Notify', 'RehearsalPids', 'TrayError', 'AiEnabled', 'StatusAtLogin') { $f = Get-AhkFunction $n; Check "tray function $n found" ([bool]$f) ''; $f }
+$funcs = foreach ($n in 'MaintRunning', 'TodoTip', 'Notify', 'RehearsalPids', 'TrayError', 'AiEnabled', 'StatusAtLogin', 'LogNote') { $f = Get-AhkFunction $n; Check "tray function $n found" ([bool]$f) ''; $f }
 @"
 #Requires AutoHotkey v2.0
 #NoTrayIcon
@@ -43,6 +43,10 @@ switch A_Args[1] {
         Persistent
     case "ai": FileAppend(AiEnabled() ? "on" : "off", "*")
     case "login": StatusAtLogin()
+    case "log": LogNote("First line``nsecond line")
+    case "log250":
+        Loop 250
+            LogNote("note " A_Index " " StrReplace(Format("{:300}", ""), " ", "x"))
     case "pids":
         for k in RehearsalPids()
             FileAppend(k ",", "*")
@@ -107,6 +111,13 @@ Check 'no error message, the tray keeps running' ($o -eq 'still running') $o
 $log = Get-Content "$C\tray-errors.log" -Raw -ErrorAction SilentlyContinue
 Check '... and the error is logged for /self-improve' ($log -match 'WinGetPID') "$log"
 Check 'the real tray turns the error handler on at start' ((Get-Content $Tray -Raw) -match '(?m)^OnError TrayError\s*$') ''
+Section 'alerts are kept for the app (notifications.log)'
+[IO.File]::Delete("$C\notifications.log"); [void](T log)
+$l = @(Get-Content "$C\notifications.log" -Encoding UTF8)
+Check 'one line per alert: "yyyy-MM-dd HH:mm|text", line breaks shown as " / "' ($l.Count -eq 1 -and $l[0] -match '^\d{4}-\d\d-\d\d \d\d:\d\d\|First line / second line$') ($l -join ' // ')
+[void](T log250); $l = @(Get-Content "$C\notifications.log" -Encoding UTF8)
+Check '... kept short: only the newest alerts once the file grows' ($l.Count -le 200 -and $l[-1] -match '\|note 250 ') "$($l.Count) lines, last: $($l[-1].Substring(0, 30))"
+[IO.File]::Delete("$C\notifications.log")
 Section 'login: the app starts in the hidden tray (no window) unless the owner turned "Open at login" on'
 $saved = $env:PCKIT_IN_TESTS; $env:PCKIT_IN_TESTS = $null
 try {

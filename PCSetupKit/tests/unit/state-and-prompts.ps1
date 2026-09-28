@@ -24,7 +24,7 @@ Section 'Windows end of support depends on the edition'
 $d2 = "$Work\eos"; New-Item $d2 -ItemType Directory -Force | Out-Null; Copy-Item "$Src\periodic-maint.ps1" $d2; '' | Set-Content "$d2\game-check.ps1"
 function Eos($ver, $ed, $type = 'Client', $day = '2026-09-27') {
     @{ 'weekly-apps' = $now; 'monthly-cleanup' = $now; 'trim' = $now } | ConvertTo-Json | Set-Content "$d2\maint-state.json"
-    $o = & powershell -NoProfile -ExecutionPolicy Bypass -File "$d2\periodic-maint.ps1" -TestDisplayVersion $ver -TestEdition $ed -TestInstallType $type -TestToday $day
+    $o = & powershell -NoProfile -ExecutionPolicy Bypass -File "$d2\periodic-maint.ps1" -TestDisplayVersion $ver -TestEdition $ed -TestInstallType $type -TestToday $day -TestRebootPending no
     [pscustomobject]@{ Warn = [bool]($o -match 'WARNING: Windows'); Due = [bool](Get-Content "$d2\maint-state.json" -Raw | ConvertFrom-Json).'claude-winver-due'; Out = $o -join ' / ' }
 }
 foreach ($c in @(

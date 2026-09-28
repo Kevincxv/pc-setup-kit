@@ -38,10 +38,10 @@ try {
     $light = try { (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -ErrorAction Stop).AppsUseLightTheme -eq 1 } catch { $false }
     $c = if ($light) {
         @{ Bg = '#F3F3F3'; Card = '#B3FFFFFF'; CardHover = '#80F9F9F9'; Border = '#0F000000'; Text = '#E4000000'; Sub = '#9E000000'; Accent = '#5B57E8'
-            Ok = '#0F7B0F'; Warn = '#9D5D00'; Btn = '#B3FFFFFF'; BtnHover = '#80F9F9F9'; NavSel = '#0A000000'; NavHover = '#06000000'; Grad1 = '#7C5CFF'; Grad2 = '#3E8BF2'; OnAccent = '#FFFFFF' }
+            Ok = '#0F7B0F'; Warn = '#9D5D00'; Btn = '#B3FFFFFF'; BtnHover = '#80F9F9F9'; NavSel = '#0A000000'; NavHover = '#06000000'; Grad1 = '#7C5CFF'; Grad2 = '#3E8BF2'; OnAccent = '#FFFFFF'; Chart = '#6D5AE6' }
     } else {
         @{ Bg = '#202020'; Card = '#0DFFFFFF'; CardHover = '#14FFFFFF'; Border = '#19000000'; Text = '#FFFFFF'; Sub = '#C5FFFFFF'; Accent = '#A8A6FF'
-            Ok = '#6CCB5F'; Warn = '#FCE100'; Btn = '#0FFFFFFF'; BtnHover = '#15FFFFFF'; NavSel = '#0FFFFFFF'; NavHover = '#0AFFFFFF'; Grad1 = '#7C5CFF'; Grad2 = '#3E8BF2'; OnAccent = '#FFFFFF' }
+            Ok = '#6CCB5F'; Warn = '#FCE100'; Btn = '#0FFFFFFF'; BtnHover = '#15FFFFFF'; NavSel = '#0FFFFFFF'; NavHover = '#0AFFFFFF'; Grad1 = '#7C5CFF'; Grad2 = '#3E8BF2'; OnAccent = '#FFFFFF'; Chart = '#8F7DFF' }   # Chart: validated (dataviz) on each surface
     }
     $icons = "Segoe Fluent Icons, Segoe MDL2 Assets"
 
@@ -231,7 +231,8 @@ try {
         }
         $card.Child = $sp; $card
     }
-    function New-Rows($pairs) {   # label | value table (scheduled checks)
+    function New-Rows($pairs) {   # label | value table (scheduled checks); rows are @(label, value, level)
+        if (@($pairs).Count -and @($pairs)[0] -isnot [array]) { $pairs = , @($pairs) }   # one row arrives unrolled by PowerShell
         $g = New-Object Windows.Controls.Grid
         [void]$g.ColumnDefinitions.Add((New-Object Windows.Controls.ColumnDefinition -Property @{ Width = 'Auto' }))
         [void]$g.ColumnDefinitions.Add((New-Object Windows.Controls.ColumnDefinition))
@@ -246,6 +247,66 @@ try {
     }
     function Sec($secs, $t) { $secs | Where-Object { $_.Title -like "$t*" } | Select-Object -First 1 }
 
+    # --- History: health over time (health-history.json, written by trends.ps1 at every check). One measure per chart,
+    # each with its own scale (never two on one axis); one line, so the title names it (no legend); the current value as
+    # the big number; the usual level as a faint dashed line; every point has a tooltip (date and value).
+    function Get-HealthHistory { $j = try { Get-Content "$cl\health-history.json" -Raw -ErrorAction Stop | ConvertFrom-Json } catch { $null }; @($j | ForEach-Object { $_ }) }
+    function Median($v) { $s = @($v | Sort-Object); if (-not $s) { return $null }; $m = [int][Math]::Floor($s.Count / 2); if ($s.Count % 2) { $s[$m] } else { ($s[$m - 1] + $s[$m]) / 2 } }
+    function New-Chart($title, $unit, $pts, [int]$decimals = 0, [double]$minSpan = 1) {   # minSpan: the smallest range shown (small wobbles stay small)
+        $sp = New-Object Windows.Controls.StackPanel
+        $pts = @($pts | Where-Object { $null -ne $_.V } | Sort-Object D | Select-Object -Last 60)
+        $fmt = { param($v) "$([Math]::Round([double]$v, $decimals))$unit" }
+        if ($pts.Count -lt 2) {
+            [void]$sp.Children.Add((New-Text $(if ($pts) { & $fmt $pts[-1].V } else { '-' }) $brush.Text 26 'SemiBold' '0'))
+            [void]$sp.Children.Add((New-Text 'Collecting - the chart shows after a few checks.' $brush.Sub 12 'Normal' '0,4,0,0'))
+            $sp.Tag = "CHART: $title | $($pts.Count) point(s)"
+            return (New-Card $title $null @($sp) $null)
+        }
+        $vals = @($pts | ForEach-Object { [double]$_.V }); $usual = Median $vals
+        $hero = New-Object Windows.Controls.StackPanel -Property @{ Orientation = 'Horizontal' }
+        [void]$hero.Children.Add((New-Text (& $fmt $vals[-1]) $brush.Text 26 'SemiBold' '0'))
+        [void]$hero.Children.Add((New-Text "   usual $(& $fmt $usual)" $brush.Sub 12 'Normal' '0,0,0,5'))
+        $hero.Children[1].VerticalAlignment = 'Bottom'; [void]$sp.Children.Add($hero)
+        $W = 270; $H = 84; $lo = ($vals | Measure-Object -Minimum).Minimum; $hi = ($vals | Measure-Object -Maximum).Maximum
+        if ($hi - $lo -lt $minSpan) { $mid = ($hi + $lo) / 2; $hi = $mid + $minSpan / 2; $lo = $mid - $minSpan / 2 }
+        $pad = ($hi - $lo) * 0.12; $lo -= $pad; $hi += $pad
+        $t0 = $pts[0].D.Ticks; $t1 = $pts[-1].D.Ticks; if ($t1 -eq $t0) { $t1 = $t0 + 1 }
+        $X = { param($d) ($d.Ticks - $t0) / ($t1 - $t0) * ($W - 12) + 6 }; $Y = { param($v) $H - 4 - ($v - $lo) / ($hi - $lo) * ($H - 8) }
+        $cv = New-Object Windows.Controls.Canvas -Property @{ Width = $W; Height = $H; Margin = '0,10,0,0'; HorizontalAlignment = 'Left'; ClipToBounds = $false }
+        foreach ($gy in 4, ($H - 4)) {   # recessive frame lines, top and bottom of the range
+            [void]$cv.Children.Add((New-Object Windows.Shapes.Line -Property @{ X1 = 0; X2 = $W; Y1 = $gy; Y2 = $gy; Stroke = $brush.Border; StrokeThickness = 1 }))
+        }
+        $u = & $Y $usual   # the usual level
+        [void]$cv.Children.Add((New-Object Windows.Shapes.Line -Property @{ X1 = 0; X2 = $W; Y1 = $u; Y2 = $u; Stroke = $brush.Sub; StrokeThickness = 1; Opacity = 0.5; StrokeDashArray = (New-Object Windows.Media.DoubleCollection (, [double[]](4, 3))) }))
+        $line = New-Object Windows.Shapes.Polyline -Property @{ Stroke = $brush.Chart; StrokeThickness = 2; StrokeLineJoin = 'Round'; StrokeStartLineCap = 'Round'; StrokeEndLineCap = 'Round' }
+        foreach ($p in $pts) { [void]$line.Points.Add((New-Object Windows.Point (& $X $p.D), (& $Y ([double]$p.V)))) }
+        [void]$cv.Children.Add($line)
+        $bg = if ($win.Background -is [Windows.Media.SolidColorBrush] -and $win.Background.Color.A -eq 255) { $win.Background } else { New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString($c.Bg)) }
+        $last = New-Object Windows.Shapes.Ellipse -Property @{ Width = 10; Height = 10; Fill = $brush.Chart; Stroke = $bg; StrokeThickness = 2 }   # the current value, ringed
+        [Windows.Controls.Canvas]::SetLeft($last, (& $X $pts[-1].D) - 5); [Windows.Controls.Canvas]::SetTop($last, (& $Y $vals[-1]) - 5); [void]$cv.Children.Add($last)
+        foreach ($p in $pts) {   # hover: an invisible target bigger than the point
+            $hit = New-Object Windows.Shapes.Ellipse -Property @{ Width = 16; Height = 16; Fill = [Windows.Media.Brushes]::Transparent; ToolTip = "$($p.D.ToString('ddd MMM d, h:mm tt')):  $(& $fmt $p.V)"; Cursor = 'Hand' }
+            [Windows.Controls.Canvas]::SetLeft($hit, (& $X $p.D) - 8); [Windows.Controls.Canvas]::SetTop($hit, (& $Y ([double]$p.V)) - 8); [void]$cv.Children.Add($hit)
+        }
+        [void]$sp.Children.Add($cv)
+        $axis = New-Object Windows.Controls.DockPanel -Property @{ Width = $W; HorizontalAlignment = 'Left'; Margin = '0,4,0,0' }
+        $r = New-Text $pts[-1].D.ToString('MMM d') $brush.Sub 11 'Normal' '0'; [Windows.Controls.DockPanel]::SetDock($r, 'Right'); [void]$axis.Children.Add($r)
+        [void]$axis.Children.Add((New-Text "$($pts[0].D.ToString('MMM d'))   $([char]0xB7)   range $(& $fmt ($vals | Measure-Object -Minimum).Minimum) - $(& $fmt ($vals | Measure-Object -Maximum).Maximum)" $brush.Sub 11 'Normal' '0'))
+        [void]$sp.Children.Add($axis)
+        $sp.Tag = "CHART: $title | $($pts.Count) points, now $(& $fmt $vals[-1]), usual $(& $fmt $usual)"
+        New-Card $title $null @($sp) $null
+    }
+    # What maintenance changed, newest first (from the last 30 saved reports; routine "all fine" lines left out)
+    function Get-MaintTimeline {
+        $rx = 'Updated app|installed|Driver:|Driver rolled back|re-applied|Removed|Created a monthly|Restore point created|fetched it again|Restart check: .*finished at'
+        foreach ($f in Get-ChildItem "$cl\maint-history\report-*.txt" -ErrorAction SilentlyContinue | Sort-Object Name -Descending) {
+            $l = @(Get-Content $f.FullName -Encoding UTF8 -ErrorAction SilentlyContinue)
+            $when = if ($l -and $l[0] -match '^Checked (.+?) in ') { $Matches[1] } else { $f.LastWriteTime.ToString('g') }
+            foreach ($x in $l | Where-Object { $_ -match $rx -and $_ -notmatch 'up to date|all still applied' }) { [pscustomobject]@{ When = $when; Text = $x.Trim() } }
+        }
+    }
+    function Get-Notes { @(Get-Content "$cl\notifications.log" -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\d{4}-\d\d-\d\d \d\d:\d\d\|' } | ForEach-Object { $a = $_ -split '\|', 2; [pscustomobject]@{ When = [datetime]$a[0]; Text = $a[1] } }) }
+
     # --- settings (kit-options.txt next to the scripts; the tray reads "openatlogin")
     function Get-Opt($k, $default) { $l = @(Get-Content "$cl\kit-options.txt" -ErrorAction SilentlyContinue) -match "^\s*$k\s*=" | Select-Object -First 1; if ($l) { ($l -split '=', 2)[1].Trim() } else { $default } }
     function Set-Opt($k, $v) {
@@ -257,7 +318,7 @@ try {
     # --- pages
     $pages = [ordered]@{ Home = 'E80F' }
     if ($ai) { $pages.Sessions = 'E756' }
-    $pages.Maintenance = 'E90F'; $pages.Schedule = 'E787'; $pages.Settings = 'E713'
+    $pages.Maintenance = 'E90F'; $pages.History = 'E81C'; $pages.Schedule = 'E787'; $pages.Notifications = 'EA8F'; $pages.Settings = 'E713'
 
     function Build-Page($p, $secs) {
         $out = New-Object Collections.ArrayList
@@ -301,6 +362,30 @@ try {
                 if ($hidden) { [void]$out.Add((New-Card 'Hidden Claude maintenance' 'E90F' (@($hidden.Lines) + @(@{ Text = 'About 2 minutes after each login: /maintain when something needs judgment, then /self-improve at most once a day.'; Level = 'dim' })) @((New-Btn 'E890' 'Watch live' $act.WatchLive), (New-Btn 'E8F1' 'Self-improvement journal' $act.Journal), (New-Btn 'E8B7' 'Run logs' $act.Logs)))) }
                 [void]$out.Add((New-Card 'Needs you' 'E7BA' $needs.Lines @(New-Btn 'E8A5' 'Open the to-do list' $act.Todo) -Calm))
             }
+            'History' {
+                $hh = Get-HealthHistory
+                $pt = { param($field, [switch]$PerBoot)
+                    $rows = @($hh | Where-Object { $null -ne $_.$field })
+                    if ($PerBoot) { $rows = @($rows | Where-Object bootAt | Group-Object bootAt | ForEach-Object { $_.Group[-1] }); $rows | ForEach-Object { [pscustomobject]@{ D = [datetime]$_.bootAt; V = $_.$field } } }
+                    else { $rows | ForEach-Object { [pscustomobject]@{ D = [datetime]$_.date; V = $_.$field } } } }
+                $grid = New-Object Windows.Controls.Primitives.UniformGrid -Property @{ Columns = 2 }
+                foreach ($ch in @((New-Chart 'Start-up time' ' s' (& $pt boot -PerBoot) 1 10), (New-Chart 'Free space on C:' ' GB' (& $pt freeGB) 0 20),
+                        (New-Chart 'Graphics card at idle' ' C' (& $pt gpuIdle) 0 10), (New-Chart 'SSD temperature' ' C' (& $pt ssdTemp) 0 10))) {
+                    $ch.Margin = '0,0,12,12'; [void]$grid.Children.Add($ch)
+                }
+                [void]$out.Add($grid)
+                $tl = @(Get-MaintTimeline | Select-Object -First 40)
+                $rows = if ($tl) { $tl | ForEach-Object { , @($_.When, $_.Text, 'info') } } else { , @('', 'Nothing changed yet - the checks found everything in order.', 'dim') }
+                [void]$out.Add((New-Card 'What maintenance did' 'E90F' @(New-Rows $rows) @(New-Btn 'E8A5' 'Latest report' $act.Report)))
+                [void]$out.Add((New-Card $null $null @(@{ Text = 'Recorded at every check (at each login and once a day). Temperatures are taken only while the graphics card is idle, so a game never skews them.'; Level = 'dim' }) $null))
+            }
+            'Notifications' {
+                $notes = @(Get-Notes | Sort-Object When -Descending | Select-Object -First 60)
+                $rows = if ($notes) { $notes | ForEach-Object { , @($_.When.ToString('ddd MMM d, h:mm tt'), $_.Text, 'info') } } else { , @('', 'No alerts yet.', 'dim') }
+                $clear = New-Btn 'E74D' 'Clear' { [IO.File]::WriteAllText("$cl\notifications.log", ''); $script:shown = $null; Update-View -Force }
+                [void]$out.Add((New-Card 'Alerts' 'EA8F' @(New-Rows $rows) @(if ($notes) { $clear })))
+                [void]$out.Add((New-Card $null $null @(@{ Text = "The small notes $name shows in the corner of the screen (never over a game), kept here because they close by themselves."; Level = 'dim' }) $null))
+            }
             'Schedule' {
                 $pairs = foreach ($l in $sched.Lines) {
                     if ($l.Text -match '^([^:]+):\s+(.*)$') { , @($Matches[1], $Matches[2], $l.Level) } else { , @('', $l.Text, $l.Level) }
@@ -337,7 +422,8 @@ try {
         $navItems.Home.Tag.Text = if ($todo) { "$todo" } else { '' }; $navItems.Home.Tag.Parent.Visibility = if ($todo) { 'Visible' } else { 'Collapsed' }
         $ui.Version.Text = @(if ($ai -and $script:claudeVer) { "Claude Code $script:claudeVer" }; Get-Content 'C:\PCSetupKit\kit-version.txt' -TotalCount 1 -ErrorAction SilentlyContinue) -join "`n"
         # redraw only when something changed (no flicker; the scroll position stays while reading)
-        $sig = "$script:page`n" + (($secs | ForEach-Object { $_.Title; $_.Lines | ForEach-Object { "$($_.Level)|$($_.Text)" } }) -join "`n")
+        $sig = "$script:page`n" + (($secs | ForEach-Object { $_.Title; $_.Lines | ForEach-Object { "$($_.Level)|$($_.Text)" } }) -join "`n") +
+            "`n" + ((Get-Item "$cl\health-history.json", "$cl\notifications.log", "$cl\maint-history" -ErrorAction SilentlyContinue | ForEach-Object { $_.LastWriteTime.Ticks }) -join ',')
         if (-not $Force -and $sig -eq $script:shown) { return }
         $script:shown = $sig
         $ui.PageTitle.Text = if ($script:page -eq 'Home') { 'Overview' } else { $script:page }
@@ -365,8 +451,10 @@ try {
         foreach ($p in $pages.Keys) {
             $script:page = $p; Update-View -Force
             "PAGE: $($ui.PageTitle.Text)"
-            foreach ($card in $ui.Content.Children) {
+            foreach ($card in @($ui.Content.Children | ForEach-Object { if ($_ -is [Windows.Controls.Primitives.UniformGrid]) { $_.Children } else { $_ } })) {
                 $all = @($card.Child.Children)
+                $chart = $all | Where-Object { "$($_.Tag)" -like 'CHART:*' } | Select-Object -First 1
+                if ($chart) { "  $($chart.Tag)"; continue }
                 $head = $all[0]; if ($head -is [Windows.Controls.StackPanel] -and $head.Orientation -eq 'Horizontal') { "CARD: $(@($head.Children)[-1].Text)"; $all = $all | Select-Object -Skip 1 } else { 'CARD: -' }
                 foreach ($el in $all) {
                     if ($el -is [Windows.Controls.TextBlock]) { "  $($el.Text)" }

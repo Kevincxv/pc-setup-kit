@@ -22,7 +22,7 @@ is doing.
 Or open **PowerShell** and run (it asks for administrator rights by itself):
 
 ```powershell
-irm https://raw.githubusercontent.com/Kevincxv/pc-setup-kit/main/install.ps1 | iex
+irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1 | iex
 ```
 
 It shows what it will do and asks you to type `YES`. Setup takes 15-30 minutes: tweaks, apps, then it optimizes the
@@ -32,7 +32,7 @@ says what was done and anything that needs you.
 With the optional Messiah (Claude):
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Kevincxv/pc-setup-kit/main/install.ps1))) -WithClaude
+& ([scriptblock]::Create((irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1))) -WithClaude
 ```
 
 ## Install on a fresh Windows (USB)

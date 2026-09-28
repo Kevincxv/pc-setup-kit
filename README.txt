@@ -41,9 +41,9 @@ INSTALL ON THE NEW PC
 
 ON AN EXISTING WINDOWS 11 PC (no reinstall)
 Easiest: open PowerShell and run
-    irm https://raw.githubusercontent.com/Kevincxv/pc-setup-kit/main/install.ps1 | iex
+    irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1 | iex
 With Messiah:
-    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Kevincxv/pc-setup-kit/main/install.ps1))) -WithClaude
+    & ([scriptblock]::Create((irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1))) -WithClaude
 Or copy the PCSetupKit folder anywhere, right-click PCSetupKit\setup.ps1 > "Run with PowerShell", approve the admin prompt.
 
 REMOVE IT

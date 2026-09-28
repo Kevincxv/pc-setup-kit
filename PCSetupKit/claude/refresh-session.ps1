@@ -3,11 +3,11 @@
 # 15 min by the tray (elevated, hidden). A session is only restarted when that's invisible to the owner:
 # window hidden in the tray (or minimized), no activity for 10+ minutes, and not in the middle of a task.
 # It comes back hidden with the same conversation (--resume), no prompt, so no tokens are used.
-# -Exe / -OnlyPid / -IdleMinutes: test overrides. -WhatIf: only say what would happen.
-param([string]$Exe = "$env:USERPROFILE\.local\bin\claude.exe", [int[]]$OnlyPid, [int]$IdleMinutes = 10, [switch]$WhatIf)
+# -Exe / -OnlyPid / -IdleMinutes / -Log: test overrides (the live test logs to its own file, not the real log). -WhatIf: only say what would happen.
+param([string]$Exe = "$env:USERPROFILE\.local\bin\claude.exe", [int[]]$OnlyPid, [int]$IdleMinutes = 10, [switch]$WhatIf, [string]$Log = "$env:USERPROFILE\.claude\session-refresh.log")
 $cl = "$env:USERPROFILE\.claude"
 . "$cl\session-lib.ps1"
-$log = "$cl\session-refresh.log"
+$log = $Log
 function Log($m) { $l = "$((Get-Date).ToString('g'))  $m"; @(@(Get-Content $log -ErrorAction SilentlyContinue) + $l | Select-Object -Last 100) | Set-Content $log -Encoding UTF8; $l }
 function Stop-Tree([int]$ProcId) {
     Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcId" | ForEach-Object { Stop-Tree $_.ProcessId }

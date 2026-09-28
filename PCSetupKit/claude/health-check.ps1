@@ -4,7 +4,7 @@
 # - Hardware reminders until fixed: GPU link width, RAM at default speed (EXPO/XMP off), monitor below max Hz, old BIOS
 # - Warnings: pending restart, low disk space, drive SMART health, SSD wear/heat
 # - Mentions new auto-start items (Run keys, Startup folders, scheduled tasks) once
-# Monitors (below max refresh) or GPUs (below full PCIe width) the owner chose to accept can be listed (one name per line) in .claude\health-ignore.txt
+# Monitors (below max refresh), GPUs (below full PCIe width) or RAM (at default speed, by part number) the owner chose to accept can be listed (one name per line) in .claude\health-ignore.txt
 $ErrorActionPreference = 'SilentlyContinue'
 $state = "$env:USERPROFILE\.claude\health-check.last"
 $ignore = @(Get-Content "$env:USERPROFILE\.claude\health-ignore.txt" | Where-Object { $_.Trim() })
@@ -70,7 +70,9 @@ foreach ($gpu in Get-PnpDevice -PresentOnly -Class Display | Where-Object { $_.F
 $ram = Get-CimInstance Win32_PhysicalMemory | Select-Object -First 1
 # 'expo-off-test' in maint-state.json = EXPO is off on purpose (crash test), so don't nag - for 21 days, then remind again
 $expoTest = try { [datetime](Get-Content "$env:USERPROFILE\.claude\maint-state.json" -Raw | ConvertFrom-Json).'expo-off-test' -gt (Get-Date).AddDays(-21) } catch { $false }
-if (-not $expoTest -and $ram.ConfiguredClockSpeed -and $ram.ConfiguredClockSpeed -le $ram.Speed -and $ram.Speed -in 2133, 2400, 2666, 3200, 4800, 5200, 5600) {
+# (RAM the owner keeps at default speed on purpose: its part number in health-ignore.txt)
+if (-not $expoTest -and $ram.ConfiguredClockSpeed -and $ram.ConfiguredClockSpeed -le $ram.Speed -and $ram.Speed -in 2133, 2400, 2666, 3200, 4800, 5200, 5600 -and
+    -not ($ignore | Where-Object { "$($ram.PartNumber)".Trim() -like "*$_*" })) {
     "Reminder: RAM runs at its default $($ram.ConfiguredClockSpeed) MT/s ($($ram.PartNumber.Trim())) - if it's a faster kit, turn EXPO/XMP on in BIOS"
 }
 $bios = Get-CimInstance Win32_BIOS

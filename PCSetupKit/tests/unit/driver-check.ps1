@@ -2,13 +2,13 @@
 . "$PSScriptRoot\..\lib.ps1"
 $d = "$Work\dc"; New-Item $d -ItemType Directory -Force | Out-Null
 Copy-Item "$Src\driver-check.ps1" $d; '' | Set-Content "$d\game-check.ps1"
-$mocked = 'nvidia-smi', 'Invoke-WebRequest', 'Get-AuthenticodeSignature', 'Start-Process', 'New-Object', 'Get-CimInstance'
+$mocked = 'nvidia-smi', 'Invoke-WebRequest', 'Get-AuthenticodeSignature', 'Start-Process', 'New-Object', 'Get-CimInstance', 'Checkpoint-Computer', 'Get-ComputerRestorePoint', 'Set-ItemProperty', 'Remove-ItemProperty'
 if (-not (Test-Tripwire "$d\driver-check.ps1" $mocked)) { Finish }
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
 $la = "$Work\la"; $rec = "$la\NVIDIA Corporation\NVIDIA app\NvBackend"; New-Item $rec -ItemType Directory -Force | Out-Null
 
 function Reset-D {
-    $global:DC = @{ Gpu = 'NVIDIA GeForce RTX 9090'; Installed = '617.14'; Sig = 'Valid'; Signer = 'CN=NVIDIA Corporation, O=NVIDIA Corporation'; ExitCode = 0; Updates = @(); History = @(); Results = @{}; Reboot = $false }
+    $global:DC = @{ Gpu = 'NVIDIA GeForce RTX 9090'; Installed = '617.14'; Sig = 'Valid'; Signer = 'CN=NVIDIA Corporation, O=NVIDIA Corporation'; ExitCode = 0; Updates = @(); History = @(); Results = @{}; Reboot = $false; Rps = 0 }
     $global:DCcalls = New-Object System.Collections.Generic.List[string]
 }
 function Rec($updates, [int]$ageDays = 0) { @{ checkTime = (Get-Date).ToUniversalTime().AddDays(-$ageDays).ToString('o'); updates = $updates } | ConvertTo-Json -Depth 4 | Set-Content "$rec\DriverRecommendations.dat" }
@@ -19,6 +19,10 @@ function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing) $gl
 function Get-AuthenticodeSignature { param($FilePath) [pscustomobject]@{ Status = $DC.Sig; SignerCertificate = [pscustomobject]@{ Subject = $DC.Signer } } }
 function Start-Process { param($FilePath, $ArgumentList, [switch]$Wait, [switch]$PassThru) $global:DCcalls.Add("run $(Split-Path $FilePath -Leaf) $ArgumentList"); [pscustomobject]@{ ExitCode = $DC.ExitCode } }
 # Windows Update COM objects
+function Checkpoint-Computer { $global:DCcalls.Add('restore point'); $global:DC.Rps++ }
+function Get-ComputerRestorePoint { if ($global:DC.Rps) { 1..$global:DC.Rps } }   # (1..0 counts down to 2 items)
+function Set-ItemProperty { $global:DCcalls.Add("set $($args[1]) $($args[2])") }
+function Remove-ItemProperty { $global:DCcalls.Add("remove $($args[1])") }
 function New-WUUpdate($title) { $u = [pscustomobject]@{ Title = $title; IsHidden = $false; EulaAccepted = $false }; $u | Add-Member ScriptMethod AcceptEula { $this.EulaAccepted = $true }; $u }
 function New-Object {
     param([string]$TypeName, [switch]$ComObject, [object[]]$ArgumentList, [hashtable]$Property)
@@ -84,6 +88,7 @@ Get-ChildItem $env:TEMP -Filter '*-desktop-win11-64bit-international-dch-whql.ex
 Section 'other drivers (Windows Update)'
 Reset-D; Rec @((Drv '617.14')); $o = DC
 Check 'none pending: all up to date' ([bool]($o -match 'Other drivers: all up to date')) ($o -join ' / ')
+Check '... nothing to install: no restore point' (-not ($DCcalls -contains 'restore point')) ($DCcalls -join ', ')
 Reset-D; Rec @((Drv '617.14'))
 $DC.Updates = @((New-WUUpdate 'Realtek - Net - 10.70'), (New-WUUpdate 'AMD - Display - 32.0'), (New-WUUpdate 'Logitech - HID - 1.2'))
 $DC.History = @([pscustomobject]@{ Title = 'AMD - Display - 32.0'; ResultCode = 4 })
@@ -91,7 +96,9 @@ $DC.Results = @{ 'Realtek - Net - 10.70' = 2; 'Logitech - HID - 1.2' = 4 }; $DC.
 $o = DC
 Check 'a driver that failed before is hidden, not retried forever' (($o -match "'AMD - Display - 32.0' failed before - hidden") -and $DC.Updates[1].IsHidden) ($o -join ' / ')
 Check 'the rest are installed: success and failure reported per driver' (($o -contains 'Driver: Realtek - Net - 10.70 - installed') -and ($o -contains 'Driver: Logitech - HID - 1.2 - FAILED') -and -not ($o -match 'Driver: AMD - Display - 32.0 -')) ($o -join ' / ')
-Check 'licence terms accepted for them' ($DC.Updates[0].EulaAccepted -and $DC.Updates[2].EulaAccepted) ''
+$calls = @($DCcalls)
+Check 'a restore point is made right before the installs (one per run), and said' ((@($calls -eq 'restore point').Count -eq 1) -and ([array]::IndexOf($calls, 'restore point') -lt [array]::IndexOf($calls, 'install updates')) -and ($o -contains 'Restore point created before the driver install')) ($calls -join ', ')
+Check '... Windows'' one-per-day limit lifted for it and put back' (($calls -contains 'set SystemRestorePointCreationFrequency 0') -and (($calls -match '^(remove|set) SystemRestorePointCreationFrequency').Count -eq 2)) ($calls -join ', ')Check 'licence terms accepted for them' ($DC.Updates[0].EulaAccepted -and $DC.Updates[2].EulaAccepted) ''
 Check 'restart needed: REBOOT line (finishes at the owner''s next restart)' ([bool]($o -match '^REBOOT required to finish driver installs')) ''
 Reset-D; Rec @((Drv '617.14'))
 $bad = New-WUUpdate 'Realtek - Net - 10.71'; $bad | Add-Member DriverProvider 'Realtek'; $bad | Add-Member DriverVerDate ([datetime]'2026-09-01')

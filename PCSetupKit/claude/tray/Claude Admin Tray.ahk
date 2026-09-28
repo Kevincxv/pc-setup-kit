@@ -196,6 +196,7 @@ Notify() {
 ; details = true: clicking opens Status (alerts); false: clicking just closes it (short messages)
 ShowNote(text, details := true, seconds := 20) {
     global note
+    LogNote(text)
     try note.Destroy()
     note := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000")   ; WS_EX_NOACTIVATE: never steals focus
     note.BackColor := "202020", note.MarginX := 20, note.MarginY := 16
@@ -222,6 +223,21 @@ ShowNote(text, details := true, seconds := 20) {
     try WinSetTransparent "Off", note.Hwnd
     SetTimer CloseNote, -seconds * 1000
 }
+; Every note also goes to notifications.log ("yyyy-MM-dd HH:mm|text", newest last) - the app's Notifications page shows
+; them, since a note disappears after a few seconds. Kept to the last 200.
+LogNote(text) {
+    f := CL "\notifications.log"
+    try {
+        FileAppend FormatTime(, "yyyy-MM-dd HH:mm") "|" StrReplace(StrReplace(text, "`r"), "`n", " / ") "`n", f, "UTF-8"
+        if FileGetSize(f) > 60000 {
+            lines := StrSplit(Trim(FileRead(f, "UTF-8"), "`n"), "`n"), keep := ""
+            Loop Min(200, lines.Length)
+                keep .= lines[lines.Length - Min(200, lines.Length) + A_Index] "`n"
+            FileOpen(f, "w", "UTF-8").Write(keep)
+        }
+    }
+}
+
 NoteClick(*) {
     CloseNote()
     ShowApp()
