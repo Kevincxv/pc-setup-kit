@@ -121,7 +121,7 @@ Copy-Item "$kit\claude\*.ps1" $cl -Force
 "claude=$(if ($WithClaude) { 'on' } else { 'off' })" | Set-Content "$cl\kit-options.txt" -Encoding ASCII   # ai-enabled.ps1 reads it
 # Windows reinstalled on this same PC: its settings come back from the weekly backup (the look, game settings, the
 # kit's memory; only a backup made on this PC - settings-backup.ps1). Once: running setup again keeps later changes.
-if (-not (Test-Path "$cl\settings-restored.txt")) {
+if (-not (Test-Path "$cl\settings-restored.txt") -and -not $env:PCKIT_IN_TESTS) {   # (never under tests: the registry is the real one)
     & "$cl\settings-backup.ps1" -Restore | ForEach-Object { "  $_" }
     (Get-Date).ToString('o') | Set-Content "$cl\settings-restored.txt"
 }

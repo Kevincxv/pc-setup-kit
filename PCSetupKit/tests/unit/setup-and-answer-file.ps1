@@ -81,8 +81,12 @@ function Install-Part([bool]$Claude) {
     $H
 }
 
+# (the registry is the real one here: the settings restore must not run - on 9/28 it restored the owner's backup
+# into the real registry and restarted Explorer)
+$wp0 = (Get-ItemProperty 'HKCU:\Control Panel\Desktop').WallPaper; $ex0 = @(Get-Process explorer -ErrorAction SilentlyContinue).Id -join ','
 # without Claude (the default): everything but the Claude part
 $H = Install-Part $false; $cl = "$H\.claude"
+Check 'the real registry and desktop untouched (no settings restore, Explorer not restarted)' ((Get-ItemProperty 'HKCU:\Control Panel\Desktop').WallPaper -eq $wp0 -and (@(Get-Process explorer -ErrorAction SilentlyContinue).Id -join ',') -eq $ex0) ''
 Check 'no Claude: all maintenance scripts installed' (@(Get-ChildItem "$cl\*.ps1").Count -eq @(Get-ChildItem "$Kit\claude\*.ps1").Count) ''
 Check '... Claude recorded as off (ai-enabled.ps1 says False)' ((Get-Content "$cl\kit-options.txt") -eq 'claude=off' -and -not (& "$cl\ai-enabled.ps1")) ''
 Check '... Claude Code not downloaded, no skills, no hook, no Claude settings' (-not $global:downloads -and -not (Test-Path "$cl\skills") -and -not (Test-Path "$cl\hooks") -and -not (Test-Path "$cl\settings.json")) ($global:downloads -join ', ')

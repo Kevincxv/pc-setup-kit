@@ -16,9 +16,17 @@ param([switch]$Restore, [string]$From, [switch]$Force, [string]$RegRoot = 'HKCU:
 $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 if (-not $MachineId) { $MachineId = "$((Get-CimInstance Win32_ComputerSystemProduct).UUID)" }
-$la = if ($HomeDir -eq $env:USERPROFILE) { $env:LOCALAPPDATA } else { "$HomeDir\AppData\Local" }
-$ad = if ($HomeDir -eq $env:USERPROFILE) { $env:APPDATA } else { "$HomeDir\AppData\Roaming" }
-$docs = if ($HomeDir -eq $env:USERPROFILE) { [Environment]::GetFolderPath('MyDocuments') } else { "$HomeDir\Documents" }
+# a registry value, or nothing (Get-ItemPropertyValue throws when the key exists without the value - Steam's key on a
+# new install has no SteamPath until Steam first runs: found by the Sandbox test)
+function Get-RegValue([string]$Key, [string]$Name) { $k = Get-Item $Key -ErrorAction SilentlyContinue; if ($k) { $k.GetValue($Name) } }
+# the real profile's folders (Documents may be moved) only for the real profile - [Environment]'s own answer, not
+# $env:USERPROFILE: a test with a made-up USERPROFILE once restored into the owner's real registry (9/28)
+$real = $HomeDir -eq [Environment]::GetFolderPath('UserProfile')
+$la = if ($real) { [Environment]::GetFolderPath('LocalApplicationData') } else { "$HomeDir\AppData\Local" }
+$ad = if ($real) { [Environment]::GetFolderPath('ApplicationData') } else { "$HomeDir\AppData\Roaming" }
+$docs = if ($real) { [Environment]::GetFolderPath('MyDocuments') } else { "$HomeDir\Documents" }
+# under tests: never the real registry or the real backup folders
+if ($env:PCKIT_IN_TESTS -and ($RegRoot -eq 'HKCU:' -or $real -or -not ($Dest -or $From))) { return }
 # registry values that make up the look (key under HKCU -> value names)
 $reg = [ordered]@{
     'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' = 'AppsUseLightTheme', 'SystemUsesLightTheme', 'EnableTransparency', 'ColorPrevalence'
@@ -33,8 +41,8 @@ $reg = [ordered]@{
 }
 $startBin = "$la\Packages\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\LocalState\start2.bin"
 $kitFiles = 'health-ignore.txt', 'games.txt', 'todo-scripted.json', 'health-history.json', 'perf-history.json', 'net-history.json', 'benchmarks.json', 'driver-blocklist.txt'
-function Get-SteamDir { $p = "$(Get-ItemPropertyValue "$RegRoot\Software\Valve\Steam" SteamPath)"
-    if (-not $p -and $RegRoot -eq 'HKCU:') { $p = "$(Get-ItemPropertyValue 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam' InstallPath)" }   # just installed, never started
+function Get-SteamDir { $p = "$(Get-RegValue "$RegRoot\Software\Valve\Steam" SteamPath)"
+    if (-not $p -and $RegRoot -eq 'HKCU:') { $p = "$(Get-RegValue 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam' InstallPath)" }   # just installed, never started
     $p -replace '/', '\' }
 $steam = Get-SteamDir
 # game settings: (folder, where it goes back) - relative paths inside the zip under games\
@@ -68,7 +76,7 @@ if (-not $Restore) {
         }
         if ($vals.Count) { $look[$k] = $vals }
     }
-    $wp = "$(Get-ItemPropertyValue "$RegRoot\Control Panel\Desktop" WallPaper)"
+    $wp = "$(Get-RegValue "$RegRoot\Control Panel\Desktop" WallPaper)"
     if (-not (Test-Path $wp)) { $wp = "$ad\Microsoft\Windows\Themes\TranscodedWallpaper" }   # Windows' own copy (the original may be gone)
     if ($wp -and (Test-Path $wp)) { Copy-Item $wp "$st\wallpaper$(if ([IO.Path]::GetExtension($wp)) { [IO.Path]::GetExtension($wp) } else { '.jpg' })" }
     if (Test-Path $startBin) { Copy-Item $startBin "$st\start2.bin" }
@@ -80,9 +88,10 @@ if (-not $Restore) {
     $total = 0L
     foreach ($g in Get-GameSources) {
         if (-not (Test-Path $g.Path)) { continue }
-        foreach ($f in Get-ChildItem $g.Path -Recurse -File -Force | Where-Object { $_.Length -le 10MB }) {
+        $base = (Get-Item -LiteralPath $g.Path -Force).FullName   # the long form: a short 8.3 path (RUNNER~1) would shift every relative path
+        foreach ($f in Get-ChildItem -LiteralPath $base -Recurse -File -Force | Where-Object { $_.Length -le 10MB }) {
             if (($total += $f.Length) -gt 300MB) { break }
-            $to = Join-Path "$st\games\$($g.Zip)" $f.FullName.Substring($g.Path.Length).TrimStart('\')
+            $to = Join-Path "$st\games\$($g.Zip)" $f.FullName.Substring($base.Length).TrimStart('\')
             New-Item (Split-Path $to) -ItemType Directory -Force | Out-Null; Copy-Item $f.FullName $to
         }
     }
@@ -171,7 +180,7 @@ if (-not $NoApply -and $done) {
 [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr h, uint m, IntPtr w, string l, uint f, uint t, out IntPtr r);
 '@
     if ($wpf) { [void][KitBk.W]::SystemParametersInfo(0x14, 0, $keep, 3) }                           # SPI_SETDESKWALLPAPER
-    $ms = "$(Get-ItemPropertyValue "$RegRoot\Control Panel\Mouse" MouseSensitivity)"
+    $ms = "$(Get-RegValue "$RegRoot\Control Panel\Mouse" MouseSensitivity)"
     if ($ms -match '^\d+$') { [void][KitBk.W]::SystemParametersInfo(0x71, 0, [IntPtr][int]$ms, 3) }   # SPI_SETMOUSESPEED
     [void][KitBk.W]::SystemParametersInfo(0x57, 0, [IntPtr]::Zero, 3)                                  # SPI_SETCURSORS (reload)
     $r = [IntPtr]::Zero; [void][KitBk.W]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [IntPtr]::Zero, 'ImmersiveColorSet', 2, 2000, [ref]$r)

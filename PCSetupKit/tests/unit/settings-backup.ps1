@@ -21,6 +21,7 @@ try {
     'r.Shadow=1' | Set-Content "$oh\AppData\Local\UeGame\Saved\Config\Windows\GameUserSettings.ini"
     $big = [IO.File]::Create("$oh\Documents\My Games\TestGame\replay.bin"); $big.SetLength(11MB); $big.Close()
     'TestGame' | Set-Content "$oh\.claude\games.txt"
+    New-Item "$old\Software\Valve\Steam", "$new\Software\Valve\Steam" -Force | Out-Null   # Steam installed, never started: the key without SteamPath (the Sandbox test, 9/28)
     function Backup([switch]$Force) { @(& $sb -RegRoot $old -HomeDir $oh -Dest $bk -MachineId 'PC-1' -ClaudeDir "$oh\.claude" -Force:$Force) }
     function Restore([string]$id = 'PC-1') { @(& $sb -Restore -RegRoot $new -HomeDir $nh -Dest $bk -MachineId $id -ClaudeDir "$nh\.claude" -NoApply) }
 
@@ -38,6 +39,12 @@ try {
     [void](Backup -Force)
     Check 'the newest 4 are kept' (@(Get-ChildItem "$bk\$env:COMPUTERNAME-*.zip").Count -eq 4 -and (Test-Path $zip[0].FullName)) (@(Get-ChildItem "$bk\*.zip").Name -join ', ')
     foreach ($f in Get-ChildItem "$bk\$env:COMPUTERNAME-2020-*.zip") { [IO.File]::Delete($f.FullName) }
+    # a profile path in its short 8.3 form (GitHub's machines: C:\Users\RUNNER~1) - file paths inside the zip stay right
+    $shortHome = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($oh).ShortPath
+    $bk2 = "$Work\backups-short"
+    [void](& $sb -RegRoot $old -HomeDir $shortHome -Dest $bk2 -MachineId 'PC-1' -ClaudeDir "$oh\.claude" -Force)
+    $z = [IO.Compression.ZipFile]::OpenRead(@(Get-ChildItem "$bk2\*.zip")[0].FullName); $n2 = @($z.Entries | ForEach-Object { $_.FullName -replace '/', '\' }); $z.Dispose()
+    Check "a short (8.3) profile path: the game files' paths inside the backup still right ($shortHome)" ($n2 -contains 'games\MyGames\TestGame\settings.ini') ($n2 -match '^games' -join ', ')
 
     Section 'restore'
     New-Item "$nh\Documents\My Games\TestGame", "$nh\.claude" -ItemType Directory -Force | Out-Null
@@ -53,6 +60,11 @@ try {
     Check '... game settings (the Unreal one back in its own folder)' ((Test-Path "$nh\AppData\Local\UeGame\Saved\Config\Windows\GameUserSettings.ini")) ''
     Check "... a file that's already there is never overwritten" ((Get-Content "$nh\Documents\My Games\TestGame\settings.ini") -match 'changed on the new install') ''
     Check "... the kit's memory" ((Get-Content "$nh\.claude\games.txt") -eq 'TestGame') ''
+    $err = & { $ErrorActionPreference = 'Stop'; try { [void](& $sb -Restore -From $zip[0].FullName -RegRoot $new -HomeDir $nh -MachineId 'PC-1' -ClaudeDir "$nh\.claude" -NoApply); '' } catch { "$_" } }
+    $wp0 = (Get-ItemProperty 'HKCU:\Control Panel\Desktop').WallPaper
+    $o = @(& $sb -Restore -From $zip[0].FullName -MachineId 'PC-1' -NoApply)
+    Check 'under tests, never the real registry (the default HKCU) - even with this PC''s own backup' (-not $o -and (Get-ItemProperty 'HKCU:\Control Panel\Desktop').WallPaper -eq $wp0) ($o -join ' / ')
+    Check 'Steam installed but never started (its key without SteamPath): no error, even under -ErrorAction Stop' (-not $err) $err
 }
 finally { Remove-Item "HKCU:\Software\$rk" -Recurse -Force -ErrorAction SilentlyContinue }
 Finish
