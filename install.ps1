@@ -1,25 +1,36 @@
 # PC Setup Kit - one-command install on an existing Windows 11 PC. In PowerShell (it asks for admin by itself):
 #   irm https://raw.githubusercontent.com/Kevincxv/pc-setup-kit/main/install.ps1 | iex
-# Downloads the newest release, then runs PCSetupKit\setup.ps1 (tweaks, apps, Messiah + zero maintenance).
+# With the optional Claude part (Messiah):
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Kevincxv/pc-setup-kit/main/install.ps1))) -WithClaude
+# Downloads the newest release, then runs PCSetupKit\setup.ps1 (tweaks, apps, zero maintenance - no AI needed).
 # -DownloadOnly <folder>: only download and unpack (used for testing).
-param([string]$DownloadOnly)
+param([string]$DownloadOnly, [switch]$WithClaude)
 $ErrorActionPreference = 'Stop'
 $repo = 'Kevincxv/pc-setup-kit'
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $DownloadOnly -and -not $isAdmin) {
     Write-Host 'Asking for administrator rights...' -ForegroundColor Cyan
-    Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', "irm https://raw.githubusercontent.com/$repo/main/install.ps1 | iex"
+    $cmd = "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/$repo/main/install.ps1)))$(if ($WithClaude) { ' -WithClaude' })"
+    Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $cmd
     return
 }
 if (-not $DownloadOnly) {
     Write-Host @'
 
   PC SETUP KIT
-  This sets up this PC like a tuned gaming PC and installs Messiah, which then keeps it maintained by itself:
+  This sets up this PC like a tuned gaming PC that then keeps itself maintained (no AI or account needed):
    - removes Windows bloat and ads, turns off telemetry and AI features, applies gaming tweaks
      (also turns memory integrity / VBS off for performance)
-   - installs Git, Steam, Discord, Chrome, WinDbg, AutoHotkey, NVIDIA App (NVIDIA cards only) and Claude Code
-   - Messiah runs WITHOUT permission prompts and needs your own Claude account (Pro or higher)
+   - installs Git, Steam, Discord, Chrome, WinDbg, AutoHotkey, NVIDIA App (NVIDIA cards only)
+   - at every login, in the background: driver and app updates, cleanup, crash checks, a self-test
+'@ -ForegroundColor Yellow
+    if ($WithClaude) {
+        Write-Host @'
+   - WITH CLAUDE: also installs Claude Code and Messiah, which runs WITHOUT permission prompts and needs
+     your own Claude account (Pro or higher)
+'@ -ForegroundColor Yellow
+    }
+    Write-Host @'
   Everything can be removed later with C:\PCSetupKit\uninstall.ps1 (-RevertTweaks puts Windows settings back).
 
 '@ -ForegroundColor Yellow
@@ -39,4 +50,4 @@ $kit = Get-ChildItem "$dest\x" -Directory | Select-Object -First 1 | ForEach-Obj
 if (-not (Test-Path "$kit\setup.ps1")) { throw "The download doesn't contain PCSetupKit\setup.ps1 - try again later." }
 if ($tag) { $tag | Set-Content "$kit\kit-version.txt" }   # setup copies it to C:\PCSetupKit; kit-update.ps1 continues from there
 if ($DownloadOnly) { "Downloaded $(if ($tag) { $tag } else { 'main' }) to $kit"; return }
-& "$kit\setup.ps1"
+& "$kit\setup.ps1" -WithClaude:$WithClaude

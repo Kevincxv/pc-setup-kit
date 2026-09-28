@@ -6,6 +6,8 @@ param([switch]$Force, [switch]$Unattended)   # -Unattended: run at login by the 
 $ErrorActionPreference = 'Continue'
 $dir = "$env:USERPROFILE\.claude"
 $report = "$dir\maint-report.txt"
+# Claude is optional (setup.ps1 -WithClaude): without it, nothing here needs AI - Claude Code upkeep and hidden Claude runs are skipped
+$ai = if (Test-Path "$dir\ai-enabled.ps1") { & "$dir\ai-enabled.ps1" } else { $true }   # (an older copy without the switch: it was installed with Claude)
 
 # One run at a time; skip if the last run was recent (launching Claude twice in a row shouldn't redo everything)
 $mutex = New-Object Threading.Mutex($false, 'Global\ClaudeBgMaint')
@@ -29,7 +31,9 @@ $jobs = foreach ($j in @(
         @{ Name = 'Periodic'; Script = 'periodic-maint.ps1'; Timeout = 3600 },   # weekly app updates, monthly cleanup (only when due)
         @{ Name = 'Kit'; Script = 'kit-update.ps1'; Timeout = 300 })) {          # PCs installed from the kit: newest published version
     if (-not (Test-Path "$dir\$($j.Script)")) { continue }
-    $out = Join-Path $env:TEMP "claude-bg-$($j.Script).log"
+    if ($j.Script -eq 'claude-maint.ps1' -and -not $ai) { continue }
+    # this run's own file names: another run at the same time (a test copy, a manual run) must never mix into this report
+    $out = Join-Path $env:TEMP "claude-bg-$PID-$($j.Script).log"
     $p = Start-Process powershell -WindowStyle Hidden -PassThru -RedirectStandardOutput $out `
         -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$dir\$($j.Script)`""
     [pscustomobject]@{ Name = $j.Name; Proc = $p; Out = $out; Deadline = $start.AddSeconds($j.Timeout) }
@@ -49,6 +53,9 @@ foreach ($j in $jobs) {
 # A failure is a WARNING, so /maintain looks at it at this same login.
 $st = @(if (Test-Path "$dir\self-test.ps1") { & "$dir\self-test.ps1" | Where-Object { $_ } })
 if ($st) { $lines += '[Self-test]'; $lines += $st }
+# Without Claude: scripted decisions - safe fixes and plain to-do items - from what the jobs found (maint-actions.ps1)
+$act = @(if (-not $ai -and (Test-Path "$dir\maint-actions.ps1")) { & "$dir\maint-actions.ps1" -Lines $lines | Where-Object { $_ } })
+if ($act) { $lines += '[Actions]'; $lines += $act }
 # Write to a temp file then swap, so the launcher never reads a half-written report
 $lines | Set-Content "$report.tmp" -Encoding utf8
 Move-Item "$report.tmp" $report -Force
@@ -59,7 +66,7 @@ Get-ChildItem $hist -Filter 'report-*.txt' | Sort-Object Name -Descending | Sele
 
 # At login: let Claude work headless (no window). First /maintain if anything needs it, then the /self-improve pass
 # (at most once a day). Output in .claude\maint-claude-log; the tray's "Watch maintenance live" follows the running session.
-if ($Unattended) {
+if ($Unattended -and $ai) {
     $runs = @()
     $logDir = New-Item "$dir\maint-claude-log" -ItemType Directory -Force
     $busy = "$dir\maint-claude-running"                           # tells the launcher not to start a second /maintain

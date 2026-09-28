@@ -71,7 +71,7 @@ if ($old -and $old.boot -ne $bootKey) {
             if ($o.Kind -eq 'file') { Test-Path -LiteralPath $o.Id } else { $now | Where-Object { $_.Kind -eq $o.Kind -and $_.Id -eq $o.Id } } })
     $done = @($recorded | Where-Object { $_ -notin $left })
     if ($done) { "Restart check: $($done.Count) item(s) Windows had queued finished at the restart ($((@($done | ForEach-Object Name) | Select-Object -First 4) -join '; '))" }
-    if ($left) { "WARNING: after the restart these still hadn't finished: $((@($left | ForEach-Object Name)) -join '; ') - Claude will find out why" }
+    if ($left) { "WARNING: after the restart these still hadn't finished: $((@($left | ForEach-Object Name)) -join '; ') (Windows retries them at the next restart)" }
     $old = $null
 }
 # Record what's queued for the next restart (keeps anything recorded earlier during this boot)

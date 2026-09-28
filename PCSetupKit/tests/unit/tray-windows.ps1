@@ -1,8 +1,8 @@
-# The windows the tray menu opens: "Watch maintenance live" (maint-watch.ps1) and "Status" (status.ps1), in a sandbox home.
+﻿# The windows the tray menu opens: "Watch maintenance live" (maint-watch.ps1) and "Status" (status.ps1), in a sandbox home.
 . "$PSScriptRoot\..\lib.ps1"
 $H = "$Work\home"; $C = "$H\.claude"; $P = "$C\projects\C--WINDOWS-system32"
 New-Item $P, "$C\maint-claude-log", "$H\.local\bin" -ItemType Directory -Force | Out-Null
-Copy-Item "$Src\maint-watch.ps1", "$Src\status.ps1", "$Src\session-lib.ps1" $C
+Copy-Item "$Src\maint-watch.ps1", "$Src\status.ps1", "$Src\session-lib.ps1", "$Src\ai-enabled.ps1" $C; 'claude=on' | Set-Content "$C\kit-options.txt"
 Copy-Item (Get-ScriptedClaude) "$H\.local\bin\claude.exe"
 $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
 function Asst($text, $tool, $desc) {
@@ -49,9 +49,12 @@ Check 'no errors' (-not $r.Err.Trim()) $r.Err
 Check 'shows what needs the owner' ($s -match 'Needs you\s+- Blue screen test') $s
 Check 'shows what waits for the next shutdown' ($s -match 'Waiting for your next shutdown or restart\s+- KB5099999') $s
 Check 'shows the last check with its warnings and reminders only' (($s -match 'Checked 9/27/2026 12:00 PM') -and ($s -match 'WARNING: blue screen') -and ($s -match 'Reminder: BIOS') -and ($s -notmatch 'NVIDIA: 617.14')) $s
-Check 'scheduled checks: overdue = "due now", others dated, missing = "due now"' (($s -match 'Monthly cleanup:\s+due now') -and ($s -match 'App updates:\s+\w{3} \d+, \d{4}') -and ($s -match 'Yearly re-audit:\s+due now')) $s
+Check 'scheduled checks: overdue = "due now", others dated, missing = "due now"' (($s -match 'Monthly cleanup:\s+due now') -and ($s -match 'App updates:\s+\w{3} \d+, \d{4}') -and ($s -match 'Yearly re-optimize:\s+due now')) $s
 Check 'self-improvement: last run and when the next is allowed' ($s -match 'Self-improvement: last .*next at the first login after') $s
 Get-ChildItem $C -File | Where-Object Name -in 'maint-todo.txt', 'restart-ledger.json', 'maint-report.txt', 'maint-state.json', 'selfimprove-last' | ForEach-Object { Clear-Path $_.FullName }
 $r = Invoke-As $H "$C\status.ps1" @('-NoWait')
 Check 'a brand-new install with no data yet: no errors, sensible defaults' ((-not $r.Err.Trim()) -and ($r.Out -match 'Needs you\s+Nothing') -and ($r.Out -match 'No report yet')) ($r.Err + $r.Out)
+'claude=off' | Set-Content "$C\kit-options.txt"; (Get-Date).AddHours(-5).ToString('o') | Set-Content "$C\selfimprove-last"
+$r = Invoke-As $H "$C\status.ps1" @('-NoWait')
+Check 'without Claude: no Claude sections (sessions, hidden Claude runs), no errors' ((-not $r.Err.Trim()) -and ($r.Out -notmatch 'Messiah|Claude Code|Session|Self-improvement') -and ($r.Out -match 'Needs you') -and ($r.Out -match 'Scheduled checks')) ($r.Err + $r.Out)
 Finish

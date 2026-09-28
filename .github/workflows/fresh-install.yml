@@ -1,6 +1,7 @@
-# Fresh-install test: runs the real setup.ps1 on a clean Windows machine for every release (and on demand), then checks
-# the result and runs the new install's own self-test. GitHub's machines are Windows Server, not Windows 11 Home/Pro,
-# so it proves the setup flow end to end rather than every Windows 11 detail.
+# Fresh-install test: runs the real setup.ps1 on a clean Windows machine for every release (and on demand), both ways -
+# without AI (the default: everything by script, including the optimization) and with the optional Claude part - then
+# checks the result and runs the new install's own self-test. GitHub's machines are Windows Server, not Windows 11
+# Home/Pro, so it proves the setup flow end to end rather than every Windows 11 detail.
 name: fresh install
 on:
   release:
@@ -8,14 +9,21 @@ on:
   workflow_dispatch:
 jobs:
   setup:
+    name: setup (${{ matrix.claude && 'with Claude' || 'no AI' }})
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        claude: [false, true]
+    env:
+      FRESH_WITH_CLAUDE: ${{ matrix.claude && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
-      - name: Run setup.ps1 (for real, without opening Messiah at the end)
+      - name: Run setup.ps1 (for real, opening nothing at the end)
         shell: powershell
         run: |
-          & .\PCSetupKit\setup.ps1 -NoLaunch
+          if ($env:FRESH_WITH_CLAUDE -eq '1') { & .\PCSetupKit\setup.ps1 -NoLaunch -WithClaude } else { & .\PCSetupKit\setup.ps1 -NoLaunch }
           exit 0
       - name: Check the installed PC
         shell: powershell
@@ -37,9 +45,11 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fresh-install-logs
+          name: fresh-install-logs-${{ matrix.claude && 'claude' || 'noai' }}
           path: |
             C:\PCSetupKit\setup.log
             C:\Users\runneradmin\.claude\self-test.log
             C:\Users\runneradmin\.claude\self-test.json
+            C:\Users\runneradmin\.claude\maint-report.txt
+            C:\Users\runneradmin\Documents\PC Setup Kit report.txt
           if-no-files-found: ignore

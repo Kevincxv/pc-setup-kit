@@ -73,7 +73,7 @@ if (-not $game -and (Due 'monthly-cleanup' 30)) {
     $orph += Get-CimInstance Win32_Service | Where-Object { ($e = Exe $_.PathName) -and $e -match '^[A-Za-z]:\\' -and -not (Test-Path -LiteralPath $e) } | ForEach-Object { "service $($_.Name)" }
     $orph += Get-ScheduledTask | Where-Object { $_.State -ne 'Disabled' -and $_.TaskPath -notmatch '^\\Microsoft\\' } |
         Where-Object { $_.Actions | Where-Object { ($e = Exe $_.Execute) -and $e -match '^[A-Za-z]:\\' -and -not (Test-Path -LiteralPath $e) } } | ForEach-Object { "task $($_.TaskPath)$($_.TaskName)" }
-    if ($orph) { "WARNING: leftovers pointing at deleted programs: $($orph -join ', ') - Claude will clean these up" }
+    if ($orph) { "WARNING: leftovers pointing at deleted programs: $($orph -join ', ')" }
     $freed = ((Get-PSDrive C).Free - $free0) / 1GB
     "Monthly cleanup done$(if ($freed -gt 0.1) { ', freed {0:N1} GB' -f $freed })"
     Done 'monthly-cleanup'
@@ -97,7 +97,7 @@ elseif ($dv -match '^(\d\d)H(\d)$') {
     $target = (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate').TargetReleaseVersionInfo
     if ($today -gt $eos.AddDays(-75)) {
         if ($rebootPending -and $target -and $target -gt $dv) { "REBOOT required to finish the Windows $target upgrade (Windows $dv support ends $($eos.ToString('MMM yyyy')))"; $state.Remove('claude-winver-due') }
-        else { "WARNING: Windows $dv stops getting security updates around $($eos.ToString('MMM yyyy')) - Claude will upgrade it"; $state['claude-winver-due'] = 'yes' }
+        else { "WARNING: Windows $dv stops getting security updates around $($eos.ToString('MMM yyyy')) - upgrading it"; $state['claude-winver-due'] = 'yes' }
     }
     else { $state.Remove('claude-winver-due') }
 }

@@ -11,12 +11,14 @@ function Get-AhkFunction([string]$Name) {
     if (-not $m.Success) { $m = [regex]::Match($traySrc, "(?m)^$Name\([^)\r\n]*\)\s*=>.*$") }
     $m.Value
 }
-$funcs = foreach ($n in 'MaintRunning', 'TodoTip', 'Notify', 'RehearsalPids', 'TrayError') { $f = Get-AhkFunction $n; Check "tray function $n found" ([bool]$f) ''; $f }
+$funcs = foreach ($n in 'MaintRunning', 'TodoTip', 'Notify', 'RehearsalPids', 'TrayError', 'AiEnabled') { $f = Get-AhkFunction $n; Check "tray function $n found" ([bool]$f) ''; $f }
 @"
 #Requires AutoHotkey v2.0
 #NoTrayIcon
 CL := "$C"
 NAME := "Messiah"
+LNK := "$Work\no-shortcut.lnk"
+AI := EnvGet("TEST_AI") != "0"
 FS := A_Args.Length > 1 && A_Args[2] = "fs"
 Shown := []
 IsFullscreen() => FS
@@ -38,6 +40,7 @@ switch A_Args[1] {
         SetTimer () => ExitApp(), -600
         SetTimer () => WinGetPID(0x7FFFFFF0), -50
         Persistent
+    case "ai": FileAppend(AiEnabled() ? "on" : "off", "*")
     case "pids":
         for k in RehearsalPids()
             FileAppend(k ",", "*")
@@ -55,6 +58,17 @@ Todo 'Do one thing'; Check 'one item: "1 maintenance item needs you"' ((T tip) -
 Todo 'One', '', 'Two', '  '; Check 'two items (blank lines ignored): "2 maintenance items need you"' ((T tip) -eq 'Messiah - 2 maintenance items need you') (T tip)
 'x' | Set-Content "$C\maint-claude-running"
 Check 'hidden maintenance running: tooltip says so' ((T tip) -match 'Hidden maintenance running') (T tip)
+
+Section 'the optional Claude part'
+Clear-Path "$C\kit-options.txt"; Clear-Path "$C\admin-sessions.txt"
+Check 'nothing recorded, no Messiah: off (a plain PC Setup Kit tray)' ((T ai) -eq 'off') (T ai)
+'claude=on' | Set-Content "$C\kit-options.txt"; Check 'claude=on: on (Messiah tray)' ((T ai) -eq 'on') (T ai)
+'claude=off' | Set-Content "$C\kit-options.txt"; Check 'claude=off: off' ((T ai) -eq 'off') (T ai)
+Clear-Path "$C\kit-options.txt"; 'id' | Set-Content "$C\admin-sessions.txt"; Check 'installed before the option (Messiah was used): on' ((T ai) -eq 'on') (T ai)
+Clear-Path "$C\admin-sessions.txt"
+'x' | Set-Content "$C\maint-claude-running"; $env:TEST_AI = '0'
+Check 'without Claude the tooltip never mentions hidden Claude runs' ((T tip) -notmatch 'Hidden maintenance') (T tip)
+$env:TEST_AI = $null; 'x' | Set-Content "$C\maint-claude-running"   # the next section starts from a fresh marker
 
 Section '"maintenance running" check'
 Check 'fresh marker: running' ((T running) -eq 'yes') ''

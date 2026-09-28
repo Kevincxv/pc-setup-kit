@@ -2,7 +2,8 @@
 # (sandbox profile), kit-update.ps1 and install.ps1 against the real GitHub release (skipped offline).
 . "$PSScriptRoot\..\lib.ps1"
 Section 'setup.ps1: the no-shutdown hook merged into Claude settings'
-$lines = Get-Content "$Kit\setup.ps1"; $i = [array]::IndexOf($lines, ($lines | Where-Object { $_ -match '^# Claude never shuts down' } | Select-Object -First 1))
+$lines = Get-Content "$Kit\setup.ps1"; $i = [array]::IndexOf($lines, ($lines | Where-Object { $_ -match '^\s*# Claude never shuts down' } | Select-Object -First 1))
+Check 'the settings-merge part is found in setup.ps1' ($i -ge 0) ''
 $snippet = ($lines[$i..($i + 8)]) -join "`n"
 New-Item "$Work\kitsrc\claude\hooks" -ItemType Directory -Force | Out-Null; Copy-Item "$Src\hooks\no-power-off.ps1" "$Work\kitsrc\claude\hooks\"
 foreach ($case in 'none', 'existing', 'corrupt') {

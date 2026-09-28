@@ -21,6 +21,9 @@ instead of twice. A test that writes to stderr counts as failed (a crash halfway
 | M3 | Coverage gaps: health-check, periodic tasks, driver-check (NVIDIA + Windows Update), crash-analyze, claude-maint, maint-watch, status, tray logic, tweaks.ps1, setup.ps1, autounattend.xml - all with mocked system commands, guarded by a tripwire and mock verification | Done (2026-09-27) |
 | M4 | Ongoing self-validation: the suite runs weekly and after every kit update on each PC (self-test.ps1, from the background maintenance after its jobs); failures become a WARNING /maintain fixes; kit updates refresh the installed test suite | Done (2026-09-27) |
 | M5 | Fresh-install test: setup.ps1 runs for real on a clean Windows machine for every release (GitHub, Windows Server - fresh-install.yml), then its result is checked and the new install's own self-test must pass. A clean Windows 11 Home/Pro run (Windows Sandbox or a VM) is the owner's decision: it turns on the hypervisor the kit keeps off for gaming | Done on GitHub's Windows Server (2026-09-27); Windows 11 client run: owner's decision |
+| M6 | No AI required: Claude is an optional extra (setup.ps1 -WithClaude, off by default; installs from before count as on). Without it: no Claude Code, a plain PC Setup Kit tray, background maintenance that never needs Claude | Done (2026-09-27) |
+| M7 | optimize.ps1 replaces the /pc-optimize playbook: monitors to their best refresh rate, vendor apps pointed out, benchmark baseline, the full maintenance once, a readable report; end of setup, tray and yearly | Done (2026-09-27) |
+| M8 | maint-actions.ps1 replaces /maintain: fixed rules turn findings into safe fixes or plain step-by-step to-do items (todo.ps1; gone once fixed, dismissed by deleting the line) - crash ladder with a memory test at the next restart, leftovers disabled, Windows end of support, quarterly/half-year/yearly checks | Done (2026-09-27) |
 
 Found and fixed by the gates and tests so far:
 - end-of-support ignored the Windows edition (CI); resume-after-shutdown trusted an old shutdown record (CI)
@@ -41,6 +44,9 @@ Found and fixed by the gates and tests so far:
 - first fresh install (M5): on an installed PC the kit sits in C:\PCSetupKit, so two repo-only checks looked at C:\
   itself - the personal-info check searched the whole drive (the self-test hung 30 min), and the parse check would
   have read any script in C:\ (also on real installed PCs); a hung test now gets stopped after 10 min and named
+- no-AI work (M6-M8): background maintenance named its job output files after the job, so a test copy running at
+  the same time wrote into the owner's real report (seen at 13:39 on 2026-09-27: "driver-check ran"); each run now
+  has its own files. A test used the owner's real RAM part number as sample data (the privacy check caught it).
 
 Rules for mocked tests (PowerShell 5.1): variable names ignore case (`$tw` is `$TW`); aliases beat functions
 (`H`, `R`, `Rp` are built-in aliases); functions beat module commands only if defined after the module is loaded.

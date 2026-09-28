@@ -11,6 +11,7 @@ function New-Case([hashtable]$Jobs, [string]$Unattended, [switch]$Short) {
     '' | Set-Content "$C\game-check.ps1"   # never gaming here (game-aware.ps1 tests that)
     foreach ($j in 'driver-check', 'claude-maint', 'health-check', 'periodic-maint') { $(if ($Jobs -and $Jobs.ContainsKey($j)) { $Jobs[$j] } else { "`"$j ok`"" }) | Set-Content "$C\$j.ps1" }
     Clear-Path "$C\kit-update.ps1"; Clear-Path "$C\self-test.ps1"; Clear-Path "$C\kit-updated.txt"
+    'param([string[]]$Lines) "Actions: saw $(@($Lines).Count) report lines"' | Set-Content "$C\maint-actions.ps1"
     $u = if ($Unattended) { $Unattended } else { @'
 param([string]$Due, [string]$Mode)
 $req = if (Test-Path "$PSScriptRoot\maint-requests.txt") { (Get-Content "$PSScriptRoot\maint-requests.txt" -Raw -Encoding UTF8).Trim() }
@@ -20,6 +21,7 @@ if ($Mode -eq 'maintain' -and $req) { [IO.File]::Delete("$PSScriptRoot\maint-req
     Set-Content "$C\claude-unattended.ps1" $u
     $now = (Get-Date).ToString('o'); @{ 'claude-quarterly' = $now; 'claude-halfyear' = $now; 'claude-yearly' = $now } | ConvertTo-Json | Set-Content "$C\maint-state.json"
     foreach ($f in 'runs.log', 'maint-requests.txt', 'maint-claude-running', 'selfimprove-last', 'maint-report.txt') { Clear-Path "$C\$f" }
+    Copy-Item "$Src\ai-enabled.ps1" $C -Force; 'claude=on' | Set-Content "$C\kit-options.txt"
 }
 $script:gate = $null   # the stand-in suite the self-improve gate runs (only in the gate section)
 function Run([string[]]$A = @('-Force', '-Unattended')) { [void](Invoke-As $H "$C\claude-bg-maint.ps1" $A @{ PCKIT_IN_TESTS = '1'; PCKIT_TESTS_DIR = $script:gate }) }
@@ -48,6 +50,31 @@ Check 'self-test with nothing to say (not due): no section' (-not ((Get-Content 
 New-Case; Run @('-Force'); $t1 = (Get-Item "$C\maint-report.txt").LastWriteTime; Start-Sleep 1; Run @()
 Check 'without -Force it skips when the last run was < 30 min ago' ((Get-Item "$C\maint-report.txt").LastWriteTime -eq $t1) ''
 
+Section 'two runs at the same time never mix their results'
+# (seen for real: a test run's stand-in output "driver-check ran" ended up in the owner's real report - same TEMP files)
+$H2 = "$Work\home2"; $C2 = "$H2\.claude"; New-Item $C2 -ItemType Directory -Force | Out-Null
+New-Case -Jobs @{ 'driver-check' = 'Start-Sleep 2; "from home ONE"' }
+Get-ChildItem $C -File | Where-Object Name -ne 'maint-report.txt' | Copy-Item -Destination $C2 -Force
+'Start-Sleep 2; "from home TWO"' | Set-Content "$C2\driver-check.ps1"
+(Get-Content "$C2\claude-bg-maint.ps1" -Raw).Replace("'Global\ClaudeBgMaintT$PID'", "'Global\ClaudeBgMaintT2$PID'") | Set-Content "$C2\claude-bg-maint.ps1"
+$psi = New-Object Diagnostics.ProcessStartInfo -ArgumentList 'powershell.exe', "-NoProfile -ExecutionPolicy Bypass -File `"$C2\claude-bg-maint.ps1`" -Force"
+$psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.EnvironmentVariables['USERPROFILE'] = $H2; $psi.EnvironmentVariables['PCKIT_IN_TESTS'] = '1'
+$second = [Diagnostics.Process]::Start($psi)
+Run @('-Force'); [void]$second.WaitForExit(60000)
+$r1 = (Get-Content "$C\maint-report.txt") -join ' / '; $r2 = (Get-Content "$C2\maint-report.txt" -ErrorAction SilentlyContinue) -join ' / '
+Check 'each report has only its own results' ($r1 -match 'from home ONE' -and $r1 -notmatch 'TWO' -and $r2 -match 'from home TWO' -and $r2 -notmatch 'ONE') "one: $r1 || two: $r2"
+Section 'without Claude (the default install): nothing needs AI'
+New-Case -Jobs @{ 'health-check' = '"WARNING: blue screen"'; 'claude-maint' = '"Claude Code: 9.9.9 (up to date)"' }
+'claude=off' | Set-Content "$C\kit-options.txt"
+Run; $r = Get-Content "$C\maint-report.txt"
+Check 'no Claude: the scripted jobs run and report as usual' (($r -match 'WARNING: blue screen') -and ($r -match 'driver-check ok') -and ($r -match 'periodic-maint ok')) ($r -join ' / ')
+Check '... no Claude Code upkeep job' (-not ($r -match 'Claude Code')) ($r -join ' / ')
+Check '... and never a hidden Claude run, even with a warning waiting' (@(Runs).Count -eq 0 -and -not (Test-Path "$C\maint-claude-running")) ((Runs) -join ' | ')
+Check '... the scripted decisions (maint-actions) get the report and appear under [Actions]' (($r -join "`n") -match '\[Actions\]\s+Actions: saw \d+ report lines') ($r -join ' / ')
+New-Case -Jobs @{ 'claude-maint' = '"Claude Code: 9.9.9 (up to date)"' }
+Run @('-Force'); $r = Get-Content "$C\maint-report.txt"
+Check 'with Claude: the Claude Code upkeep job runs' ([bool]($r -match 'Claude Code: 9.9.9')) ($r -join ' / ')
+Check '... and the scripted decisions do not run (the hidden /maintain does that)' (-not ($r -match '\[Actions\]')) ($r -join ' / ')
 Section 'hidden Claude runs'
 New-Case -Jobs @{ 'health-check' = '"WARNING: blue screen"' }
 Run; $r = Runs

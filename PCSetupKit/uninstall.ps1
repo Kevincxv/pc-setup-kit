@@ -70,12 +70,13 @@ if (-not $RevertOnly) {
     Write-Host "`n=== Maintenance scripts, skills and their data" -ForegroundColor Cyan
     $files = 'claude-admin-launch.ps1', 'claude-bg-maint.ps1', 'claude-maint.ps1', 'claude-unattended.ps1', 'crash-analyze.ps1', 'driver-check.ps1',
         'health-check.ps1', 'maint-due.ps1', 'maint-watch.ps1', 'periodic-maint.ps1', 'resume-after-restart.ps1', 'restart-check.ps1', 'session-lib.ps1',
-        'refresh-session.ps1', 'status.ps1', 'rehearse-login.ps1', 'game-check.ps1', 'kit-update.ps1', 'migrate-names.ps1', 'self-test.ps1', 'self-test.json', 'self-test.log', 'tweaks-local.ps1',
+        'refresh-session.ps1', 'status.ps1', 'rehearse-login.ps1', 'game-check.ps1', 'kit-update.ps1', 'migrate-names.ps1', 'self-test.ps1', 'self-test.json', 'self-test.log', 'ai-enabled.ps1', 'kit-options.txt', 'optimize.ps1', 'maint-actions.ps1', 'todo.ps1', 'display-refresh.ps1', 'todo-scripted.json', 'actions-state.json', 'tweaks-local.ps1',
         'maint-report.txt', 'maint-state.json', 'maint-todo.txt', 'maint-todo.shown', 'maint-requests.txt', 'maint-claude-running', 'maint-claude-session',
         'maint-history', 'maint-claude-log', 'restart-ledger.json', 'restart-canary.txt', 'admin-sessions.txt', 'resume-after-login.txt', 'rehearsal.txt',
         'games.txt', 'tray-notified.ini', 'tray-errors.log', 'selfimprove-last', 'selfimprove-journal.md', 'selfimprove-backup', 'session-refresh.log', 'benchmarks.json',
         'health-check.last', 'health-ignore.txt', 'startup-baseline.txt', 'kit-version.txt', 'hooks\no-power-off.ps1', 'skills\maintain', 'skills\pc-optimize', 'skills\self-improve'
     foreach ($f in $files) { Stash "$cl\$f" }
+    Stash "$env:USERPROFILE\Documents\PC Setup Kit report.txt"
 }
 
 if ($RevertTweaks) {

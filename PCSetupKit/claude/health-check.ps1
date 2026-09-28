@@ -17,11 +17,11 @@ $bsods = Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 1001; Provide
 $hard = Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 41; StartTime = $since } | Where-Object { $_.Properties[0].Value -eq 0 }
 foreach ($b in $bsods) {
     $code = if ($b.Message -match 'bugcheck was: (0x[0-9a-fA-F]+)') { $Matches[1] } else { '?' }
-    "WARNING: blue screen $code at $($b.TimeCreated.ToString('g')) - ask Claude to analyze the dump"
+    "WARNING: blue screen $code at $($b.TimeCreated.ToString('g'))"
 }
 foreach ($h in $hard) { "WARNING: unexpected shutdown/freeze at $($h.TimeCreated.ToString('g')) (no blue screen recorded)" }
 $whea = (Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WHEA-Logger'; StartTime = $since }).Count
-if ($whea) { "WARNING: $whea hardware error(s) logged (WHEA) - ask Claude to check RAM/CPU stability" }
+if ($whea) { "WARNING: $whea hardware error(s) logged (WHEA) - possible RAM/CPU instability" }
 if (-not $bsods -and -not $hard -and -not $whea) { 'Crashes: none since last check' }
 # Diagnose new crash dumps automatically (names the driver/module responsible)
 $dumps = @(Get-ChildItem 'C:\Windows\Minidump\*.dmp', 'C:\Windows\MEMORY.DMP' | Where-Object LastWriteTime -gt $since | Sort-Object LastWriteTime -Descending)
@@ -53,7 +53,7 @@ if ($h -ge 0) {
     $hdr = $raw[$h].Substring($raw[$h].IndexOf('Name')); $idCol = $hdr.IndexOf('Id')
     $up = @(for ($i = $h + 2; $i -lt $raw.Count -and $raw[$i] -match '\S' -and $raw[$i] -notmatch 'upgrades? available|explicit targeting'; $i++) {
         $raw[$i].Substring(0, [Math]::Min($idCol, $raw[$i].Length)).Trim() })
-    if ($up) { "Apps: $($up.Count) update(s) available ($($up -join ', ')) - ask Claude to update them" }
+    if ($up) { "Apps: $($up.Count) update(s) available ($($up -join ', ')) - the weekly app update installs them" }
 }
 
 # --- Hardware reminders ---
@@ -68,7 +68,7 @@ if (-not $expoTest -and $ram.ConfiguredClockSpeed -and $ram.ConfiguredClockSpeed
     "Reminder: RAM runs at its default $($ram.ConfiguredClockSpeed) MT/s ($($ram.PartNumber.Trim())) - if it's a faster kit, turn EXPO/XMP on in BIOS"
 }
 $bios = Get-CimInstance Win32_BIOS
-if ($bios.ReleaseDate -and $bios.ReleaseDate -lt (Get-Date).AddMonths(-12)) { "Reminder: BIOS $($bios.SMBIOSBIOSVersion) is from $($bios.ReleaseDate.ToString('d')) - ask Claude to check for an update" }
+if ($bios.ReleaseDate -and $bios.ReleaseDate -lt (Get-Date).AddMonths(-12)) { "Reminder: BIOS $($bios.SMBIOSBIOSVersion) is from $($bios.ReleaseDate.ToString('d')) (over a year old)" }
 Add-Type -TypeDefinition @'
 using System; using System.Runtime.InteropServices;
 public class HcDisp {
@@ -96,7 +96,7 @@ for ($i = 0; $i -lt 8; $i++) {
     $max = 0; $j = 0
     while ($true) { $n = New-Object HcDisp+DEVMODE; $n.dmSize = $m.dmSize; if (-not [HcDisp]::EnumDisplaySettingsW($a.DeviceName, $j, [ref]$n)) { break }
         if ($n.dmPelsWidth -eq $m.dmPelsWidth -and $n.dmPelsHeight -eq $m.dmPelsHeight -and $n.dmDisplayFrequency -gt $max) { $max = $n.dmDisplayFrequency }; $j++ }
-    if ($max -gt $m.dmDisplayFrequency + 2) { "Reminder: $($mon.DeviceString) runs at $($m.dmDisplayFrequency)Hz but supports ${max}Hz - ask Claude to set it (or to ignore this monitor)" }
+    if ($max -gt $m.dmDisplayFrequency + 2) { "Reminder: $($mon.DeviceString) runs at $($m.dmDisplayFrequency)Hz but supports ${max}Hz" }
 }
 
 # --- System warnings ---
@@ -108,7 +108,7 @@ $c = Get-PSDrive C
 if ($c.Free / ($c.Used + $c.Free) -lt 0.10) { "WARNING: C: is low on space ($([int]($c.Free/1GB)) GB free)" }
 foreach ($pd in Get-PhysicalDisk | Where-Object BusType -ne 'USB') {
     # HealthStatus is the drive's own SMART failure prediction (Warning/Unhealthy = back up now)
-    if ($pd.HealthStatus -and $pd.HealthStatus -ne 'Healthy') { "WARNING: drive $($pd.FriendlyName) reports $($pd.HealthStatus) health ($($pd.OperationalStatus -join ', ')) - back up your files and ask Claude to check it" }
+    if ($pd.HealthStatus -and $pd.HealthStatus -ne 'Healthy') { "WARNING: drive $($pd.FriendlyName) reports $($pd.HealthStatus) health ($($pd.OperationalStatus -join ', ')) - back up your files now" }
     $r = $pd | Get-StorageReliabilityCounter
     if ($r.Wear -ge 80) { "WARNING: $($pd.FriendlyName) wear at $($r.Wear)% - plan a replacement" }
     if ($r.Temperature -ge 70) { "WARNING: $($pd.FriendlyName) is hot ($($r.Temperature) C)" }
@@ -129,7 +129,7 @@ $auto = @($auto | Where-Object { $_ } | Sort-Object -Unique)
 $base = "$env:USERPROFILE\.claude\startup-baseline.txt"
 if (Test-Path $base) {
     $new = @($auto | Where-Object { $_ -notin @(Get-Content $base) })
-    if ($new) { "Reminder: new auto-start item(s) since last check: $($new -join ', ') - ask Claude if you don't want them" }
+    if ($new) { "Reminder: new auto-start item(s) since last check: $($new -join ', ') (turn off any you don't want: Task Manager > Startup apps)" }
 }
 if ($auto) { $auto | Set-Content $base }
 
@@ -143,6 +143,6 @@ $bk = Get-ScheduledTask | Where-Object { $_.TaskName -match 'backup' -and $_.Tas
 if (-not $fh -and -not $bk) {
     $sys = (Get-Partition -DriveLetter C).DiskNumber
     foreach ($d in Get-Disk | Where-Object { $_.Number -ne $sys -and $_.BusType -ne 'File Backed Virtual' -and $_.Size -ge 64GB }) {
-        "Reminder: $($d.FriendlyName) ($([int]($d.Size / 1GB)) GB) is connected and nothing is backed up - ask Claude to set up automatic backups to it"
+        "Reminder: $($d.FriendlyName) ($([int]($d.Size / 1GB)) GB) is connected and nothing is backed up"
     }
 }

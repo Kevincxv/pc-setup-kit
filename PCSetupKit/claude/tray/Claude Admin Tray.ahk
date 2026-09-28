@@ -1,48 +1,67 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 Persistent
-; Tray icon for Messiah sessions (Claude Code with admin rights), so they don't need a taskbar pin.
-; Left-click: open a session if none is running, otherwise show/hide the session windows.
-; Minimizing a session window sends it to the tray. Runs elevated (scheduled task) so it can hide admin windows.
-; At login it opens one session hidden in the tray (continuing a conversation a restart cut off), so Claude is always ready.
+; Tray icon of the PC Setup Kit: status, the maintenance to-do list and small alerts when something needs the owner.
+; With the optional Claude part (Messiah, setup.ps1 -WithClaude) it also holds the Messiah sessions (Claude Code with
+; admin rights): left-click opens a session or shows/hides them, minimizing one sends it to the tray, and at login it
+; opens one hidden (continuing a conversation a restart cut off). Runs elevated (scheduled task) so it can hide admin windows.
 
-NAME := "Messiah"
-LNK := A_AppData "\Microsoft\Windows\Start Menu\Programs\" NAME ".lnk"
-if !FileExist(LNK) && FileExist(StrReplace(LNK, NAME, "Claude (Admin)"))   ; until the next login moves it (migrate-names.ps1)
-    LNK := StrReplace(LNK, NAME, "Claude (Admin)")
 CL := EnvGet("USERPROFILE") "\.claude"
+LNK := A_AppData "\Microsoft\Windows\Start Menu\Programs\Messiah.lnk"
+if !FileExist(LNK) && FileExist(StrReplace(LNK, "Messiah", "Claude (Admin)"))   ; until the next login moves it (migrate-names.ps1)
+    LNK := StrReplace(LNK, "Messiah", "Claude (Admin)")
+AI := AiEnabled()
+NAME := AI ? "Messiah" : "PC Setup Kit"
 DetectHiddenWindows true
 OnError TrayError
 
-TraySetIcon EnvGet("USERPROFILE") "\.local\bin\claude.exe"
+if AI
+    TraySetIcon EnvGet("USERPROFILE") "\.local\bin\claude.exe"
+else
+    TraySetIcon A_WinDir "\System32\imageres.dll", 110   ; gear with a check mark
 A_IconTip := NAME
 tray := A_TrayMenu
 tray.Delete()
-tray.Add("New " NAME " session", (*) => Run(LNK))
-tray.Add("Show sessions", (*) => ShowAll())
-tray.Add("Hide sessions", (*) => HideAll())
-tray.Add()
+if AI {
+    tray.Add("New " NAME " session", (*) => Run(LNK))
+    tray.Add("Show sessions", (*) => ShowAll())
+    tray.Add("Hide sessions", (*) => HideAll())
+    tray.Add()
+}
 tray.Add("Status", (*) => ShowStatus())
-; Hidden maintenance (runs headless at login: /maintain when needed, then /self-improve once a day)
-tray.Add("Watch maintenance live", (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\maint-watch.ps1"'))
 tray.Add("Maintenance to-do list", (*) => OpenFile(CL "\maint-todo.txt", "Nothing needs you right now."))
 tray.Add("Last maintenance report", (*) => OpenFile(CL "\maint-report.txt", "No report yet."))
-tray.Add("Self-improvement journal", (*) => OpenFile(CL "\selfimprove-journal.md", "No self-improvement runs yet."))
-tray.Add("Run hidden maintenance now", (*) => RunMaint())
+if AI {   ; hidden Claude runs at login: /maintain when needed, then /self-improve once a day
+    tray.Add("Watch maintenance live", (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\maint-watch.ps1"'))
+    tray.Add("Self-improvement journal", (*) => OpenFile(CL "\selfimprove-journal.md", "No self-improvement runs yet."))
+}
+tray.Add("Run maintenance now", (*) => RunMaint())
+tray.Add("Optimize this PC now", (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\optimize.ps1"'))
 tray.Add()
 tray.Add("Remove tray icon", (*) => ExitApp())
-tray.Default := "New " NAME " session"
+tray.Default := AI ? "New " NAME " session" : "Status"
 tray.ClickCount := 1
 OnMessage(0x404, TrayClick)
-SetTimer Watch, 500
 SetTimer TodoTip, 5000
 TodoTip()
 
 known := Map()  ; pid -> true if it's a Messiah launcher window
 note := 0       ; the corner note currently shown
-SetTimer AutoStart, -3000
 SetTimer Notify, 30000
-SetTimer RefreshSession, 900000
+if AI {
+    SetTimer Watch, 500
+    SetTimer AutoStart, -3000
+    SetTimer RefreshSession, 900000
+}
+
+; The optional Claude part is on when setup recorded it (kit-options.txt: claude=on); PCs installed before the option
+; existed all had it (same rule as ai-enabled.ps1)
+AiEnabled() {
+    f := CL "\kit-options.txt"
+    if FileExist(f)
+        return RegExMatch(FileRead(f), "m)^\s*claude\s*=\s*on\s*$") > 0
+    return FileExist(LNK) || FileExist(CL "\admin-sessions.txt") ? true : false
+}
 
 ; Never show AutoHotkey's error box: the tray runs all day in the background, and a window that closes while the tray
 ; looks at it (consoles come and go all the time) is not the owner's problem. Logged for /self-improve instead.
@@ -164,6 +183,8 @@ AutoStart() {
 TrayClick(wParam, lParam, *) {
     if (lParam != 0x202)  ; left button up
         return
+    if !AI
+        return (ShowStatus(), 1)
     wins := Sessions()
     if !wins.Length
         Run LNK
@@ -249,7 +270,7 @@ TodoTip() {
             if Trim(A_LoopField) != ""
                 n++
     tip := n ? NAME " - " n " maintenance item" (n = 1 ? " needs" : "s need") " you" : NAME
-    if MaintRunning()
+    if AI && MaintRunning()
         tip .= "`nHidden maintenance running (right-click > Watch live)"
     A_IconTip := tip
 }
@@ -268,8 +289,8 @@ OpenFile(f, emptyMsg) {
 }
 
 RunMaint() {
-    if MaintRunning()
+    if AI && MaintRunning()
         return ShowNote("Hidden maintenance is already running.`nRight-click the tray icon > Watch maintenance live to follow it.", false, 8)
     Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\claude-bg-maint.ps1" -Force -Unattended', , "Hide"
-    ShowNote("Hidden maintenance started.`nRight-click the tray icon > Watch maintenance live to follow it.", false, 8)
+    ShowNote("Maintenance started in the background.`n" (AI ? "Right-click the tray icon > Watch maintenance live to follow it." : "The result shows in Status and the last maintenance report."), false, 8)
 }
