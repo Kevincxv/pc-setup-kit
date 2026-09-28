@@ -1,6 +1,6 @@
-# The no-shutdown hook: every way to shut down/restart/log off is blocked, normal commands are not.
+﻿# The no-shutdown hook: every way to shut down/restart/log off is blocked, normal commands are not.
 . "$PSScriptRoot\..\lib.ps1"
-$h = "$Src\hooks\no-power-off.ps1"
+$h = $Hook
 if (-not (Test-Path $h)) { Check 'hook script exists' $false $h; Finish }
 $block = @(
     'shutdown /r /t 15', 'shutdown.exe /s /t 0', 'shutdown /r /fw /t 15', 'C:\Windows\System32\shutdown.exe -r -t 5', '"C:\WINDOWS\system32\shutdown.exe" /s',

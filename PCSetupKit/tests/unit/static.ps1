@@ -20,7 +20,7 @@ if (Test-Path $ahk) {
 $compat = "$Kit\claude\tray\Claude Admin Tray.ahk"
 Check 'the old-name tray copy is identical to Messiah Tray.ahk' ((Test-Path $compat) -and (Get-FileHash $compat).Hash -eq (Get-FileHash "$Kit\claude\tray\Messiah Tray.ahk").Hash) ''
 # tests must not reassign the shared $Src / $Kit / $Tray / $Work (PowerShell names ignore case: "$src = ..." clobbers $Src)
-$clobber = @(Get-ChildItem "$PSScriptRoot\*.ps1" | Select-String -Pattern '(?i)^\s*\$(src|kit|tray|work)\s*=' | ForEach-Object { "$($_.Filename):$($_.LineNumber)" })
+$clobber = @(Get-ChildItem "$PSScriptRoot\*.ps1" | Select-String -Pattern '(?i)^\s*\$(src|kit|tray|work|hook)\s*=' | ForEach-Object { "$($_.Filename):$($_.LineNumber)" })
 Check 'no test overwrites the shared $Src/$Kit/$Tray/$Work' (-not $clobber) ($clobber -join ', ')
 # tests that mock a command from a Windows module must load the module first and verify the mock (see lib.ps1)
 $unsafe = @(foreach ($tf in Get-ChildItem "$PSScriptRoot\*.ps1") {

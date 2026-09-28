@@ -5,7 +5,7 @@ Section 'setup.ps1: the no-shutdown hook merged into Claude settings'
 $lines = Get-Content "$Kit\setup.ps1"; $i = [array]::IndexOf($lines, ($lines | Where-Object { $_ -match '^\s*# Claude never shuts down' } | Select-Object -First 1))
 Check 'the settings-merge part is found in setup.ps1' ($i -ge 0) ''
 $snippet = ($lines[$i..($i + 8)]) -join "`n"
-New-Item "$Work\kitsrc\claude\hooks" -ItemType Directory -Force | Out-Null; Copy-Item "$Src\hooks\no-power-off.ps1" "$Work\kitsrc\claude\hooks\"
+New-Item "$Work\kitsrc\claude\hooks" -ItemType Directory -Force | Out-Null; Copy-Item $Hook "$Work\kitsrc\claude\hooks\"
 foreach ($case in 'none', 'existing', 'corrupt') {
     $cl = "$Work\home-$case"; New-Item $cl -ItemType Directory -Force | Out-Null
     if ($case -eq 'existing') { '{"theme":"dark","hooks":{"Stop":[{"hooks":[{"type":"command","command":"x.cmd"}]}]}}' | Set-Content "$cl\settings.json" }
@@ -56,6 +56,7 @@ Check 'the real uninstaller dry run (-WhatIf) changes nothing and has no errors'
 
 Section 'GitHub: install.ps1 and kit-update.ps1 against the real release'
 if (-not (Test-Online)) { Skip 'GitHub tests' 'offline'; Finish }
+if (-not (Test-Path "$Kit\kit-source.txt")) { Skip 'GitHub tests' 'this kit has no update source (kit-source.txt)'; Finish }
 $repoRoot = Split-Path $Kit
 # GitHub's release API sometimes doesn't answer for a moment (the kit then quietly waits for the next login - correct).
 # A step that got no answer is tried again; if GitHub stays unreachable, the rest is skipped (with the reason), never

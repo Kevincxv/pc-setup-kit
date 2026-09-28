@@ -7,6 +7,9 @@
 $ErrorActionPreference = 'Continue'
 $Kit = if ($env:PCKIT_KIT) { $env:PCKIT_KIT } else { Split-Path (Split-Path $PSScriptRoot) }
 $Src = if ($env:PCKIT_SRC) { $env:PCKIT_SRC } else { "$Kit\claude" }
+# Claude's no-shutdown hook: the installed one on a PC with the optional Claude part, else the kit's copy (PCs without
+# Claude don't install it)
+$Hook = if (Test-Path "$Src\hooks\no-power-off.ps1") { "$Src\hooks\no-power-off.ps1" } else { "$Kit\claude\hooks\no-power-off.ps1" }
 $Tray = if ($env:PCKIT_TRAY) { $env:PCKIT_TRAY } else { "$Kit\claude\tray\Messiah Tray.ahk" }
 $TestName = [IO.Path]::GetFileNameWithoutExtension($MyInvocation.PSCommandPath)
 # compiled stand-ins (fake claude.exe etc.) are cached here; run-tests.ps1 builds them once before tests run side by side
