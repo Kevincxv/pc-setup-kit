@@ -59,17 +59,21 @@ Check 'a brand-new install with no data yet: no errors, sensible defaults' ((-no
 $r = Invoke-As $H "$C\status.ps1" @('-NoWait')
 Check 'without Claude: no Claude sections (sessions, hidden Claude runs), no errors' ((-not $r.Err.Trim()) -and ($r.Out -notmatch 'Messiah|Claude Code|Session|Self-improvement') -and ($r.Out -match 'Needs you') -and ($r.Out -match 'Scheduled checks')) ($r.Err + $r.Out)
 
-Section 'Status window (dashboard.ps1)'
+Section 'the app window (dashboard.ps1)'
 'Turn EXPO back on in the BIOS.' | Set-Content "$C\maint-todo.txt" -Encoding UTF8
 'Checked 9/27/2026 12:00 PM in 18s', '[Drivers]', 'NVIDIA: 617.14 is up to date' | Set-Content "$C\maint-report.txt"
 $r = Invoke-As $H "$C\dashboard.ps1" @('-Test')
 $d = $r.Out
-Check 'without Claude: opens as "PC Setup Kit Status", no errors' ((-not $r.Err.Trim()) -and ($d -match 'WINDOW: PC Setup Kit Status')) ($r.Err + $d)
-Check '... what needs the owner comes first and sets the headline' (($d -match 'SUMMARY: 1 thing needs you') -and ($d -match 'SUMMARY[^\n]*\s+CARD: Needs you\s+\S+ Turn EXPO back on')) $d
-Check '... last check shown; no Claude card or live-watch button' (($d -match 'Checked 9/27/2026 12:00 PM') -and ($d -notmatch 'CARD: Messiah|Watch maintenance live') -and ($d -match 'BUTTONS: Run maintenance now \| Optimize this PC \| Full report')) $d
+Check 'without Claude: opens as "PC Setup Kit", no errors' ((-not $r.Err.Trim()) -and ($d -match '(?m)^WINDOW: PC Setup Kit\s*$')) ($r.Err + $d)
+Check '... pages: Overview, Maintenance, Schedule, Settings (no Sessions)' ($d -match '(?m)^NAV: Home \| Maintenance \| Schedule \| Settings\s*$') $d
+Check '... the overview leads with what needs the owner' (($d -match 'PAGE: Overview\s+CARD: -\s+1 thing needs you') -and ($d -match 'CARD: Needs you\s+\S+\s+Turn EXPO back on')) $d
+Check '... the overview has the main actions' ($d -match 'BUTTONS: Run maintenance now \| Optimize this PC') $d
+Check '... the maintenance page shows the last check; no Claude parts' (($d -match 'PAGE: Maintenance\s+CARD: Last background check\s+Checked 9/27/2026 12:00 PM') -and ($d -match 'BUTTONS: Run maintenance now \| Full report') -and ($d -notmatch 'CARD: Messiah|Watch live|Hidden Claude|New session')) $d
+Check '... the schedule as a table; the setting to open at login' (($d -match 'CARD: Scheduled checks\s+App updates: ') -and ($d -match 'Open PC Setup Kit when I log in')) $d
 'claude=on' | Set-Content "$C\kit-options.txt"; Clear-Path "$C\maint-todo.txt"
 $r = Invoke-As $H "$C\dashboard.ps1" @('-Test') @{ FAKE_DIR = "$Work\fake" }
 $d = $r.Out
-Check 'with Claude: "Messiah Status" with the Messiah card and the live-watch button' ((-not $r.Err.Trim()) -and ($d -match 'WINDOW: Messiah Status') -and ($d -match 'CARD: Messiah') -and ($d -match 'Watch maintenance live')) ($r.Err + $d)
-Check '... nothing to do: "All good"' ($d -match 'SUMMARY: All good - nothing needs you') $d
+Check 'with Claude: "Messiah" with a Sessions page (new / show / hide) and the live watch' ((-not $r.Err.Trim()) -and ($d -match '(?m)^WINDOW: Messiah\s*$') -and ($d -match 'PAGE: Sessions') -and ($d -match 'BUTTONS: New session \| Show sessions \| Hide sessions') -and ($d -match 'CARD: Hidden Claude maintenance') -and ($d -match 'Watch live')) ($r.Err + $d)
+Check '... nothing to do: "All good"' ($d -match 'PAGE: Overview\s+CARD: -\s+All good - nothing needs you') $d
+Check '... the overview shows the sessions too' ($d -match 'CARD: Messiah\s+(No session open|\d+ sessions? running)') $d
 Finish

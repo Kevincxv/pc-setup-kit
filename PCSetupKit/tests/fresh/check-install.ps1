@@ -47,11 +47,10 @@ if ($withClaude) {
     Check 'skills and the no-shutdown hook installed' ((Test-Path "$cl\skills\maintain\SKILL.md") -and (Test-Path "$cl\skills\pc-optimize\SKILL.md") -and (Test-Path "$cl\skills\self-improve\SKILL.md") -and (Test-Path "$cl\hooks\no-power-off.ps1")) ''
     $s = Get-Content "$cl\settings.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
     Check 'the hook is active in Claude settings (Bash and PowerShell calls)' (($s.hooks.PreToolUse | Where-Object { $_.matcher -eq 'Bash|PowerShell' }).hooks.command -match 'no-power-off\.ps1') ''
-    $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Messiah.lnk"
+    $lnk = "$cl\Messiah Session.lnk"
     $sc = if (Test-Path $lnk) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk) }
-    Check 'Messiah shortcut in the Start menu, starting the launcher' ($sc -and $sc.Arguments -match 'claude-admin-launch\.ps1' -and $sc.TargetPath -match 'powershell\.exe') "$($sc.Arguments)"
+    Check 'Messiah session shortcut (the app''s "New session"), starting the launcher' ($sc -and $sc.Arguments -match 'claude-admin-launch\.ps1' -and $sc.TargetPath -match 'powershell\.exe') "$($sc.Arguments)"
     Check '... set to run as administrator' ((Test-Path $lnk) -and (([IO.File]::ReadAllBytes($lnk)[0x15] -band 0x20) -ne 0)) ''
-    Check '... and on the desktop' (Test-Path "$env:USERPROFILE\Desktop\Messiah.lnk") ''
 
 }
 
@@ -63,8 +62,11 @@ Check 'tray at every login: elevated, no time limit, restarts on failure' ($tt -
 Check 'tray script in Documents\Messiah Tray' (Test-Path "$env:USERPROFILE\Documents\Messiah Tray\Messiah Tray.ahk") ''
 $app = if ($withClaude) { 'Messiah' } else { 'PC Setup Kit' }
 Check "the tray runs as its own program ($app.exe: its own tray entry next to the clock)" ($tt -and $tt.Actions[0].Execute -eq "$env:USERPROFILE\Documents\Messiah Tray\$app.exe" -and (Test-Path $tt.Actions[0].Execute)) "$($tt.Actions[0].Execute)"
-Check "Start menu '$app Status' (the Status window)" (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$app Status.lnk") ''
+$lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$app.lnk"
+$sc = if (Test-Path $lnk) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk) }
+Check "Start menu and desktop '$app' open the app window, with the app's icon" ($sc -and $sc.Arguments -match 'dashboard\.ps1"$' -and $sc.IconLocation -match 'app\.ico,0$' -and (Test-Path "$env:USERPROFILE\Documents\Messiah Tray\app.ico") -and (Test-Path "$env:USERPROFILE\Desktop\$app.lnk")) "$($sc.Arguments) | $($sc.IconLocation)"
+Check '... no separate Status entry' (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$app Status.lnk")) ''
 $d = & powershell -NoProfile -ExecutionPolicy Bypass -File "$cl\dashboard.ps1" -Test 2>&1 | Out-String
-Check '... the Status window builds on this PC' ($d -match "WINDOW: $app Status" -and $d -match 'CARD: Needs you') $d
+Check '... the app window builds on this PC' ($d -match "(?m)^WINDOW: $app\s*$" -and $d -match 'CARD: Needs you') $d
 Check 'no leftovers of the old name' (-not (Get-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue) -and -not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk")) ''
 Finish

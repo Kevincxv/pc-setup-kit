@@ -1,47 +1,46 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 Persistent
-; Tray icon of the PC Setup Kit: status, the maintenance to-do list and small alerts when something needs the owner.
+; The PC Setup Kit app's tray side: its icon next to the clock, small alerts when something needs the owner, and the
+; parts of the app window (dashboard.ps1) that need admin rights. Clicking the icon opens the app window.
 ; With the optional Claude part (Messiah, setup.ps1 -WithClaude) it also holds the Messiah sessions (Claude Code with
-; admin rights): left-click opens a session or shows/hides them, minimizing one sends it to the tray, and at login it
-; opens one hidden (continuing a conversation a restart cut off). Runs elevated (scheduled task) so it can hide admin windows.
+; admin rights): minimizing one sends it to the tray, and at login it opens one hidden (continuing a conversation a
+; restart cut off). Runs elevated (scheduled task) so it can hide admin windows and start maintenance without a prompt.
 
 CL := EnvGet("USERPROFILE") "\.claude"
-LNK := A_AppData "\Microsoft\Windows\Start Menu\Programs\Messiah.lnk"
-if !FileExist(LNK) && FileExist(StrReplace(LNK, "Messiah", "Claude (Admin)"))   ; until the next login moves it (migrate-names.ps1)
-    LNK := StrReplace(LNK, "Messiah", "Claude (Admin)")
+LNK := SessionShortcut()
 AI := AiEnabled()
 NAME := AI ? "Messiah" : "PC Setup Kit"
 DetectHiddenWindows true
 OnError TrayError
 
-if AI
-    TraySetIcon EnvGet("USERPROFILE") "\.local\bin\claude.exe"
+if FileExist(A_ScriptDir "\app.ico")   ; the app's icon (app-icon.ps1, installed by tray-app.ps1)
+    TraySetIcon A_ScriptDir "\app.ico"
 else
     TraySetIcon A_WinDir "\System32\imageres.dll", 110   ; gear with a check mark
 A_IconTip := NAME
 tray := A_TrayMenu
 tray.Delete()
+tray.Add("Open " NAME, (*) => ShowApp())
+tray.Add()
 if AI {
-    tray.Add("New " NAME " session", (*) => Run(LNK))
+    tray.Add("New session", (*) => Run(LNK))
     tray.Add("Show sessions", (*) => ShowAll())
     tray.Add("Hide sessions", (*) => HideAll())
     tray.Add()
 }
-tray.Add("Status", (*) => ShowStatus())
-tray.Add("Maintenance to-do list", (*) => OpenFile(CL "\maint-todo.txt", "Nothing needs you right now."))
-tray.Add("Last maintenance report", (*) => OpenFile(CL "\maint-report.txt", "No report yet."))
-if AI {   ; hidden Claude runs at login: /maintain when needed, then /self-improve once a day
-    tray.Add("Watch maintenance live", (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\maint-watch.ps1"'))
-    tray.Add("Self-improvement journal", (*) => OpenFile(CL "\selfimprove-journal.md", "No self-improvement runs yet."))
-}
 tray.Add("Run maintenance now", (*) => RunMaint())
-tray.Add("Optimize this PC now", (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\optimize.ps1"'))
 tray.Add()
 tray.Add("Remove tray icon", (*) => ExitApp())
-tray.Default := AI ? "New " NAME " session" : "Status"
+tray.Default := "Open " NAME
 tray.ClickCount := 1
 OnMessage(0x404, TrayClick)
+; the app window asks the tray for what needs admin rights (it may run without them): a registered message, let
+; through from non-elevated windows; the window finds the tray through tray-hwnd.txt
+APPCMD := DllCall("RegisterWindowMessage", "Str", "PCSetupKitAppCommand", "UInt")
+DllCall("ChangeWindowMessageFilterEx", "Ptr", A_ScriptHwnd, "UInt", APPCMD, "UInt", 1, "Ptr", 0)
+OnMessage(APPCMD, AppCommand)
+try FileOpen(CL "\tray-hwnd.txt", "w").Write(A_ScriptHwnd)
 SetTimer TodoTip, 5000
 TodoTip()
 SetTimer PinIcon, -5000
@@ -78,18 +77,47 @@ RefreshSession() {
     try Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\refresh-session.ps1"', , "Hide"
 }
 
-; The Status window (dashboard.ps1; it falls back to the text status.ps1 by itself). Installs from before it: text.
-ShowStatus() {
+; The Claude session shortcut (the elevated launcher). Since the app took over the Start menu entry it lives in .claude;
+; older installs still have it in the Start menu until tray-app.ps1 moves it.
+SessionShortcut() {
+    for f in [CL "\Messiah Session.lnk", A_AppData "\Microsoft\Windows\Start Menu\Programs\Messiah.lnk", A_AppData "\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk"] {
+        if !FileExist(f)
+            continue
+        try FileGetShortcut f, , , &args
+        catch
+            continue
+        if InStr(args, "claude-admin-launch.ps1")
+            return f
+    }
+    return CL "\Messiah Session.lnk"
+}
+
+; What the app window asks for (see APPCMD). Runs after the message returns, so the window never waits on it.
+AppCommand(wParam, *) {
+    static work := Map(1, (*) => Run(LNK), 2, (*) => ShowAll(), 3, (*) => HideAll(), 4, (*) => RunMaint(true),
+        5, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\optimize.ps1"'),
+        6, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\maint-watch.ps1"'))
+    if work.Has(wParam)
+        SetTimer work[wParam], -10
+    return 1
+}
+
+; The app window (dashboard.ps1; one window - starting it again brings it to the front; it falls back to the text
+; status.ps1 by itself). Installs from before it: text.
+ShowApp() {
     if FileExist(CL "\dashboard.ps1")
         Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\dashboard.ps1"', , "Hide"
     else
         Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\status.ps1"'
 }
 
-; The Status window opens by itself once per boot, so the owner sees the app start at login. A tray restart (update,
-; crash, tray-app.ps1) keeps the boot and doesn't reopen it; a fullscreen game holds it for up to 15 min after boot.
+; The app window opens by itself once per boot, so the owner sees the app start at login (unless turned off in its
+; Settings: kit-options.txt "openatlogin=off"). A tray restart (update, crash, tray-app.ps1) keeps the boot and doesn't
+; reopen it; a fullscreen game holds it for up to 15 min after boot.
 StatusAtLogin() {
     if EnvGet("PCKIT_IN_TESTS") != ""
+        return
+    try if RegExMatch(FileRead(CL "\kit-options.txt"), "im)^\s*openatlogin\s*=\s*off\s*$")
         return
     ini := CL "\tray-notified.ini"
     boot := DateAdd(A_Now, -(A_TickCount // 1000), "Seconds")
@@ -100,7 +128,7 @@ StatusAtLogin() {
         return SetTimer(StatusAtLogin, -60000)
     IniWrite boot, ini, "shown", "status-boot"
     if !IsFullscreen()
-        ShowStatus()
+        ShowApp()
 }
 
 ; Pin the icon next to the clock once. Windows keeps a tray entry per program and hides new ones in the ^ area; the
@@ -194,7 +222,7 @@ ShowNote(text, details := true, seconds := 20) {
 }
 NoteClick(*) {
     CloseNote()
-    ShowStatus()
+    ShowApp()
 }
 CloseNote() {
     global note
@@ -233,15 +261,7 @@ AutoStart() {
 TrayClick(wParam, lParam, *) {
     if (lParam != 0x202)  ; left button up
         return
-    if !AI
-        return (ShowStatus(), 1)
-    wins := Sessions()
-    if !wins.Length
-        Run LNK
-    else if AnyVisible(wins)
-        HideAll()
-    else
-        ShowAll()
+    ShowApp()
     return 1
 }
 
@@ -263,13 +283,6 @@ Sessions() {
             wins.Push(hwnd)
     }
     return wins
-}
-
-AnyVisible(wins) {
-    for hwnd in wins
-        try if DllCall("IsWindowVisible", "ptr", hwnd) && WinGetMinMax(hwnd) != -1
-            return true
-    return false
 }
 
 ShowAll() {
@@ -321,7 +334,7 @@ TodoTip() {
                 n++
     tip := n ? NAME " - " n " maintenance item" (n = 1 ? " needs" : "s need") " you" : NAME
     if AI && MaintRunning()
-        tip .= "`nHidden maintenance running (right-click > Watch live)"
+        tip .= "`nHidden maintenance running (open " NAME " > Maintenance > Watch live)"
     A_IconTip := tip
 }
 
@@ -331,16 +344,11 @@ MaintRunning() {
     return FileExist(f) && DateDiff(A_Now, FileGetTime(f), "Minutes") < 60 && DateDiff(FileGetTime(f), boot, "Seconds") > 0
 }
 
-OpenFile(f, emptyMsg) {
-    if FileExist(f)
-        Run 'notepad.exe "' f '"'
-    else
-        ShowNote(emptyMsg, false, 6)
-}
-
-RunMaint() {
+; quiet: asked by the app window, which says so itself
+RunMaint(quiet := false) {
     if AI && MaintRunning()
-        return ShowNote("Hidden maintenance is already running.`nRight-click the tray icon > Watch maintenance live to follow it.", false, 8)
+        return quiet ? 0 : ShowNote("Hidden maintenance is already running.`nOpen " NAME " > Maintenance > Watch live to follow it.", false, 8)
     Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\claude-bg-maint.ps1" -Force -Unattended', , "Hide"
-    ShowNote("Maintenance started in the background.`n" (AI ? "Right-click the tray icon > Watch maintenance live to follow it." : "The result shows in Status and the last maintenance report."), false, 8)
+    if !quiet
+        ShowNote("Maintenance started in the background.`nThe result shows in " NAME " (click this).", true, 8)
 }

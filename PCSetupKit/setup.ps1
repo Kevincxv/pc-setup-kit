@@ -51,10 +51,24 @@ for ($i = 0; $i -lt 40 -and -not (Get-Command winget -ErrorAction SilentlyContin
 winget source update --accept-source-agreements | Out-Null
 
 Step 'Installing apps'
+# One app, retried when winget's package list isn't there yet ("No packages were found" for everything - a new PC's
+# first minutes; seen on GitHub's test machines on 9/28): the list is fetched again and the install tried again.
+function Install-App([string]$Id) {
+    for ($try = 1; $try -le 3; $try++) {
+        $out = @(winget install --id $Id -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | ForEach-Object { "$_" })
+        if (-not ($out -match 'No package(s were)? found')) { return $out | Where-Object { $_.Trim() } | Select-Object -Last 1 }
+        if ($try -lt 3) {
+            winget source reset --force 2>&1 | Out-Null
+            winget source update --accept-source-agreements 2>&1 | Out-Null
+            Start-Sleep 20
+        }
+    }
+    "  $Id`: winget couldn't find it (its package list didn't load) - run setup.ps1 again later"
+}
 # WinDbg: automatic crash-dump diagnosis; AutoHotkey (v2): the tray icon
 foreach ($id in 'Git.Git', 'Valve.Steam', 'Discord.Discord', 'Google.Chrome', 'Microsoft.WinDbg', 'AutoHotkey.AutoHotkey') {
     Write-Host "  $id"
-    winget install --id $id -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity | Select-Object -Last 1
+    Install-App $id
 }
 $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
 
@@ -92,15 +106,7 @@ if ($WithClaude) {
     $s | Add-Member hooks ([pscustomobject]@{ PreToolUse = @([pscustomobject]@{ matcher = 'Bash|PowerShell'; hooks = @([pscustomobject]@{
                         type = 'command'; command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$cl\hooks\no-power-off.ps1`""; timeout = 15 }) }) }) -Force
     [IO.File]::WriteAllText($sf, ($s | ConvertTo-Json -Depth 10), (New-Object Text.UTF8Encoding $false))   # no BOM
-    $lnkPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Messiah.lnk"
-    $sh = (New-Object -ComObject WScript.Shell).CreateShortcut($lnkPath)
-    $sh.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-    $sh.Arguments = "-NoExit -NoLogo -ExecutionPolicy Bypass -File `"$cl\claude-admin-launch.ps1`""
-    $sh.WorkingDirectory = "$env:SystemRoot\System32"
-    $sh.IconLocation = "$env:USERPROFILE\.local\bin\claude.exe,0"
-    $sh.Save()
-    $b = [IO.File]::ReadAllBytes($lnkPath); $b[0x15] = $b[0x15] -bor 0x20; [IO.File]::WriteAllBytes($lnkPath, $b)   # "Run as administrator"
-    Copy-Item $lnkPath "$env:USERPROFILE\Desktop\" -Force
+    # the Start menu / desktop "Messiah" (the app) and the session shortcut come from tray-app.ps1 below
 }
 
 # At every login, fully windowless (conhost --headless): background maintenance (with Claude also headless /maintain when
@@ -118,10 +124,10 @@ Register-ScheduledTask -TaskName 'Claude Background Maintenance' -Action $act -T
 $trayDir = "$env:USERPROFILE\Documents\Messiah Tray"
 New-Item $trayDir -ItemType Directory -Force | Out-Null
 Copy-Item "$kit\claude\tray\Messiah Tray.ahk" $trayDir -Force
-# under its own program name (own tray entry, pinned next to the clock), the login task and the Start menu Status entry
-if (Test-Path "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe") {
-    & "$cl\tray-app.ps1" -TrayDir $trayDir -NoRestart | Out-Null
-} else { '  AutoHotkey is missing - no tray icon (run setup.ps1 again once winget works)' }
+# the app: its icon, Start menu and desktop entries (the app window; with Claude also the session shortcut), and the
+# tray under its own program name (own tray entry, pinned next to the clock) with its login task
+& "$cl\tray-app.ps1" -TrayDir $trayDir -NoRestart -Desktop | Out-Null
+if (-not (Test-Path "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe")) { '  AutoHotkey is missing - no tray icon (run setup.ps1 again once winget works)' }
 
 if (-not $WithClaude) {
     # Without Claude the optimization is a script too: monitors, benchmark baseline, drivers, app updates, checks,
@@ -133,7 +139,7 @@ if (-not $WithClaude) {
 
   Setup finished. From now on the PC maintains itself at every login (updates, drivers, cleanup, crash checks).
   The report (Documents\PC Setup Kit report.txt) shows what was done and anything that needs you; the tray
-  icon next to the clock and "PC Setup Kit Status" in the Start menu keep showing the status.
+  icon next to the clock and the "PC Setup Kit" app (Start menu and desktop) keep showing the status.
   You can unplug the USB drive now. Log: C:\PCSetupKit\setup.log
 '@ -ForegroundColor Green
     Stop-Transcript | Out-Null

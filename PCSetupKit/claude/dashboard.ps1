@@ -1,145 +1,385 @@
-# The Status window (Start menu "Messiah Status" / "PC Setup Kit Status", the tray's Status and its alerts): what needs
-# the owner, what waits for the next shutdown, the last check and the scheduled checks - refreshed every few seconds -
-# with buttons for the tray's actions. One window: starting it again brings the open one to the front.
-# If the window can't open, the text status (status.ps1) opens instead.
-param([switch]$Test)   # -Test: build and fill the window once, print what it shows, don't open it (tests)
+# The app window (Start menu / desktop "Messiah" or "PC Setup Kit", the tray icon, its alerts, and at login): what needs
+# the owner, what waits for the next shutdown, the maintenance and the scheduled checks - refreshed every few seconds -
+# plus everything the tray used to do (sessions, maintenance, reports). One window: starting it again brings the open one
+# to the front. Things that need admin rights (sessions, maintenance, optimize) go through the tray, which runs elevated,
+# so there's no UAC prompt; without the tray they start directly. If the window can't open, status.ps1 (text) opens instead.
+param([switch]$Test, [string]$Page)   # -Test: build and fill every page once, print what they show, don't open (tests)
 $cl = "$env:USERPROFILE\.claude"
 $ai = if (Test-Path "$cl\ai-enabled.ps1") { & "$cl\ai-enabled.ps1" } else { $true }
 $name = if ($ai) { 'Messiah' } else { 'PC Setup Kit' }
-$title = "$name Status"
+$trayDir = "$env:USERPROFILE\Documents\Messiah Tray"
 try {
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
-    if (-not ('KitDash.W' -as [type])) {
-        Add-Type -Namespace KitDash -Name W -MemberDefinition @'
-[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);
+    if (-not ('KitApp.N' -as [type])) {
+        Add-Type -Namespace KitApp -Name N -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
 [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
 [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern uint RegisterWindowMessage(string s);
 [DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern int SetCurrentProcessExplicitAppUserModelID(string id);
-[DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern uint ExtractIconEx(string f, int i, IntPtr[] large, IntPtr[] small, uint n);
 [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr h, int a, ref int v, int s);
+[StructLayout(LayoutKind.Sequential)] public struct MARGINS { public int L, R, T, B; }
+[DllImport("dwmapi.dll")] public static extern int DwmExtendFrameIntoClientArea(IntPtr h, ref MARGINS m);
 '@
     }
+    # one window: a second start hands over to the open one (its handle is in app-window.txt; the title alone isn't
+    # unique - Messiah's session consoles are called "Messiah" too)
     $mutex = New-Object Threading.Mutex($false, 'Local\PCSetupKitStatusWindow')
     if (-not $Test -and -not $mutex.WaitOne(0)) {
-        $h = [KitDash.W]::FindWindow([NullString]::Value, $title)
-        if ($h -ne [IntPtr]::Zero) { [void][KitDash.W]::ShowWindow($h, 9); [void][KitDash.W]::SetForegroundWindow($h) }
+        $h = [IntPtr][long]("0$(Get-Content "$cl\app-window.txt" -ErrorAction SilentlyContinue)" -replace '\D')
+        if ($h -ne [IntPtr]::Zero -and [KitApp.N]::IsWindow($h)) { [void][KitApp.N]::ShowWindow($h, 9); [void][KitApp.N]::SetForegroundWindow($h) }
         exit
     }
     . "$cl\status-lib.ps1"
 
-    # Windows' app theme (Settings > Personalization > Colors)
+    # Windows' app theme (Settings > Personalization > Colors). Cards are see-through layers (Windows 11 style), so they
+    # work on the Mica backdrop and on the plain background used where Mica isn't available.
     $light = try { (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -ErrorAction Stop).AppsUseLightTheme -eq 1 } catch { $false }
-    $c = if ($light) { @{ Bg = '#F3F3F3'; Card = '#FFFFFF'; Border = '#E5E5E5'; Text = '#1B1B1B'; Sub = '#5C5C5C'; Accent = '#005FB8'; Ok = '#0F7B0F'; Warn = '#9D5D00'; Btn = '#FBFBFB'; BtnHover = '#F0F0F0' } }
-    else { @{ Bg = '#1C1C1C'; Card = '#2B2B2B'; Border = '#3A3A3A'; Text = '#F0F0F0'; Sub = '#A0A0A0'; Accent = '#60CDFF'; Ok = '#6CCB5F'; Warn = '#FCE100'; Btn = '#373737'; BtnHover = '#424242' } }
+    $c = if ($light) {
+        @{ Bg = '#F3F3F3'; Card = '#B3FFFFFF'; CardHover = '#80F9F9F9'; Border = '#0F000000'; Text = '#E4000000'; Sub = '#9E000000'; Accent = '#5B57E8'
+            Ok = '#0F7B0F'; Warn = '#9D5D00'; Btn = '#B3FFFFFF'; BtnHover = '#80F9F9F9'; NavSel = '#0A000000'; NavHover = '#06000000'; Grad1 = '#7C5CFF'; Grad2 = '#3E8BF2'; OnAccent = '#FFFFFF' }
+    } else {
+        @{ Bg = '#202020'; Card = '#0DFFFFFF'; CardHover = '#14FFFFFF'; Border = '#19000000'; Text = '#FFFFFF'; Sub = '#C5FFFFFF'; Accent = '#A8A6FF'
+            Ok = '#6CCB5F'; Warn = '#FCE100'; Btn = '#0FFFFFFF'; BtnHover = '#15FFFFFF'; NavSel = '#0FFFFFFF'; NavHover = '#0AFFFFFF'; Grad1 = '#7C5CFF'; Grad2 = '#3E8BF2'; OnAccent = '#FFFFFF' }
+    }
+    $icons = "Segoe Fluent Icons, Segoe MDL2 Assets"
 
     [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="$title" Width="720" Height="780" MinWidth="480" MinHeight="400" WindowStartupLocation="CenterScreen"
-        Background="$($c.Bg)" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="14" Foreground="$($c.Text)" UseLayoutRounding="True">
+        Title="$name" Width="1000" Height="720" MinWidth="720" MinHeight="480" WindowStartupLocation="CenterScreen"
+        Background="$($c.Bg)" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="14" Foreground="$($c.Text)"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
   <Window.Resources>
-    <Style TargetType="Button">
+    <Style x:Key="Btn" TargetType="Button">
       <Setter Property="Margin" Value="0,0,8,8"/><Setter Property="Padding" Value="14,7"/><Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Foreground" Value="$($c.Text)"/><Setter Property="Background" Value="$($c.Btn)"/>
       <Setter Property="Template"><Setter.Value>
         <ControlTemplate TargetType="Button">
           <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="$($c.Border)" BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
-            <ContentPresenter HorizontalAlignment="Center"/>
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="$($c.BtnHover)"/></Trigger>
+            <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.8"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value></Setter>
+    </Style>
+    <Style x:Key="AccentBtn" TargetType="Button" BasedOn="{StaticResource Btn}">
+      <Setter Property="Foreground" Value="$($c.OnAccent)"/>
+      <Setter Property="Template"><Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="b" CornerRadius="6" Padding="{TemplateBinding Padding}">
+            <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="$($c.Grad1)" Offset="0"/><GradientStop Color="$($c.Grad2)" Offset="1"/></LinearGradientBrush></Border.Background>
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.9"/></Trigger>
+            <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.75"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value></Setter>
+    </Style>
+    <Style x:Key="Nav" TargetType="RadioButton">
+      <Setter Property="Foreground" Value="$($c.Text)"/><Setter Property="Cursor" Value="Hand"/><Setter Property="Margin" Value="0,0,0,4"/>
+      <Setter Property="Template"><Setter.Value>
+        <ControlTemplate TargetType="RadioButton">
+          <Grid>
+            <Border x:Name="b" Background="Transparent" CornerRadius="6" Padding="12,9"><ContentPresenter/></Border>
+            <Border x:Name="pip" Width="3" Height="16" CornerRadius="1.5" HorizontalAlignment="Left" Visibility="Collapsed">
+              <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="$($c.Grad1)" Offset="0"/><GradientStop Color="$($c.Grad2)" Offset="1"/></LinearGradientBrush></Border.Background>
+            </Border>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="$($c.NavHover)"/></Trigger>
+            <Trigger Property="IsChecked" Value="True"><Setter TargetName="b" Property="Background" Value="$($c.NavSel)"/><Setter TargetName="pip" Property="Visibility" Value="Visible"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value></Setter>
+    </Style>
+    <Style x:Key="Switch" TargetType="CheckBox">
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template"><Setter.Value>
+        <ControlTemplate TargetType="CheckBox">
+          <Grid Width="40" Height="20" Background="Transparent">
+            <Border x:Name="track" CornerRadius="10" BorderThickness="1" BorderBrush="$($c.Sub)" Background="Transparent"/>
+            <Ellipse x:Name="knob" Width="12" Height="12" Fill="$($c.Sub)" HorizontalAlignment="Left" Margin="4,0,0,0"/>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsChecked" Value="True">
+              <Setter TargetName="track" Property="Background" Value="$($c.Grad1)"/><Setter TargetName="track" Property="BorderBrush" Value="$($c.Grad1)"/>
+              <Setter TargetName="knob" Property="Fill" Value="White"/><Setter TargetName="knob" Property="HorizontalAlignment" Value="Right"/><Setter TargetName="knob" Property="Margin" Value="0,0,4,0"/>
+            </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value></Setter>
     </Style>
   </Window.Resources>
-  <Grid Margin="24,20,24,16">
-    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <StackPanel Grid.Row="0" Margin="0,0,0,16">
-      <TextBlock Text="$name" FontSize="28" FontWeight="SemiBold" FontFamily="Segoe UI Variable Display, Segoe UI"/>
-      <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-        <Ellipse x:Name="Dot" Width="10" Height="10" Margin="0,0,8,0" VerticalAlignment="Center"/>
-        <TextBlock x:Name="Summary" FontSize="15"/>
+  <Grid>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="232"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+    <DockPanel Grid.Column="0" Margin="12,16,8,12">
+      <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="10,0,0,22">
+        <Image x:Name="Logo" Width="28" Height="28" Margin="0,0,12,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+        <TextBlock Text="$name" FontSize="18" FontWeight="SemiBold" FontFamily="Segoe UI Variable Display, Segoe UI" VerticalAlignment="Center"/>
       </StackPanel>
-      <TextBlock x:Name="Sub" Foreground="$($c.Sub)" FontSize="12" Margin="18,2,0,0"/>
-    </StackPanel>
-    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"><StackPanel x:Name="Cards"/></ScrollViewer>
-    <StackPanel Grid.Row="2" Margin="0,12,0,0">
-      <WrapPanel x:Name="Buttons"/>
-      <TextBlock x:Name="Note" Foreground="$($c.Sub)" FontSize="12" TextWrapping="Wrap"/>
-    </StackPanel>
+      <TextBlock x:Name="Version" DockPanel.Dock="Bottom" Foreground="$($c.Sub)" FontSize="11" Margin="12,0,0,0" TextWrapping="Wrap"/>
+      <StackPanel x:Name="NavList"/>
+    </DockPanel>
+    <Grid Grid.Column="1" Margin="8,16,24,12">
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <TextBlock x:Name="PageTitle" FontSize="28" FontWeight="SemiBold" FontFamily="Segoe UI Variable Display, Segoe UI" Margin="4,0,0,16"/>
+      <ScrollViewer x:Name="Scroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="4,0,8,0"><StackPanel x:Name="Content"/></ScrollViewer>
+      <TextBlock x:Name="Note" Grid.Row="2" Foreground="$($c.Sub)" FontSize="12" TextWrapping="Wrap" Margin="4,8,0,0"/>
+    </Grid>
   </Grid>
 </Window>
 "@
     $win = [Windows.Markup.XamlReader]::Load((New-Object Xml.XmlNodeReader $xaml))
-    $ui = @{}; foreach ($n in 'Dot', 'Summary', 'Sub', 'Cards', 'Buttons', 'Note') { $ui[$n] = $win.FindName($n) }
+    $ui = @{}; foreach ($n in 'Logo', 'Version', 'NavList', 'PageTitle', 'Scroll', 'Content', 'Note') { $ui[$n] = $win.FindName($n) }
     $brush = @{}; foreach ($k in $c.Keys) { $brush[$k] = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString($c[$k])) }
     $levelBrush = @{ ok = $brush.Ok; info = $brush.Text; warn = $brush.Warn; dim = $brush.Sub }
 
-    # its own taskbar button and icon (not grouped with PowerShell windows)
+    # the app's icon (app-icon.ps1 draws it; tray-app.ps1 keeps it up to date) for the window, the taskbar and the logo
+    $ico = "$trayDir\app.ico"
     try {
-        [void][KitDash.W]::SetCurrentProcessExplicitAppUserModelID("PCSetupKit.Status")
-        $src = if ($ai -and (Test-Path "$env:USERPROFILE\.local\bin\claude.exe")) { "$env:USERPROFILE\.local\bin\claude.exe", 0 } else { "$env:SystemRoot\System32\imageres.dll", 110 }
-        $big = New-Object IntPtr[] 1
-        if ([KitDash.W]::ExtractIconEx($src[0], $src[1], $big, $null, 1) -and $big[0] -ne [IntPtr]::Zero) {
-            $win.Icon = [Windows.Interop.Imaging]::CreateBitmapSourceFromHIcon($big[0], [Windows.Int32Rect]::Empty, [Windows.Media.Imaging.BitmapSizeOptions]::FromEmptyOptions())
+        [void][KitApp.N]::SetCurrentProcessExplicitAppUserModelID("PCSetupKit.App")   # its own taskbar button, not PowerShell's
+        if (Test-Path $ico) {
+            $dec = New-Object Windows.Media.Imaging.IconBitmapDecoder ([Uri]$ico), 'None', 'OnLoad'
+            $win.Icon = $dec.Frames | Where-Object PixelWidth -eq 32 | Select-Object -First 1
+            $ui.Logo.Source = $dec.Frames | Sort-Object PixelWidth -Descending | Select-Object -First 1
         }
     } catch {}
 
-    # title bar in the same theme (Windows 11)
-    if (-not $light) { $win.Add_SourceInitialized({ $v = 1; try { [void][KitDash.W]::DwmSetWindowAttribute((New-Object Windows.Interop.WindowInteropHelper $win).Handle, 20, [ref]$v, 4) } catch {} }) }
+    # Windows 11: Mica backdrop and a title bar in the app's theme; elsewhere the plain background stays
+    $win.Add_SourceInitialized({
+            $h = (New-Object Windows.Interop.WindowInteropHelper $win).Handle
+            "$([long]$h)" | Set-Content "$cl\app-window.txt" -Encoding ASCII
+            try {
+                $v = [int](-not $light); [void][KitApp.N]::DwmSetWindowAttribute($h, 20, [ref]$v, 4)
+                if ([Environment]::OSVersion.Version.Build -ge 22621) {
+                    $v = 2   # DWMWA_SYSTEMBACKDROP_TYPE = Mica
+                    if ([KitApp.N]::DwmSetWindowAttribute($h, 38, [ref]$v, 4) -eq 0) {
+                        $m = New-Object KitApp.N+MARGINS; $m.L = $m.R = $m.T = $m.B = -1
+                        [void][KitApp.N]::DwmExtendFrameIntoClientArea($h, [ref]$m)
+                        [Windows.Interop.HwndSource]::FromHwnd($h).CompositionTarget.BackgroundColor = [Windows.Media.Colors]::Transparent
+                        $win.Background = [Windows.Media.Brushes]::Transparent
+                    }
+                }
+            } catch {}
+        })
 
-    $script:claudeVer = $null
-    function Update-View {
-        $secs = @(Get-KitStatus -ClaudeVersion $script:claudeVer)
-        if ($ai -and -not $script:claudeVer) { $m = $secs | Where-Object Title -eq 'Messiah'; if ($m) { $script:claudeVer = ($m.Lines[0].Text -replace '^Claude Code ', '') } }
-        # the owner's part first
-        $secs = @($secs | Where-Object Title -eq 'Needs you') + @($secs | Where-Object Title -ne 'Needs you')
-        $todo = @(($secs | Where-Object Title -eq 'Needs you').Lines | Where-Object Level -eq 'warn')
-        $warn = @(($secs | Where-Object Title -eq 'Last background check').Lines | Where-Object Level -eq 'warn')
-        if ($todo) { $ui.Summary.Text = "$($todo.Count) thing$(if ($todo.Count -ne 1) { 's' }) need$(if ($todo.Count -eq 1) { 's' }) you"; $ui.Dot.Fill = $brush.Warn }
-        elseif ($warn) { $ui.Summary.Text = 'The last check found something - it is being handled'; $ui.Dot.Fill = $brush.Warn }
-        else { $ui.Summary.Text = 'All good - nothing needs you'; $ui.Dot.Fill = $brush.Ok }
-        $last = ($secs | Where-Object Title -eq 'Last background check').Lines | Where-Object { $_.Text -match '^(Checked|No report)' } | Select-Object -First 1
-        $ui.Sub.Text = "$(if ($last) { $last.Text } else { 'No check yet' })  $([char]0xB7)  updates by itself"
-        # redraw only when something changed (no flicker, the scroll position stays while reading)
-        $sig = ($secs | ForEach-Object { $_.Title; $_.Lines | ForEach-Object { "$($_.Level)|$($_.Text)" } }) -join "`n"
-        if ($sig -eq $script:shown) { return }
-        $script:shown = $sig
-        $ui.Cards.Children.Clear()
-        foreach ($s in $secs) {
-            $card = New-Object Windows.Controls.Border -Property @{ Background = $brush.Card; BorderBrush = $brush.Border; BorderThickness = 1; CornerRadius = 8; Padding = '16,12'; Margin = '0,0,0,10' }
-            $sp = New-Object Windows.Controls.StackPanel
-            [void]$sp.Children.Add((New-Object Windows.Controls.TextBlock -Property @{ Text = $s.Title; FontWeight = 'SemiBold'; Foreground = $brush.Accent; Margin = '0,0,0,6' }))
-            foreach ($l in $s.Lines) {
-                $t = ($l.Text -replace '^- ', "$([char]0x2022) ") -replace '\s{2,}', '  '
-                [void]$sp.Children.Add((New-Object Windows.Controls.TextBlock -Property @{ Text = $t; TextWrapping = 'Wrap'; Foreground = $levelBrush[$l.Level]; Margin = '0,1,0,1'; FontSize = $(if ($l.Level -eq 'dim') { 12 } else { 14 }) }))
-            }
-            $card.Child = $sp
-            [void]$ui.Cards.Children.Add($card)
+    # --- actions. The tray (elevated) runs what needs admin rights: it listens for this message (tray-hwnd.txt)
+    $trayMsg = [KitApp.N]::RegisterWindowMessage('PCSetupKitAppCommand')
+    $cmd = @{ NewSession = 1; ShowSessions = 2; HideSessions = 3; RunMaint = 4; Optimize = 5; WatchLive = 6 }
+    function Send-Tray([int]$n) {
+        $h = [IntPtr][long]("0$(Get-Content "$cl\tray-hwnd.txt" -ErrorAction SilentlyContinue)" -replace '\D')
+        $h -ne [IntPtr]::Zero -and [KitApp.N]::IsWindow($h) -and [KitApp.N]::PostMessage($h, $trayMsg, [IntPtr]$n, [IntPtr]::Zero)
+    }
+    function Say($t) { $ui.Note.Text = $t }
+    $psArgs = { param($file, [switch]$Keep) @('-NoProfile', '-ExecutionPolicy', 'Bypass') + @(if ($Keep) { '-NoExit' }) + @('-File', "`"$cl\$file`"") }
+    $act = @{
+        NewSession   = { if (Send-Tray $cmd.NewSession) { Say 'Opening a new session...' } elseif (Test-Path "$cl\Messiah Session.lnk") { Start-Process "$cl\Messiah Session.lnk" } else { Say 'The session shortcut is missing - run setup again.' } }
+        ShowSessions = { if (Send-Tray $cmd.ShowSessions) { Say 'Sessions shown.' } else { Say 'The tray isn''t running - it starts at the next login.'; Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue } }
+        HideSessions = { if (Send-Tray $cmd.HideSessions) { Say 'Sessions hidden in the tray.' } else { Say 'The tray isn''t running - it starts at the next login.'; Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue } }
+        RunMaint     = {
+            if (-not (Send-Tray $cmd.RunMaint)) { Start-ScheduledTask 'Claude Background Maintenance' -ErrorAction SilentlyContinue }
+            Say 'Maintenance started in the background - the result shows here when it finishes.'
         }
+        Optimize     = { if (-not (Send-Tray $cmd.Optimize)) { Start-Process powershell -Verb RunAs -ArgumentList (& $psArgs 'optimize.ps1' -Keep) } }
+        WatchLive    = { if (-not (Send-Tray $cmd.WatchLive)) { Start-Process powershell -ArgumentList (& $psArgs 'maint-watch.ps1' -Keep) } }
+        Report       = { if (Test-Path "$cl\maint-report.txt") { Start-Process notepad.exe "`"$cl\maint-report.txt`"" } else { Say 'No report yet.' } }
+        Todo         = { if (Test-Path "$cl\maint-todo.txt") { Start-Process notepad.exe "`"$cl\maint-todo.txt`"" } else { Say 'Nothing needs you right now.' } }
+        Journal      = { if (Test-Path "$cl\selfimprove-journal.md") { Start-Process notepad.exe "`"$cl\selfimprove-journal.md`"" } else { Say 'No self-improvement runs yet.' } }
+        Logs         = { if (Test-Path "$cl\maint-claude-log") { Start-Process explorer.exe "`"$cl\maint-claude-log`"" } else { Say 'No hidden runs yet.' } }
     }
 
-    function Add-Btn($text, [scriptblock]$do) {
-        $b = New-Object Windows.Controls.Button -Property @{ Content = $text }
-        $b.Add_Click($do); [void]$ui.Buttons.Children.Add($b)
+    # --- building blocks
+    function New-Text($t, $brush_ = $brush.Text, $size = 14, $weight = 'Normal', $margin = '0,1,0,1') {
+        New-Object Windows.Controls.TextBlock -Property @{ Text = $t; TextWrapping = 'Wrap'; Foreground = $brush_; FontSize = $size; FontWeight = $weight; Margin = $margin }
     }
-    $ps = { param($file, [switch]$Keep) Start-Process powershell -ArgumentList (@('-NoProfile', '-ExecutionPolicy', 'Bypass') + @(if ($Keep) { '-NoExit' }) + @('-File', "`"$cl\$file`"")) }
-    Add-Btn 'Run maintenance now' {
-        Start-Process "$env:SystemRoot\System32\conhost.exe" -ArgumentList "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$cl\claude-bg-maint.ps1`" -Force -Unattended" -WindowStyle Hidden
-        $ui.Note.Text = 'Maintenance started in the background - this window shows the result when it finishes.'
+    function New-Glyph($g, $size = 16, $brush_ = $brush.Text) {
+        New-Object Windows.Controls.TextBlock -Property @{ Text = [string][char][int]"0x$g"; FontFamily = $icons; FontSize = $size; Foreground = $brush_; VerticalAlignment = 'Center' }
     }
-    Add-Btn 'Optimize this PC' { & $ps 'optimize.ps1' -Keep }
-    if ($ai) { Add-Btn 'Watch maintenance live' { & $ps 'maint-watch.ps1' -Keep } }
-    Add-Btn 'Full report' { if (Test-Path "$cl\maint-report.txt") { Start-Process notepad.exe "`"$cl\maint-report.txt`"" } else { $ui.Note.Text = 'No report yet.' } }
+    function New-Btn($glyph, $text, [scriptblock]$do, [switch]$Accent) {
+        $sp = New-Object Windows.Controls.StackPanel -Property @{ Orientation = 'Horizontal' }
+        [void]$sp.Children.Add((New-Glyph $glyph 14 $(if ($Accent) { $brush.OnAccent } else { $brush.Text })))
+        [void]$sp.Children.Add((New-Object Windows.Controls.TextBlock -Property @{ Text = $text; Margin = '8,0,0,0'; VerticalAlignment = 'Center' }))
+        $b = New-Object Windows.Controls.Button -Property @{ Content = $sp; Tag = $do; ToolTip = $text }
+        $b.Style = $win.FindResource($(if ($Accent) { 'AccentBtn' } else { 'Btn' }))
+        $b.Add_Click({ try { & $this.Tag } catch { Say "Couldn't do that: $($_.Exception.Message)" } })
+        $b
+    }
+    function New-Card($title, $glyph, $lines, $buttons, [switch]$Calm) {   # -Calm: warn lines in the normal text color (long text, the header says it)
+        $card = New-Object Windows.Controls.Border -Property @{ Background = $brush.Card; BorderBrush = $brush.Border; BorderThickness = 1; CornerRadius = 8; Padding = '18,14'; Margin = '0,0,0,12' }
+        $sp = New-Object Windows.Controls.StackPanel
+        if ($title) {
+            $hd = New-Object Windows.Controls.StackPanel -Property @{ Orientation = 'Horizontal'; Margin = '0,0,0,8' }
+            if ($glyph) { [void]$hd.Children.Add((New-Glyph $glyph 16 $brush.Accent)) }
+            $t = New-Text $title $brush.Text 15 'SemiBold' '0'; if ($glyph) { $t.Margin = '10,0,0,0' }
+            [void]$hd.Children.Add($t); [void]$sp.Children.Add($hd)
+        }
+        foreach ($l in $lines) {
+            if ($l -is [Windows.UIElement]) { [void]$sp.Children.Add($l); continue }
+            $t = ($l.Text -replace '^- ', "$([char]0x2022)  ") -replace '\s{2,}', '  '
+            [void]$sp.Children.Add((New-Text $t $(if ($Calm -and $l.Level -eq 'warn') { $brush.Text } else { $levelBrush[$l.Level] }) $(if ($l.Level -eq 'dim') { 12 } else { 14 })))
+        }
+        if ($buttons) {
+            $wp = New-Object Windows.Controls.WrapPanel -Property @{ Margin = '0,12,0,-8' }
+            foreach ($b in $buttons) { [void]$wp.Children.Add($b) }
+            [void]$sp.Children.Add($wp)
+        }
+        $card.Child = $sp; $card
+    }
+    function New-Rows($pairs) {   # label | value table (scheduled checks)
+        $g = New-Object Windows.Controls.Grid
+        [void]$g.ColumnDefinitions.Add((New-Object Windows.Controls.ColumnDefinition -Property @{ Width = 'Auto' }))
+        [void]$g.ColumnDefinitions.Add((New-Object Windows.Controls.ColumnDefinition))
+        $i = 0
+        foreach ($p in $pairs) {
+            [void]$g.RowDefinitions.Add((New-Object Windows.Controls.RowDefinition -Property @{ Height = 'Auto' }))
+            $a = New-Text $p[0] $brush.Sub 14 'Normal' '0,4,24,4'; [Windows.Controls.Grid]::SetRow($a, $i)
+            $b = New-Text $p[1] $levelBrush[$p[2]] 14 'Normal' '0,4,0,4'; [Windows.Controls.Grid]::SetRow($b, $i); [Windows.Controls.Grid]::SetColumn($b, 1)
+            [void]$g.Children.Add($a); [void]$g.Children.Add($b); $i++
+        }
+        $g
+    }
+    function Sec($secs, $t) { $secs | Where-Object { $_.Title -like "$t*" } | Select-Object -First 1 }
 
-    Update-View
+    # --- settings (kit-options.txt next to the scripts; the tray reads "openatlogin")
+    function Get-Opt($k, $default) { $l = @(Get-Content "$cl\kit-options.txt" -ErrorAction SilentlyContinue) -match "^\s*$k\s*=" | Select-Object -First 1; if ($l) { ($l -split '=', 2)[1].Trim() } else { $default } }
+    function Set-Opt($k, $v) {
+        $f = "$cl\kit-options.txt"
+        $lines = @(Get-Content $f -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch "^\s*$k\s*=" }) + "$k=$v"
+        [IO.File]::WriteAllLines($f, [string[]]$lines)
+    }
+
+    # --- pages
+    $pages = [ordered]@{ Home = 'E80F' }
+    if ($ai) { $pages.Sessions = 'E756' }
+    $pages.Maintenance = 'E90F'; $pages.Schedule = 'E787'; $pages.Settings = 'E713'
+
+    function Build-Page($p, $secs) {
+        $out = New-Object Collections.ArrayList
+        $needs = Sec $secs 'Needs you'; $wait = Sec $secs 'Waiting for'; $last = Sec $secs 'Last background check'
+        $hidden = Sec $secs 'Hidden Claude'; $sched = Sec $secs 'Scheduled checks'; $mess = Sec $secs 'Messiah'
+        switch ($p) {
+            'Home' {
+                $todo = @($needs.Lines | Where-Object Level -eq 'warn'); $warn = @($last.Lines | Where-Object Level -eq 'warn')
+                $state = if ($todo) { 'warn', 'E7BA', "$($todo.Count) thing$(if ($todo.Count -ne 1) { 's' }) need$(if ($todo.Count -eq 1) { 's' }) you" }
+                elseif ($warn) { 'warn', 'E7BA', 'The last check found something - it is being handled' }
+                else { 'ok', 'E73E', 'All good - nothing needs you' }
+                $when = $last.Lines | Where-Object { $_.Text -match '^(Checked|No report)' } | Select-Object -First 1
+                # the status at a glance: colored badge, one line, when it was checked
+                $hero = New-Object Windows.Controls.Grid
+                [void]$hero.ColumnDefinitions.Add((New-Object Windows.Controls.ColumnDefinition -Property @{ Width = 'Auto' }))
+                [void]$hero.ColumnDefinitions.Add((New-Object Windows.Controls.ColumnDefinition))
+                $badge = New-Object Windows.Controls.Border -Property @{ Width = 48; Height = 48; CornerRadius = 24; Background = $levelBrush[$state[0]]; Margin = '0,0,16,0'; VerticalAlignment = 'Center' }
+                $badge.Child = New-Glyph $state[1] 22 $(if ($light) { [Windows.Media.Brushes]::White } else { [Windows.Media.Brushes]::Black }); $badge.Child.HorizontalAlignment = 'Center'
+                $txt = New-Object Windows.Controls.StackPanel -Property @{ VerticalAlignment = 'Center' }
+                [void]$txt.Children.Add((New-Text $state[2] $brush.Text 20 'SemiBold' '0'))
+                [void]$txt.Children.Add((New-Text "$(if ($when) { $when.Text } else { 'No check yet' })  $([char]0xB7)  updates by itself" $brush.Sub 12 'Normal' '0,2,0,0'))
+                [Windows.Controls.Grid]::SetColumn($txt, 1); [void]$hero.Children.Add($badge); [void]$hero.Children.Add($txt)
+                [void]$out.Add((New-Card $null $null @($hero) @((New-Btn 'E768' 'Run maintenance now' $act.RunMaint -Accent), (New-Btn 'E945' 'Optimize this PC' $act.Optimize))))
+                [void]$out.Add((New-Card 'Needs you' 'E7BA' $needs.Lines @(if ($todo) { New-Btn 'E8A5' 'Open the to-do list' $act.Todo }) -Calm))
+                [void]$out.Add((New-Card $wait.Title 'E777' $wait.Lines $null))
+                if ($ai -and $mess) {
+                    $n = @($mess.Lines | Where-Object { $_.Text -like 'Session*' }).Count
+                    $line = @{ Text = $(if ($n) { "$n session$(if ($n -ne 1) { 's' }) running - $($mess.Lines[0].Text)" } else { 'No session open' }); Level = $(if ($n) { 'info' } else { 'warn' }) }
+                    $btns = @((New-Btn 'E890' 'Show sessions' $act.ShowSessions), (New-Btn 'E710' 'New session' $act.NewSession))
+                    [void]$out.Add((New-Card 'Messiah' 'E756' @($line) $btns))
+                }
+            }
+            'Sessions' {
+                $lines = @($mess.Lines | Select-Object -Skip 1)
+                [void]$out.Add((New-Card 'Sessions' 'E756' $lines @((New-Btn 'E710' 'New session' $act.NewSession -Accent), (New-Btn 'E890' 'Show sessions' $act.ShowSessions), (New-Btn 'ED1A' 'Hide sessions' $act.HideSessions))))
+                [void]$out.Add((New-Card 'Claude Code' 'E946' @($mess.Lines[0], @{ Text = 'Updates itself; an idle hidden session is moved onto a new version automatically.'; Level = 'dim' }) $null))
+                [void]$out.Add((New-Card 'Minimize = tray' 'E74A' @(@{ Text = 'Minimizing a session window hides it in the tray; the session keeps running. Closing the window ends it.'; Level = 'info' }) $null))
+            }
+            'Maintenance' {
+                [void]$out.Add((New-Card 'Last background check' 'E9D9' $last.Lines @((New-Btn 'E768' 'Run maintenance now' $act.RunMaint -Accent), (New-Btn 'E8A5' 'Full report' $act.Report))))
+                if ($hidden) { [void]$out.Add((New-Card 'Hidden Claude maintenance' 'E90F' (@($hidden.Lines) + @(@{ Text = 'About 2 minutes after each login: /maintain when something needs judgment, then /self-improve at most once a day.'; Level = 'dim' })) @((New-Btn 'E890' 'Watch live' $act.WatchLive), (New-Btn 'E8F1' 'Self-improvement journal' $act.Journal), (New-Btn 'E8B7' 'Run logs' $act.Logs)))) }
+                [void]$out.Add((New-Card 'Needs you' 'E7BA' $needs.Lines @(New-Btn 'E8A5' 'Open the to-do list' $act.Todo) -Calm))
+            }
+            'Schedule' {
+                $pairs = foreach ($l in $sched.Lines) {
+                    if ($l.Text -match '^([^:]+):\s+(.*)$') { , @($Matches[1], $Matches[2], $l.Level) } else { , @('', $l.Text, $l.Level) }
+                }
+                [void]$out.Add((New-Card 'Scheduled checks' 'E787' @(New-Rows $pairs) $null))
+                [void]$out.Add((New-Card $null $null @(@{ Text = 'Everything here runs by itself. Checks wait while a game is running, and anything that needs a restart finishes the next time you turn the PC off.'; Level = 'dim' }) $null))
+            }
+            'Settings' {
+                $row = New-Object Windows.Controls.DockPanel
+                $sw = New-Object Windows.Controls.CheckBox -Property @{ IsChecked = ((Get-Opt 'openatlogin' 'on') -ne 'off'); VerticalAlignment = 'Center' }
+                $sw.Style = $win.FindResource('Switch'); [Windows.Controls.DockPanel]::SetDock($sw, 'Right')
+                $sw.Add_Click({ Set-Opt 'openatlogin' $(if ($this.IsChecked) { 'on' } else { 'off' }); Say "Saved - $name $(if ($this.IsChecked) { 'opens' } else { 'no longer opens' }) at login." })
+                $lbl = New-Object Windows.Controls.StackPanel
+                [void]$lbl.Children.Add((New-Text "Open $name when I log in" $brush.Text 14 'Normal' '0'))
+                [void]$lbl.Children.Add((New-Text 'Once per start-up; waits while a game is fullscreen. The tray icon is always there either way.' $brush.Sub 12 'Normal' '0,2,0,0'))
+                [void]$row.Children.Add($sw); [void]$row.Children.Add($lbl)
+                [void]$out.Add((New-Card 'Start-up' 'E7E8' @($row) $null))
+                $kv = Get-Content 'C:\PCSetupKit\kit-version.txt' -TotalCount 1 -ErrorAction SilentlyContinue
+                [void]$out.Add((New-Card 'About' 'E946' @(
+                            @{ Text = "$name - part of the PC Setup Kit$(if ($kv) { " $kv" })"; Level = 'info' },
+                            @{ Text = 'Keeps this PC updated, tuned and checked by itself. Updates itself from the published kit.'; Level = 'dim' }) $null))
+            }
+        }
+        $out
+    }
+
+    $script:page = if ($Page -and $pages.Contains($Page)) { $Page } else { 'Home' }
+    $script:shown = $null; $script:claudeVer = $null; $navItems = @{}
+    function Update-View([switch]$Force) {
+        $secs = @(Get-KitStatus -ClaudeVersion $script:claudeVer)
+        if ($ai -and -not $script:claudeVer) { $m = Sec $secs 'Messiah'; if ($m) { $script:claudeVer = ($m.Lines[0].Text -replace '^Claude Code ', '') } }
+        # the nav shows how many things need the owner
+        $todo = @((Sec $secs 'Needs you').Lines | Where-Object Level -eq 'warn').Count
+        $navItems.Home.Tag.Text = if ($todo) { "$todo" } else { '' }; $navItems.Home.Tag.Parent.Visibility = if ($todo) { 'Visible' } else { 'Collapsed' }
+        $ui.Version.Text = @(if ($ai -and $script:claudeVer) { "Claude Code $script:claudeVer" }; Get-Content 'C:\PCSetupKit\kit-version.txt' -TotalCount 1 -ErrorAction SilentlyContinue) -join "`n"
+        # redraw only when something changed (no flicker; the scroll position stays while reading)
+        $sig = "$script:page`n" + (($secs | ForEach-Object { $_.Title; $_.Lines | ForEach-Object { "$($_.Level)|$($_.Text)" } }) -join "`n")
+        if (-not $Force -and $sig -eq $script:shown) { return }
+        $script:shown = $sig
+        $ui.PageTitle.Text = if ($script:page -eq 'Home') { 'Overview' } else { $script:page }
+        $ui.Content.Children.Clear()
+        foreach ($el in (Build-Page $script:page $secs)) { [void]$ui.Content.Children.Add($el) }
+    }
+
+    foreach ($p in $pages.Keys) {
+        $rb = New-Object Windows.Controls.RadioButton -Property @{ GroupName = 'nav'; Tag = $p }
+        $rb.Style = $win.FindResource('Nav')
+        $row = New-Object Windows.Controls.DockPanel
+        $count = New-Object Windows.Controls.Border -Property @{ CornerRadius = 8; Background = $brush.Warn; Padding = '6,0'; MinWidth = 16; Visibility = 'Collapsed'; VerticalAlignment = 'Center' }
+        $count.Child = New-Text '' $(if ($light) { [Windows.Media.Brushes]::White } else { [Windows.Media.Brushes]::Black }) 11 'SemiBold' '0'; $count.Child.HorizontalAlignment = 'Center'
+        [Windows.Controls.DockPanel]::SetDock($count, 'Right'); [void]$row.Children.Add($count)
+        [void]$row.Children.Add((New-Glyph $pages[$p] 16)); $row.Children[1].Margin = '0,0,14,0'
+        [void]$row.Children.Add((New-Text $(if ($p -eq 'Home') { 'Overview' } else { $p }) $brush.Text 14 'Normal' '0'))
+        $rb.Content = $row
+        $navItems[$p] = [pscustomobject]@{ Button = $rb; Tag = $count.Child }
+        $rb.Add_Checked({ $script:page = $this.Tag; $ui.Note.Text = ''; $ui.Scroll.ScrollToTop(); Update-View -Force })
+        [void]$ui.NavList.Children.Add($rb)
+    }
+
     if ($Test) {
         "WINDOW: $($win.Title)"
-        "SUMMARY: $($ui.Summary.Text)"
-        foreach ($card in $ui.Cards.Children) { $tb = @($card.Child.Children); "CARD: $($tb[0].Text)"; $tb | Select-Object -Skip 1 | ForEach-Object { "  $($_.Text)" } }
-        "BUTTONS: $(@($ui.Buttons.Children | ForEach-Object Content) -join ' | ')"
+        foreach ($p in $pages.Keys) {
+            $script:page = $p; Update-View -Force
+            "PAGE: $($ui.PageTitle.Text)"
+            foreach ($card in $ui.Content.Children) {
+                $all = @($card.Child.Children)
+                $head = $all[0]; if ($head -is [Windows.Controls.StackPanel] -and $head.Orientation -eq 'Horizontal') { "CARD: $(@($head.Children)[-1].Text)"; $all = $all | Select-Object -Skip 1 } else { 'CARD: -' }
+                foreach ($el in $all) {
+                    if ($el -is [Windows.Controls.TextBlock]) { "  $($el.Text)" }
+                    elseif ($el -is [Windows.Controls.WrapPanel]) { "  BUTTONS: $(@($el.Children | ForEach-Object { $_.ToolTip }) -join ' | ')" }
+                    elseif ($el -is [Windows.Controls.Grid] -and $el.RowDefinitions.Count) { $t = @($el.Children | ForEach-Object Text); for ($i = 0; $i -lt $t.Count; $i += 2) { "  $($t[$i]): $($t[$i + 1])" } }
+                    else { $txt = @($el.Children | ForEach-Object { if ($_ -is [Windows.Controls.TextBlock]) { $_.Text } else { $_.Children | Where-Object { $_ -is [Windows.Controls.TextBlock] } | ForEach-Object Text } }) -join ' / '; "  $txt" }
+                }
+            }
+        }
+        "NAV: $(@($pages.Keys) -join ' | ')"
         return
     }
+    $navItems[$script:page].Button.IsChecked = $true
     $timer = New-Object Windows.Threading.DispatcherTimer -Property @{ Interval = [TimeSpan]::FromSeconds(10) }
     $timer.Add_Tick({ try { Update-View } catch {} })
     $timer.Start()

@@ -6,7 +6,7 @@
 $f = "$PSScriptRoot\kit-options.txt"
 if (-not (Test-Path $f)) {
     $home_ = Split-Path $PSScriptRoot   # the profile this .claude folder belongs to
-    $legacy = (Test-Path "$PSScriptRoot\admin-sessions.txt") -or (Test-Path "$home_\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk") -or
+    $legacy = (Test-Path "$PSScriptRoot\admin-sessions.txt") -or (Test-Path "$PSScriptRoot\Messiah Session.lnk") -or (Test-Path "$home_\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk") -or
         (Test-Path -LiteralPath "$home_\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk")
     try { "claude=$(if ($legacy) { 'on' } else { 'off' })" | Set-Content $f -Encoding ASCII } catch {}
     return [bool]$legacy

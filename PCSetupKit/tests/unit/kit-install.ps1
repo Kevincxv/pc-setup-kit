@@ -35,7 +35,9 @@ $H = "$Work\uhome"; $cl = "$H\.claude"; $A = "$H\AppData\Roaming"; $kf = "$Work\
 New-Item "$cl\hooks", "$cl\skills\maintain", "$cl\skills\my-own-skill", "$cl\projects\p", "$A\Microsoft\Windows\Start Menu\Programs", "$H\Desktop", "$H\Documents\Messiah Tray", $kf -ItemType Directory -Force | Out-Null
 foreach ($f in 'claude-admin-launch.ps1', 'health-check.ps1', 'dashboard.ps1', 'status-lib.ps1', 'tray-app.ps1', 'maint-state.json', 'games.txt', 'hooks\no-power-off.ps1', 'skills\maintain\SKILL.md', 'skills\my-own-skill\SKILL.md', 'projects\p\conv.jsonl', 'CLAUDE.md') { 'x' | Set-Content "$cl\$f" }
 $newParts = "$A\Microsoft\Windows\Start Menu\Programs\Messiah Status.lnk", "$A\Microsoft\Windows\Start Menu\Programs\PC Setup Kit Status.lnk", "$H\Documents\Messiah Tray\Messiah.exe", "$cl\dashboard.ps1", "$cl\status-lib.ps1", "$cl\tray-app.ps1"
-foreach ($f in @("$A\Microsoft\Windows\Start Menu\Programs\Messiah.lnk", "$H\Desktop\Messiah.lnk", "$H\Documents\Messiah Tray\Messiah Tray.ahk", "$kf\setup.log") + $newParts[0..2]) { 'x' | Set-Content $f }
+$appParts = "$A\Microsoft\Windows\Start Menu\Programs\PC Setup Kit.lnk", "$H\Desktop\PC Setup Kit.lnk", "$cl\Messiah Session.lnk", "$cl\app-icon.ps1", "$cl\tray-hwnd.txt", "$cl\app-window.txt", "$H\Documents\Messiah Tray\app.ico"
+$newParts += $appParts
+foreach ($f in @("$A\Microsoft\Windows\Start Menu\Programs\Messiah.lnk", "$H\Desktop\Messiah.lnk", "$H\Documents\Messiah Tray\Messiah Tray.ahk", "$kf\setup.log") + $newParts[0..2] + $appParts) { 'x'| Set-Content $f }
 @'
 { "theme": "dark", "hooks": { "PreToolUse": [ { "matcher": "Bash|PowerShell", "hooks": [ { "type": "command", "command": "powershell.exe -File \"C:\\x\\hooks\\no-power-off.ps1\"" } ] },
                               { "matcher": "Edit", "hooks": [ { "type": "command", "command": "my-own-hook.cmd" } ] } ] } }
@@ -50,7 +52,7 @@ $s = Get-Content "$cl\settings.json" -Raw | ConvertFrom-Json
 Check 'our hook removed, the owner''s own hook and settings kept, settings backed up' (-not ($s.hooks.PreToolUse.hooks.command -match 'no-power-off') -and ($s.hooks.PreToolUse.hooks.command -match 'my-own-hook') -and $s.theme -eq 'dark' -and (Test-Path "$cl\settings.json.before-uninstall")) $r.Out
 Check 'kit files, shortcuts, tray and kit folder gone' (-not (Test-Path "$cl\claude-admin-launch.ps1") -and -not (Test-Path "$cl\skills\maintain") -and -not (Test-Path "$A\Microsoft\Windows\Start Menu\Programs\Messiah.lnk") -and -not (Test-Path "$H\Desktop\Messiah.lnk") -and -not (Test-Path "$H\Documents\Messiah Tray") -and -not (Test-Path $kf)) $r.Out
 $left = @($newParts | Where-Object { Test-Path $_ })
-Check 'the tray program, Status window scripts and both Status Start menu entries gone' (-not $left) ($left -join ', ')
+Check 'the tray program, the app (window, icon, scripts, session shortcut) and all its Start menu and desktop entries gone' (-not $left) ($left -join ', ')
 Check 'conversations, own skills and CLAUDE.md kept' ((Test-Path "$cl\projects\p\conv.jsonl") -and (Test-Path "$cl\skills\my-own-skill") -and (Test-Path "$cl\CLAUDE.md")) ''
 $st = Get-ChildItem $cl -Directory -Filter 'pc-setup-kit-removed-*'
 Check 'nothing deleted: everything is in the removed-files folder' (@(Get-ChildItem $st.FullName -Recurse -File).Count -ge 9) ''

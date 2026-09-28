@@ -40,6 +40,25 @@ Check 'everything setup.ps1 copies exists in the kit' ((Test-Path "$Kit\tweaks.p
 Check 'the USB install turns Claude on with a with-claude.txt next to setup.ps1' ($setup -match 'with-claude\.txt') ''
 Check 'with Claude, Messiah opens with the /pc-optimize playbook at the end' ($setup -match "claude-admin-launch\.ps1``?`"`"?, '/pc-optimize'") ''
 
+Section 'setup.ps1: app installs when winget''s package list is missing (a new PC''s first minutes)'
+$fn = ([Management.Automation.Language.Parser]::ParseInput($setup, [ref]$null, [ref]$null)).FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Install-App' }, $true) | Select-Object -First 1
+Check 'setup.ps1 installs each app through Install-App' ($fn -and $setup -match '(?m)^\s+Install-App \$id\s*$') ''
+if ($fn) {
+    . ([scriptblock]::Create($fn.Extent.Text))
+    function Start-Sleep { }
+    function winget { $global:wg += , ($args -join ' '); if ($args[0] -eq 'install') { if ($global:wgEmpty-- -gt 0) { 'No packages were found among the working sources.' } else { 'Successfully installed' } } }
+    $global:wg = @(); $global:wgEmpty = 1
+    $o = Install-App 'Valve.Steam'
+    Check 'nothing found at first: the package list is reset and fetched again, then the install works' ("$o" -eq 'Successfully installed' -and ($global:wg -match '^source reset').Count -eq 1 -and ($global:wg -match '^source update').Count -eq 1 -and ($global:wg -match '^install').Count -eq 2) ($global:wg -join ' / ')
+    $global:wg = @(); $global:wgEmpty = 9
+    $o = Install-App 'Valve.Steam'
+    Check '... never found: 3 tries, then it says so (setup goes on)' ("$o" -match "Valve\.Steam: winget couldn't find it" -and ($global:wg -match '^install').Count -eq 3) "$o"
+    $global:wg = @(); $global:wgEmpty = 0
+    [void](Install-App 'Git.Git')
+    Check '... found right away: no reset' (-not ($global:wg -match '^source')) ($global:wg -join ' / ')
+    Remove-Item Function:\winget, Function:\Start-Sleep, Function:\Install-App
+}
+
 Section 'setup.ps1: the maintenance part, with and without Claude, in a sandbox profile'
 $a = $setup.IndexOf("Step 'Setting up the maintenance"); $b = $setup.IndexOf("if (-not `$WithClaude) {", [Math]::Max(0, $a))   # the part ends where the Claude-free finish (optimize, done) begins
 Check 'the maintenance part is found in setup.ps1' ($a -ge 0 -and $b -gt $a) "start $a, end $b"
@@ -67,7 +86,10 @@ $H = Install-Part $false; $cl = "$H\.claude"
 Check 'no Claude: all maintenance scripts installed' (@(Get-ChildItem "$cl\*.ps1").Count -eq @(Get-ChildItem "$Kit\claude\*.ps1").Count) ''
 Check '... Claude recorded as off (ai-enabled.ps1 says False)' ((Get-Content "$cl\kit-options.txt") -eq 'claude=off' -and -not (& "$cl\ai-enabled.ps1")) ''
 Check '... Claude Code not downloaded, no skills, no hook, no Claude settings' (-not $global:downloads -and -not (Test-Path "$cl\skills") -and -not (Test-Path "$cl\hooks") -and -not (Test-Path "$cl\settings.json")) ($global:downloads -join ', ')
-Check '... no Messiah shortcut' (-not (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk") -and -not (Test-Path "$H\Desktop\Messiah.lnk")) ''
+Check '... no Messiah shortcut, no session shortcut' (-not (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk") -and -not (Test-Path "$H\Desktop\Messiah.lnk") -and -not (Test-Path "$cl\Messiah Session.lnk")) ''
+$ws = New-Object -ComObject WScript.Shell
+$app = "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\PC Setup Kit.lnk"
+Check '... Start menu and desktop "PC Setup Kit" open the app window, with its own icon' ((Test-Path $app) -and (Test-Path "$H\Desktop\PC Setup Kit.lnk") -and $ws.CreateShortcut($app).Arguments -match 'dashboard\.ps1"$' -and $ws.CreateShortcut($app).IconLocation -match 'Messiah Tray\\app\.ico,0$' -and (Test-Path "$H\Documents\Messiah Tray\app.ico")) "$(if (Test-Path $app) { $ws.CreateShortcut($app).IconLocation })"
 $bg = $global:tasks['Claude Background Maintenance']
 Check '... login maintenance task: hidden (conhost --headless), unattended, elevated, 2 min delay, 4 h limit' ($bg -and $bg.Action.Arguments -match '^--headless powershell\.exe .*claude-bg-maint\.ps1" -Force -Unattended$' -and $bg.Principal.RunLevel -eq 'Highest' -and $bg.Settings.ExecutionTimeLimit -eq 'PT4H') ''
 Check '... and once a day at 12:00, catching up after a missed start (PCs that stay on for days)' ($bg.Trigger.Count -eq 2 -and ($bg.Trigger | Where-Object { $_.DaysInterval -eq 1 -and $_.StartBoundary -match 'T12:00:00$' }) -and $bg.Settings.StartWhenAvailable) ''
@@ -76,7 +98,7 @@ if (Test-Path "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe") {
     Check '... tray task: runs the tray script at login, elevated, no time limit' ($tr -and $tr.Action.Arguments -match [regex]::Escape("$H\Documents\Messiah Tray\Messiah Tray.ahk") -and $tr.Settings.ExecutionTimeLimit -eq 'PT0S') ''
     Check '... tray script copied to Documents' (Test-Path "$H\Documents\Messiah Tray\Messiah Tray.ahk") ''
     Check '... the tray runs as its own program "PC Setup Kit.exe" (own tray entry next to the clock)' ($tr.Action.Execute -eq "$H\Documents\Messiah Tray\PC Setup Kit.exe" -and (Test-Path $tr.Action.Execute)) "$($tr.Action.Execute)"
-    Check '... Start menu "PC Setup Kit Status" opens the Status window' (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\PC Setup Kit Status.lnk") ''
+    Check '... no separate "Status" entry (one app)' (-not (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\PC Setup Kit Status.lnk")) ''
 } else { Skip 'tray task' 'AutoHotkey not installed here (setup installs it first)' }
 
 # with Claude (-WithClaude / with-claude.txt): the same plus Messiah
@@ -86,13 +108,15 @@ Check '... Claude Code installed from claude.ai' ($global:downloads -contains 'h
 Check '... skills and the no-shutdown hook installed' ((Test-Path "$cl\skills\maintain\SKILL.md") -and (Test-Path "$cl\hooks\no-power-off.ps1")) ''
 $s = Get-Content "$cl\settings.json" -Raw | ConvertFrom-Json
 Check '... the hook is registered in Claude''s settings' ($s.hooks.PreToolUse[0].hooks[0].command -match [regex]::Escape("$cl\hooks\no-power-off.ps1")) ''
-$lnk = "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk"
-Check '... Start menu shortcut created, set to "Run as administrator"' ((Test-Path $lnk) -and (([IO.File]::ReadAllBytes($lnk)[0x15] -band 0x20) -ne 0)) ''
+$lnk = "$cl\Messiah Session.lnk"
+Check '... session shortcut created, set to "Run as administrator"' ((Test-Path $lnk) -and (([IO.File]::ReadAllBytes($lnk)[0x15] -band 0x20) -ne 0)) ''
 $sc = if (Test-Path $lnk) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk) }
 Check '... it starts the launcher in System32 with PowerShell' ($sc -and $sc.TargetPath -match 'powershell\.exe$' -and $sc.Arguments -match [regex]::Escape("$cl\claude-admin-launch.ps1") -and $sc.WorkingDirectory -match 'System32$') "$($sc.Arguments)"
-Check '... desktop shortcut too' (Test-Path "$H\Desktop\Messiah.lnk") ''
+$app = "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk"
+$sc = if (Test-Path $app) { (New-Object -ComObject WScript.Shell).CreateShortcut($app) }
+Check '... Start menu and desktop "Messiah" open the app window (not elevated: no UAC prompt)' ($sc -and $sc.Arguments -match 'dashboard\.ps1"$' -and (Test-Path "$H\Desktop\Messiah.lnk") -and (([IO.File]::ReadAllBytes($app)[0x15] -band 0x20) -eq 0)) "$($sc.Arguments)"
 Check '... the same login maintenance task' ([bool]$global:tasks['Claude Background Maintenance']) ''
-if ($global:tasks['Messiah Tray']) { Check '... the tray runs as "Messiah.exe", with a "Messiah Status" Start menu entry' ($global:tasks['Messiah Tray'].Action.Execute -eq "$H\Documents\Messiah Tray\Messiah.exe" -and (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah Status.lnk")) "$($global:tasks['Messiah Tray'].Action.Execute)" }
+if ($global:tasks['Messiah Tray']) { Check '... the tray runs as "Messiah.exe", no separate "Messiah Status" entry' ($global:tasks['Messiah Tray'].Action.Execute -eq "$H\Documents\Messiah Tray\Messiah.exe" -and -not (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah Status.lnk")) "$($global:tasks['Messiah Tray'].Action.Execute)" }
 
 Section 'setup.ps1: things on the internet it depends on'
 if (-not (Test-Online)) { Skip 'online checks' $OfflineWhy; Finish }

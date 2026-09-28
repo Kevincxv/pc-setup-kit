@@ -23,6 +23,9 @@ if ($g) { $gameNote = "Game: $g still running after $waited min - heavy steps he
 elseif ($waited -ge 1) { $gameNote = "Game: waited $waited min for it to close before starting" }
 # PCs installed before the rename to Messiah: move the shortcuts and tray task once (migrate-names.ps1)
 $renamed = if (Test-Path "$dir\migrate-names.ps1") { & "$dir\migrate-names.ps1" }
+# the app (icon, Start menu entry, tray program and task) as the installed version wants it - after kit updates and
+# AutoHotkey updates too. Never from the test suite: it would change the owner's real Start menu and tray.
+$trayApp = if (-not $env:PCKIT_IN_TESTS -and (Test-Path "$dir\tray-app.ps1")) { & "$dir\tray-app.ps1" }
 $start = Get-Date
 $jobs = foreach ($j in @(
         @{ Name = 'Drivers'; Script = 'driver-check.ps1'; Timeout = 1200 },
