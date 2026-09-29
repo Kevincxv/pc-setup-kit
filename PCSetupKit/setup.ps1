@@ -134,7 +134,7 @@ if ($WithClaude) {
     Step 'Installing Claude Code and Messiah (the AI assistant)'
     # the same as the app's switch (Settings > AI assistant): Claude Code, the skills, the no-power-off hook, "claude=on";
     # the Start menu / desktop "Messiah" (the app) and the session shortcut come from tray-app.ps1 below
-    & "$cl\ai-toggle.ps1" -Setup -KitDir $kit | ForEach-Object { "  $_" }
+    & "$cl\ai-toggle.ps1" -Setup -KitDir $kit -ClaudeDir $cl | ForEach-Object { "  $_" }   # (-ClaudeDir: the same spelling of the path as here, never an 8.3 short one)
 }
 
 # At every login, fully windowless (conhost --headless): background maintenance (with Claude also headless /maintain when
