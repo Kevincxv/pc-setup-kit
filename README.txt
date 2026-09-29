@@ -6,7 +6,12 @@ WHAT YOU NEED
 - Your friend's Windows license (new PCs usually have one built in; otherwise a product key).
 - Nothing else. (Only for the optional Messiah: your friend's own Claude account, Pro or higher. Never share yours.)
 
-MAKE THE USB (once, on any PC)
+MAKE THE USB - the easy way (once, on any PC)
+   Open https://kevincxv.github.io/pc-setup-kit/ and click "Make an install USB" (or, on a PC with the kit, the app's
+   Maintenance page > Make an install USB). Pick the stick; it downloads Windows 11 from Microsoft and adds the kit.
+   20-40 minutes, nothing else to do. Then skip to INSTALL ON THE NEW PC.
+
+MAKE THE USB - by hand (the same result)
 1. Download Microsoft's "Media Creation Tool" for Windows 11:
    https://www.microsoft.com/software-download/windows11  ->  "Create Windows 11 Installation Media"
 2. Run it and choose "USB flash drive". Wait for it to finish.
@@ -24,7 +29,7 @@ INSTALL ON THE NEW PC
    (Nothing is wiped automatically - this is the one screen to be careful on.)
 4. After it restarts a few times: pick region/keyboard, Wi-Fi (or plug in Ethernet), then a username and password.
    No Microsoft account is needed; the ad and privacy screens are skipped.
-5. At the first desktop a blue "PC Setup Kit" window appears. KEEP THE USB PLUGGED IN until it says it's finished
+5. At the first desktop a "Setting up this PC" window shows the progress. KEEP THE USB PLUGGED IN until it says it's finished
    (15-30 minutes, depending on internet speed). It:
      - removes Windows bloat (Copilot, Widgets, Teams, Outlook, OneDrive, news/ads, Xbox Game Bar...)
      - turns off telemetry, ads, Bing search, Recall/AI features, background tasks

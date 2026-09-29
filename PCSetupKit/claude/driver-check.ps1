@@ -3,7 +3,9 @@
 #   downloads and silently installs it if newer.
 # - Everything else (AMD chipset, Realtek audio, MediaTek Wi-Fi/BT, SteelSeries, Logitech...):
 #   installs any pending driver updates from Windows Update.
+# - AMD Ryzen: AMD's chipset package when a newer one is out (signed by AMD, silent)
 # Prints one line per finding; "REBOOT" in the output means a restart is needed to finish.
+param([string]$TestAmdChipset)   # tests: the installed AMD chipset version
 $ErrorActionPreference = 'Continue'
 
 # A restore point right before the first driver install of this run: a full undo if a driver breaks Windows (on top of
@@ -60,6 +62,34 @@ if (Get-CimInstance Win32_VideoController | Where-Object Name -match 'NVIDIA') {
         }
     }
 } catch { if ("$_" -ne 'held') { "NVIDIA: check failed - $($_.Exception.Message)" } } }
+
+# --- AMD chipset (Ryzen): AMD's own package, one for every AM4/AM5 board - Windows Update seldom has the newest, and
+# dual-CCD X3D CPUs need its 3D V-Cache optimizer. Used only with AMD's valid signature; silent install (NSIS /S). ---
+$cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+if ("$($cpu.Name)" -match 'Ryzen') { try {
+    $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+    $have = if ($TestAmdChipset) { $TestAmdChipset } else { (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -eq 'AMD Chipset Software' } | Select-Object -First 1).DisplayVersion }
+    $page = Invoke-WebRequest 'https://www.amd.com/en/support/downloads/drivers.html/chipsets/am5/x870e.html' -UseBasicParsing -UserAgent $ua -TimeoutSec 30
+    if ("$($page.Content)" -match '(https://drivers\.amd\.com/drivers/AMD_Chipset_Software_([\d.]+)\.exe)') {
+        $url = $Matches[1]; $latest = $Matches[2]
+        if (-not $have -or [version]$latest -gt [version]$have) {
+            if ($g = & "$PSScriptRoot\game-check.ps1") { "AMD chipset: $latest is available - install held while $g is running (next check)" }
+            else {
+                $exe = Join-Path $env:TEMP "AMD_Chipset_Software_$latest.exe"
+                Invoke-WebRequest $url -OutFile $exe -UseBasicParsing -UserAgent $ua -Headers @{ Referer = 'https://www.amd.com/' } -TimeoutSec 600
+                $sig = Get-AuthenticodeSignature $exe
+                if ($sig.Status -eq 'Valid' -and $sig.SignerCertificate.Subject -match 'O=Advanced Micro Devices') {
+                    New-DriverRestorePoint
+                    $p = Start-Process $exe -ArgumentList '/S' -Wait -PassThru
+                    if ($p.ExitCode -eq 0) { "AMD chipset: installed $latest$(if ($have) { " (was $have)" }) - REBOOT to finish (whenever you next restart)" }
+                    else { "AMD chipset: install of $latest FAILED (exit $($p.ExitCode))" }
+                } else { "AMD chipset: the download of $latest did not carry AMD's signature - not installed" }
+                [IO.File]::Delete($exe)
+            }
+        }
+    }
+} catch { "AMD chipset: check failed - $($_.Exception.Message)" } }
 
 # --- Windows Update drivers ---
 try {

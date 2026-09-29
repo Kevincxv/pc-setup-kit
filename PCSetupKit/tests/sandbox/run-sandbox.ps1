@@ -7,7 +7,7 @@
 # Claude never restarts the PC). Needs admin rights and the owner's desktop (the sandbox is a window).
 # Results: %USERPROFILE%\.claude\sandbox-test\<mode>\ (summary.txt, check.txt, setup.txt, logs) and result.txt.
 # -Backup <folder with a settings backup zip>: the sandbox restores it (as on a reinstall of that PC) and checks it.
-param([ValidateSet('noai', 'ai', 'both')][string]$Mode = 'both', [int]$Minutes = 100, [switch]$Cleanup, [switch]$CleanupOnly, [string]$Backup,
+param([ValidateSet('noai', 'ai', 'both')][string]$Mode = 'both', [int]$Minutes = 100, [switch]$Cleanup, [switch]$CleanupOnly, [string]$Backup, [switch]$Laptop,
     [string]$Out = "$env:USERPROFILE\.claude\sandbox-test")
 $repo = Split-Path (Split-Path (Split-Path $PSScriptRoot))   # the repo root (holds PCSetupKit\)
 $cl = "$env:USERPROFILE\.claude"
@@ -62,7 +62,7 @@ foreach ($m in $(if ($Mode -eq 'both') { 'noai', 'ai' } else { $Mode })) {
     <MappedFolder><HostFolder>$repo</HostFolder><SandboxFolder>C:\KitRO</SandboxFolder><ReadOnly>true</ReadOnly></MappedFolder>
     <MappedFolder><HostFolder>$res</HostFolder><SandboxFolder>C:\Results</SandboxFolder><ReadOnly>false</ReadOnly></MappedFolder>$(if ($Backup) { "`n    <MappedFolder><HostFolder>$Backup</HostFolder><SandboxFolder>C:\Backup</SandboxFolder><ReadOnly>true</ReadOnly></MappedFolder>" })
   </MappedFolders>
-  <LogonCommand><Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -File C:\KitRO\PCSetupKit\tests\sandbox\inside.ps1 -Mode $m</Command></LogonCommand>
+  <LogonCommand><Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -File C:\KitRO\PCSetupKit\tests\sandbox\inside.ps1 -Mode $m$(if ($Laptop) { ' -Laptop' })</Command></LogonCommand>
 </Configuration>
 "@ | Set-Content $wsb -Encoding UTF8
     Stop-Sandbox   # only one sandbox can run at a time
@@ -88,7 +88,7 @@ foreach ($m in $(if ($Mode -eq 'both') { 'noai', 'ai' } else { $Mode })) {
     } catch { }
     Stop-Sandbox
     $sum = @(Get-Content "$res\summary.txt" -ErrorAction SilentlyContinue)
-    $ok = $done -and ($sum -match 'install checks: exit 0') -and ($sum -match 'self-test: Self-test \(requested\): \d+ passed, 0 failed')
+    $ok = $done -and ($sum -match 'install checks: exit 0') -and ($sum -match 'self-test: Self-test \(requested\): \d+ passed, 0 failed') -and -not ($sum -match 'WRONG|\(wrong\)|settings check: .*[1-9]\d* differ|MISSING')
     $results += "$m`: $(if ($ok) { 'PASSED' } elseif (-not $done) { "DID NOT FINISH in $Minutes min" } else { 'FAILED' }) in $([int]$w.Elapsed.TotalMinutes) min - $($sum -join ' | ')"
     Say $results[-1]
 }

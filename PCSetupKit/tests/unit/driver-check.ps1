@@ -8,14 +8,14 @@ Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mo
 $la = "$Work\la"; $rec = "$la\NVIDIA Corporation\NVIDIA app\NvBackend"; New-Item $rec -ItemType Directory -Force | Out-Null
 
 function Reset-D {
-    $global:DC = @{ Gpu = 'NVIDIA GeForce RTX 9090'; Installed = '617.14'; Sig = 'Valid'; Signer = 'CN=NVIDIA Corporation, O=NVIDIA Corporation'; ExitCode = 0; Updates = @(); History = @(); Results = @{}; Reboot = $false; Rps = 0 }
+    $global:DC = @{ Gpu = 'NVIDIA GeForce RTX 9090'; Installed = '617.14'; Sig = 'Valid'; Signer = 'CN=NVIDIA Corporation, O=NVIDIA Corporation'; ExitCode = 0; Updates = @(); History = @(); Results = @{}; Reboot = $false; Rps = 0; Cpu = 'Intel Core TEST'; AmdHave = '1.0'; AmdPage = '' }
     $global:DCcalls = New-Object System.Collections.Generic.List[string]
 }
 function Rec($updates, [int]$ageDays = 0) { @{ checkTime = (Get-Date).ToUniversalTime().AddDays(-$ageDays).ToString('o'); updates = $updates } | ConvertTo-Json -Depth 4 | Set-Content "$rec\DriverRecommendations.dat" }
 function Drv($v, [switch]$Beta, $type = 0) { @{ version = $v; isBeta = [bool]$Beta; driverType = $type; downloadURL = "https://example.invalid/$v-desktop-win11-64bit-international-dch-whql.exe" } }
-function Get-CimInstance { if ("$args" -match 'Win32_VideoController') { return [pscustomobject]@{ Name = $DC.Gpu } }; CimCmdlets\Get-CimInstance @args }
+function Get-CimInstance { if ("$args" -match 'Win32_VideoController') { return [pscustomobject]@{ Name = $DC.Gpu } }; if ("$args" -match 'Win32_Processor') { return [pscustomobject]@{ Name = $DC.Cpu } }; CimCmdlets\Get-CimInstance @args }
 function nvidia-smi { if ($DC.Installed) { $DC.Installed } }
-function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing) $global:DCcalls.Add("download $Uri"); 'fake installer' | Set-Content $OutFile }
+function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing, $UserAgent, $Headers, $TimeoutSec) if (-not $OutFile) { return [pscustomobject]@{ Content = $DC.AmdPage } }; $global:DCcalls.Add("download $Uri"); 'fake installer' | Set-Content $OutFile }
 function Get-AuthenticodeSignature { param($FilePath) [pscustomobject]@{ Status = $DC.Sig; SignerCertificate = [pscustomobject]@{ Subject = $DC.Signer } } }
 function Start-Process { param($FilePath, $ArgumentList, [switch]$Wait, [switch]$PassThru) $global:DCcalls.Add("run $(Split-Path $FilePath -Leaf) $ArgumentList"); [pscustomobject]@{ ExitCode = $DC.ExitCode } }
 # Windows Update COM objects
@@ -56,7 +56,7 @@ function New-Object {
         }
     }
 }
-function DC { $u = $env:LOCALAPPDATA; $env:LOCALAPPDATA = $la; try { @(& "$d\driver-check.ps1") } finally { $env:LOCALAPPDATA = $u } }
+function DC { $u = $env:LOCALAPPDATA; $env:LOCALAPPDATA = $la; try { @(& "$d\driver-check.ps1" -TestAmdChipset $DC.AmdHave) } finally { $env:LOCALAPPDATA = $u } }
 
 if (-not (Assert-Mocks $mocked)) { Finish }
 
@@ -115,4 +115,15 @@ Check 'newer NVIDIA driver: install held while the game runs' ([bool]($o -match 
 Check 'pending Windows Update drivers: held too' ([bool]($o -match 'Other drivers: 1 update\(s\) available - held while TestGame')) ($o -join ' / ')
 Check '... nothing downloaded or installed, no error line' (-not ($DCcalls -match 'download|install|^run ') -and -not ($o -match 'check failed|updating|signature')) (($DCcalls + $o) -join ' / ')
 '' | Set-Content "$d\game-check.ps1"
+
+Section 'AMD chipset (Ryzen)'
+$amd = '<a href="https://drivers.amd.com/drivers/AMD_Chipset_Software_8.08.12.551.exe">'
+Reset-D; $DC.Gpu = 'AMD Radeon RX TEST'; $DC.Cpu = 'AMD Ryzen 5 TEST'; $DC.AmdPage = $amd; $DC.AmdHave = '8.08.12.551'; $o = DC
+Check 'up to date: nothing downloaded, nothing said' (-not ($o -match 'AMD chipset') -and -not ($DCcalls -match 'AMD_Chipset')) ($o -join ' / ')
+Reset-D; $DC.Gpu = 'AMD Radeon RX TEST'; $DC.Cpu = 'AMD Ryzen 5 TEST'; $DC.AmdPage = $amd; $DC.AmdHave = '7.01.08.129'; $DC.Signer = 'CN=Advanced Micro Devices, O=Advanced Micro Devices, S=California, C=US'; $o = DC
+Check "newer on AMD's site: downloaded, restore point first, installed silently, said" (($DCcalls -match 'download https://drivers\.amd\.com/drivers/AMD_Chipset_Software_8\.08\.12\.551\.exe') -and ($DCcalls -contains 'restore point') -and ($DCcalls -match '^run AMD_Chipset_Software_8\.08\.12\.551\.exe /S$') -and ($o -match '^AMD chipset: installed 8\.08\.12\.551 \(was 7\.01\.08\.129\) - REBOOT')) (($DCcalls + $o) -join ' / ')
+Reset-D; $DC.Gpu = 'AMD Radeon RX TEST'; $DC.Cpu = 'AMD Ryzen 5 TEST'; $DC.AmdPage = $amd; $DC.AmdHave = '7.01.08.129'; $DC.Signer = 'CN=Somebody Else'; $o = DC
+Check "... a download without AMD's signature: never run" (-not ($DCcalls -match '^run AMD') -and ($o -match "did not carry AMD's signature")) (($DCcalls + $o) -join ' / ')
+Reset-D; $DC.Gpu = 'AMD Radeon RX TEST'; $DC.Cpu = 'AMD Ryzen 5 TEST'; $DC.AmdPage = 'a changed page'; $o = DC
+Check "... AMD's page changed (no link found): nothing done, no error" (-not ($o -match 'AMD chipset') -and -not ($DCcalls -match 'AMD_Chipset')) ($o -join ' / ')
 Finish

@@ -7,11 +7,11 @@ Copy-Item "$Src\self-test.ps1" $C
 'x' | Set-Content "$H\Documents\Messiah Tray\Messiah Tray.ahk"
 'if (Test-Path "$PSScriptRoot\game.txt") { Get-Content "$PSScriptRoot\game.txt" }' | Set-Content "$C\game-check.ps1"
 @'
-param([string]$Suite, [string]$Src, [string]$TrayFile)
+param([string]$Suite, [string]$Src, [string]$TrayFile, [string]$Only)
 "$Suite|$Src|$TrayFile" | Add-Content "$PSScriptRoot\calls.txt"
 $mode = if (Test-Path "$PSScriptRoot\mode.txt") { (Get-Content "$PSScriptRoot\mode.txt").Trim() } else { 'pass' }
 if ($mode -eq 'hang') { Start-Sleep 60 }
-$f = if ($mode -eq 'fail') { 3 } else { 0 }
+$f = if ($mode -eq 'fail' -or ($mode -eq 'flaky' -and -not $Only)) { 3 } else { 0 }   # flaky: fails in the full run, passes when run again alone
 Write-Host "PC Setup Kit tests ($Suite) 9/27/2026 2:00 PM in 5s: 40 passed, $f failed, 1 skipped"
 Write-Host '  launcher                 30 passed   0 failed   0 skipped     3s'
 Write-Host "  restart-check            10 passed   $(if ($f) { 2 } else { 0 }) failed   0 skipped     1s"
@@ -39,6 +39,12 @@ $n = @(Calls).Count; $o = @(Run)
 Check 'ran recently, same kit version: nothing (no run, no output)' ($o.Count -eq 0 -and @(Calls).Count -eq $n) ($o -join ' / ')
 'v2026.10.02' | Set-Content "$K\kit-version.txt"; $o = @(Run)
 Check 'the kit was updated: runs again' ($o -eq 'Self-test (after the kit update to v2026.10.02): 40 passed, 0 failed') ($o -join ' / ')
+'param([string]$KitDir, [switch]$Rollback, [switch]$Reinstall) "rollback=$Rollback" | Add-Content "$PSScriptRoot\kitupdate-calls.txt"; if ($Rollback) { "PC Setup Kit: went back to v2026.10.02" }' | Set-Content "$C\kit-update.ps1"
+Mode fail; 'v2026.10.03' | Set-Content "$K\kit-version.txt"; $o = @(Run)
+Check 'a new release fails its self-test right after the update: WARNING, and back to the version before' ($o[0] -match '^WARNING: self-test \(after the kit update to v2026\.10\.03\) failed' -and $o[1] -match 'went back to v2026\.10\.02' -and (Get-Content "$C\kitupdate-calls.txt") -contains 'rollback=True') ($o -join ' / ')
+$o = @(Run @('-Force'))
+Check '... a failing weekly or requested run: only the WARNING (no going back)' ($o.Count -eq 1 -and $o[0] -match '^WARNING' -and @(Get-Content "$C\kitupdate-calls.txt").Count -eq 1) ($o -join ' / ')
+Clear-Path "$C\kit-update.ps1"; Clear-Path "$C\kitupdate-calls.txt"; Mode pass; 'v2026.10.02' | Set-Content "$K\kit-version.txt"; [void](Run @('-Force'))
 $st = State; $st.date = (Get-Date).AddDays(-8).ToString('o'); $st | ConvertTo-Json | Set-Content "$C\self-test.json"; $o = @(Run)
 Check 'a week later: runs again' ($o -eq 'Self-test (weekly): 40 passed, 0 failed') ($o -join ' / ')
 '{ broken' | Set-Content "$C\self-test.json"; $o = @(Run)
@@ -48,6 +54,8 @@ Section 'failures become a WARNING (so /maintain fixes them)'
 Mode fail; $o = @(Run @('-Force'))
 Check 'failing tests: WARNING naming the failing test files and the log' ($o.Count -eq 1 -and $o[0] -match '^WARNING: self-test \(requested\) failed: 40 passed, 3 failed in restart-check, tray-logic \(log: .*self-test\.log\)$') ($o -join ' / ')
 Check '... recorded as failed' ((State).ok -eq $false -and ((State).failed -join ',') -eq 'restart-check,tray-logic') ''
+Mode flaky; $o = @(Run @('-Force'))
+Check 'a one-off failure (passes when its files run again): not a failure, and said' ($o.Count -eq 1 -and $o[0] -match '^Self-test \(requested\): 40 passed, 3 failed on the first try, restart-check, tray-logic passed on a retry$' -and (State).ok) ($o -join ' / ')
 Mode hang; $o = @(Run @('-Force', '-Minutes', '0.1'))
 Check 'a hanging test: stopped at the limit, WARNING' ($o -match '^WARNING: self-test .*stopped after 0.1 min') ($o -join ' / ')
 Mode pass; $o = @(Run @('-Force'))

@@ -10,8 +10,10 @@
 # motherboard's id), so a kit USB used for friends' PCs never puts one person's settings on another's PC.
 # Not included on purpose: resolution/scaling (display-refresh.ps1 sets the best for each monitor), desktop icon
 # positions (not restorable reliably), the lock screen picture (needs a policy).
+# -ToUsb: the tray runs it when a drive is plugged in - a kit USB (PCSetupKit\setup.ps1 on it) gets a fresh backup, once a day, so
+# it's there for a full reinstall even on a one-drive PC.
 # -Restore [-From zip]; -Force (back up even if one is recent); tests: -RegRoot -HomeDir -Dest -NoApply -MachineId
-param([switch]$Restore, [string]$From, [switch]$Force, [string]$RegRoot = 'HKCU:', [string]$HomeDir = $env:USERPROFILE, [string[]]$Dest,
+param([switch]$Restore, [string]$From, [switch]$Force, [switch]$ToUsb, [string]$RegRoot = 'HKCU:', [string]$HomeDir = $env:USERPROFILE, [string[]]$Dest,
     [switch]$NoApply, [string]$MachineId, [string]$ClaudeDir = $PSScriptRoot)
 $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -61,6 +63,11 @@ function Get-Destinations {
 
 if (-not $Restore) {
     $dests = @(Get-Destinations)
+    if ($ToUsb) {
+        $dests = @(if ($Dest) { $Dest } else { Get-Volume | Where-Object { $_.DriveType -eq 'Removable' -and $_.DriveLetter -and (Test-Path "$($_.DriveLetter):\PCSetupKit\setup.ps1") } | ForEach-Object { "$($_.DriveLetter):\PC Setup Kit Backup" } })
+        if (-not $dests -or ($dests | Where-Object { Test-Path "$_\$env:COMPUTERNAME-$(Get-Date -Format 'yyyy-MM-dd').zip" })) { return }   # no kit USB, or already today's
+        $Force = $true
+    }
     $newest = $dests | ForEach-Object { Get-ChildItem "$_\*.zip" } | Sort-Object LastWriteTime | Select-Object -Last 1
     if (-not $Force -and $newest -and $newest.LastWriteTime -gt (Get-Date).AddDays(-6)) { return }
     $st = Join-Path $env:TEMP "pckit-backup-$PID"; New-Item $st -ItemType Directory -Force | Out-Null

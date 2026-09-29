@@ -46,6 +46,12 @@ try {
     $z = [IO.Compression.ZipFile]::OpenRead(@(Get-ChildItem "$bk2\*.zip")[0].FullName); $n2 = @($z.Entries | ForEach-Object { $_.FullName -replace '/', '\' }); $z.Dispose()
     Check "a short (8.3) profile path: the game files' paths inside the backup still right ($shortHome)" ($n2 -contains 'games\MyGames\TestGame\settings.ini') ($n2 -match '^games' -join ', ')
 
+    # -ToUsb (the tray, when a drive is plugged in): a kit USB gets today's backup once
+    $usbb = "$Work\usb\PC Setup Kit Backup"
+    $o1 = @(& $sb -ToUsb -RegRoot $old -HomeDir $oh -Dest $usbb -MachineId 'PC-1' -ClaudeDir "$oh\.claude")
+    $o2 = @(& $sb -ToUsb -RegRoot $old -HomeDir $oh -Dest $usbb -MachineId 'PC-1' -ClaudeDir "$oh\.claude")
+    Check 'a kit USB plugged in: a fresh backup on it; plugged in again the same day: nothing' ("$o1" -match '^Backup: settings saved' -and -not $o2 -and @(Get-ChildItem "$usbb\*.zip").Count -eq 1) (($o1 + $o2) -join ' / ')
+
     Section 'restore'
     New-Item "$nh\Documents\My Games\TestGame", "$nh\.claude" -ItemType Directory -Force | Out-Null
     $o = Restore 'PC-2'

@@ -90,6 +90,27 @@ Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\Hypervisor
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' DisableWpbtExecution 1          # blocks motherboard "auto driver installer" bloat
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl' CrashDumpEnabled 7                  # keep crash dumps for diagnosis
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl' AlwaysKeepMemoryDump 1
+# Windows 11 "Optimizations for windowed games" (DX10/11 borderless games get the low-latency flip model) and
+# variable refresh rate for games that don't ask for it - one string of "key=value;" pairs, other keys kept
+$dxk = 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences'
+$dx = "$((Get-ItemProperty -Path $dxk -Name DirectXUserGlobalSettings).DirectXUserGlobalSettings)"
+$pairs = [ordered]@{}; foreach ($p in $dx -split ';' | Where-Object { $_ -match '=' }) { $kv = $p -split '=', 2; $pairs[$kv[0]] = $kv[1] }
+$pairs['SwapEffectUpgradeEnable'] = '1'; $pairs['VRROptimizeEnable'] = '1'
+Set-Reg $dxk DirectXUserGlobalSettings ((($pairs.Keys | ForEach-Object { "$_=$($pairs[$_])" }) -join ';') + ';') String
+# Windows Update never restarts the PC by itself while someone is signed in (mid-game), and its active hours cover
+# the whole gaming day (8:00-2:00) - updates still install; the restart waits for the owner's own
+$WU = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
+Set-Reg "$WU\AU" NoAutoRebootWithLoggedOnUsers 1
+Set-Reg $WU SetActiveHours 1
+Set-Reg $WU ActiveHoursStart 8
+Set-Reg $WU ActiveHoursEnd 2
+# The page file: some "debloat" guides turn it off, and games then crash when memory runs short - with none at all,
+# Windows manages it again (a size the owner chose is kept; takes effect after a restart)
+$cs = Get-CimInstance Win32_ComputerSystem
+if ($cs -and -not $cs.AutomaticManagedPagefile -and -not (Get-CimInstance Win32_PageFileSetting)) {
+    Save-Original 'pagefile|auto' @{ Automatic = $false }
+    Set-CimInstance -InputObject $cs -Property @{ AutomaticManagedPagefile = $true }; $changes.Add('page file managed by Windows again (after a restart)')
+}
 # Bigger event logs (64 MB instead of ~15-20): days of history to diagnose a crash, a freeze or a vanished program
 # with, instead of hours (busy PowerShell scripts alone can fill the default Windows PowerShell log in an afternoon)
 foreach ($log in 'Application', 'System', 'Windows PowerShell') { Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\$log" MaxSize 67108864 }
@@ -139,6 +160,10 @@ $apps = 'Microsoft.Copilot', 'Microsoft.Windows.Ai.Copilot.Provider', 'Microsoft
     'Microsoft.Windows.DevHome', 'Microsoft.XboxGamingOverlay', 'Microsoft.MixedReality.Portal', 'Microsoft.Wallet',
     'Microsoft.Microsoft3DViewer', 'Microsoft.SkypeApp', 'Microsoft.LinkedIn', 'SpotifyAB.SpotifyMusic', 'Disney.37853FC22B2CE',
     'Facebook.Facebook', 'Facebook.Instagram', 'BytedancePte.Ltd.TikTok', '5319275A.WhatsAppDesktop', 'AmazonVideo.PrimeVideo'
+# AMD's dual-CCD X3D CPUs (Ryzen 9 7900X3D/7950X3D/9900X3D/9950X3D) need the Xbox Game Bar: AMD's driver uses it to
+# see that a game runs and to put it on the V-Cache cores - without it games can lose a lot of frame rate
+$dualX3D = "$((Get-CimInstance Win32_Processor | Select-Object -First 1).Name)" -match 'Ryzen 9 \d{4}X3D'
+if ($dualX3D) { $apps = @($apps | Where-Object { $_ -ne 'Microsoft.XboxGamingOverlay' }) }
 foreach ($a in $apps) {
     $pkg = Get-AppxPackage -AllUsers $a
     if ($pkg) {
@@ -146,6 +171,62 @@ foreach ($a in $apps) {
         $pkg | ForEach-Object { Remove-AppxPackage -Package $_.PackageFullName -AllUsers }
         $changes.Add("app $a removed")
         Get-AppxProvisionedPackage -Online | Where-Object DisplayName -eq $a | ForEach-Object { Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName | Out-Null }
+    }
+}
+
+# --- Power: part of the guard because chipset/graphics driver installers and Windows feature updates switch it back.
+# A desktop: Ultimate Performance (made from Windows' own template under a fixed id - found in any language), no USB
+# sleep, no hibernation. A laptop (a battery): Balanced kept - Ultimate would drain it - with hibernation (a flat
+# battery saves open work), and flat out when plugged in (processor 100%, "Best performance", no USB sleep). ---
+function Get-AcIndex($Sub, $Setting) { if ("$(powercfg /q SCHEME_CURRENT $Sub $Setting)" -match 'Current AC Power Setting Index:\s*0x([0-9a-fA-F]+)') { [Convert]::ToInt32($Matches[1], 16) } }
+$usbSub = '2a737441-1930-4402-8d77-b2bebba308a3'; $usbSet = '48e6b7a6-50f5-4782-a5d4-53bb8f07e226'
+$active = if ("$(powercfg /getactivescheme)" -match '([0-9a-fA-F-]{36})') { $Matches[1].ToLower() }
+if ((Get-CimInstance Win32_Battery) -or $env:PCKIT_TEST_BATTERY -eq '1') {   # (PCKIT_TEST_BATTERY: the Windows Sandbox laptop test)
+    $bal = '381b4222-f694-41f0-9685-ff5bb260df2e'
+    if ($active -ne $bal) { Save-Original 'plan|active' @{ Guid = $active }; powercfg /setactive $bal; $changes.Add('power plan Balanced (a laptop)') }
+    if ((Get-AcIndex '54533251-82be-4824-96c1-47b60b740d00' '893dee8e-2bef-41e0-89c6-b55d0929964c') -ne 100) {
+        powercfg /setacvalueindex SCHEME_CURRENT 54533251-82be-4824-96c1-47b60b740d00 893dee8e-2bef-41e0-89c6-b55d0929964c 100; powercfg /setactive SCHEME_CURRENT; $changes.Add('processor at full speed when plugged in')
+    }
+    if ((Get-AcIndex $usbSub $usbSet) -ne 0) { powercfg /setacvalueindex SCHEME_CURRENT $usbSub $usbSet 0; powercfg /setactive SCHEME_CURRENT; $changes.Add('USB sleep off when plugged in') }
+    # Settings > Power mode "Best performance" when plugged in (Windows keeps it here; there's no powercfg switch)
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes' ActiveOverlayAcPowerScheme 'ded574b5-45a0-4f42-8737-46345c09c238' String
+}
+else {
+    $ult = '99999999-9999-9999-9999-999999999999'
+    if ("$(powercfg /list)" -notmatch $ult) { powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 $ult | Out-Null }
+    if ($active -ne $ult) { Save-Original 'plan|active' @{ Guid = $active }; powercfg /setactive $ult; $changes.Add('power plan Ultimate Performance') }
+    if ((Get-AcIndex $usbSub $usbSet) -ne 0) { powercfg /setacvalueindex SCHEME_CURRENT $usbSub $usbSet 0; powercfg /setactive SCHEME_CURRENT; $changes.Add('USB sleep off') }
+    if ((Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name HibernateEnabled).HibernateEnabled -ne 0) { powercfg /hibernate off; $changes.Add('hibernation off') }
+}
+
+# --- OneDrive: a feature update can bring it back - removed again (its sync is also off by policy, above) ---
+$od = @("$env:LOCALAPPDATA\Microsoft\OneDrive\OneDrive.exe", "$env:ProgramFiles\Microsoft OneDrive\OneDrive.exe") | Where-Object { Test-Path $_ }
+if ($od) {
+    Get-Process OneDrive | Stop-Process -Force
+    foreach ($o in "$env:SystemRoot\System32\OneDriveSetup.exe", "$env:SystemRoot\SysWOW64\OneDriveSetup.exe", (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\OneDrive\*\OneDriveSetup.exe").FullName, (Get-ChildItem "$env:ProgramFiles\Microsoft OneDrive\*\OneDriveSetup.exe").FullName) {
+        if ($o -and (Test-Path $o)) { Start-Process $o '/uninstall' -Wait; break }
+    }
+    Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name OneDrive
+    $changes.Add('OneDrive removed')
+}
+
+# --- Start-up clutter: vendor updaters, promo tools and OEM "assistants" that start with Windows for nothing -
+# turned off the way Task Manager does it (StartupApproved), so they're still installed and can be turned back on in
+# Task Manager > Startup apps. Never games, launchers, chat, audio, RGB or mouse/keyboard software. ---
+$clutter = '^(AdobeGCInvoker(-1\.0)?|Adobe ARM|AdobeAAMUpdater-1\.0|Adobe Acrobat Synchronizer|Adobe Updater Startup Utility|SunJavaUpdateSched|jusched|CCleaner.*|' +
+    'Avast.*Browser.*Update.*|McAfee ?WebAdvisor|WebAdvisor|AsusUpdate.*|ASUS ?(Live ?Update|Promo).*|ArmouryCrate\.(Update|Notif).*|MSI ?(Live ?Update|Promo).*|' +
+    'GigabyteUpdateService|HP ?(JumpStart|Registration|Support Solutions).*|Dell ?SupportAssist.*|Lenovo ?(Welcome|Notification).*|Opera Browser Assistant|Skype.*|Cortana)$'
+foreach ($r in @(@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Run', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'),
+        @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'),
+        @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32'))) {
+    $run = Get-Item $r[0]; if (-not $run) { continue }
+    foreach ($n in @($run.Property | Where-Object { $_ -match $clutter })) {
+        $cur = (Get-ItemProperty -Path $r[1] -Name $n).$n
+        if ($cur -and ($cur[0] -band 1)) { continue }   # already off (odd first byte = disabled)
+        Save-Original "startup|$($r[1])|$n" @{ Existed = $null -ne $cur; Value = $(if ($cur) { [Convert]::ToBase64String([byte[]]$cur) }) }
+        if (-not (Test-Path $r[1])) { New-Item $r[1] -Force | Out-Null }
+        Set-ItemProperty -Path $r[1] -Name $n -Value ([byte[]](@(3, 0, 0, 0) + [BitConverter]::GetBytes((Get-Date).ToFileTime()))) -Type Binary
+        $changes.Add("start-up item $n off")
     }
 }
 

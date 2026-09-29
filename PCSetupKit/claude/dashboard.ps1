@@ -191,6 +191,7 @@ try {
         Report       = { if (Test-Path "$cl\maint-report.txt") { Start-Process notepad.exe "`"$cl\maint-report.txt`"" } else { Say 'No report yet.' } }
         Todo         = { if (Test-Path "$cl\maint-todo.txt") { Start-Process notepad.exe "`"$cl\maint-todo.txt`"" } else { Say 'Nothing needs you right now.' } }
         Journal      = { if (Test-Path "$cl\selfimprove-journal.md") { Start-Process notepad.exe "`"$cl\selfimprove-journal.md`"" } else { Say 'No self-improvement runs yet.' } }
+        MakeUsb      = { if (Test-Path "$cl\make-usb.ps1") { Start-Process powershell -Verb RunAs -ArgumentList (& $psArgs 'make-usb.ps1' -Keep); Say 'The install USB maker opened in its own window.' } else { Say 'The USB maker is missing - it comes with the next kit update.' } }
         Logs         = { if (Test-Path "$cl\maint-claude-log") { Start-Process explorer.exe "`"$cl\maint-claude-log`"" } else { Say 'No hidden runs yet.' } }
     }
 
@@ -298,7 +299,7 @@ try {
     }
     # What maintenance changed, newest first (from the last 30 saved reports; routine "all fine" lines left out)
     function Get-MaintTimeline {
-        $rx = 'Updated app|installed|Driver:|Driver rolled back|re-applied|Removed|Created a monthly|Restore point created|fetched it again|Restart check: .*finished at'
+        $rx = 'PC Setup Kit updated|went back to|re-applied|Updated app|installed|Driver:|Driver rolled back|re-applied|Removed|Created a monthly|Restore point created|fetched it again|Restart check: .*finished at'
         foreach ($f in Get-ChildItem "$cl\maint-history\report-*.txt" -ErrorAction SilentlyContinue | Sort-Object Name -Descending) {
             $l = @(Get-Content $f.FullName -Encoding UTF8 -ErrorAction SilentlyContinue)
             $when = if ($l -and $l[0] -match '^Checked (.+?) in ') { $Matches[1] } else { $f.LastWriteTime.ToString('g') }
@@ -361,6 +362,7 @@ try {
                 [void]$out.Add((New-Card 'Last background check' 'E9D9' $last.Lines @((New-Btn 'E768' 'Run maintenance now' $act.RunMaint -Accent), (New-Btn 'E8A5' 'Full report' $act.Report))))
                 if ($hidden) { [void]$out.Add((New-Card 'Hidden Claude maintenance' 'E90F' (@($hidden.Lines) + @(@{ Text = 'About 2 minutes after each login: /maintain when something needs judgment, then /self-improve at most once a day.'; Level = 'dim' })) @((New-Btn 'E890' 'Watch live' $act.WatchLive), (New-Btn 'E8F1' 'Self-improvement journal' $act.Journal), (New-Btn 'E8B7' 'Run logs' $act.Logs)))) }
                 [void]$out.Add((New-Card 'Needs you' 'E7BA' $needs.Lines @(New-Btn 'E8A5' 'Open the to-do list' $act.Todo) -Calm))
+                [void]$out.Add((New-Card 'Install USB' 'E88E' @(@{ Text = 'Makes a USB stick that installs Windows 11 on a new PC (or reinstalls this one) and sets it up by itself - Windows from Microsoft, the newest kit, and optionally this PC''s settings. The stick is erased; takes 20-40 minutes.'; Level = 'dim' }) @(New-Btn 'E88E' 'Make an install USB' $act.MakeUsb)))
             }
             'History' {
                 $hh = Get-HealthHistory
@@ -417,6 +419,19 @@ try {
                 [void]$lbl.Children.Add((New-Text "Off: $name starts in the hidden tray (^ next to the clock) and works on its own. On: this window also opens once per start-up (not while a game is fullscreen)." $brush.Sub 12 'Normal' '0,2,0,0'))
                 [void]$row.Children.Add($sw); [void]$row.Children.Add($lbl)
                 [void]$out.Add((New-Card 'Start-up' 'E7E8' @($row) $null))
+                # gaming options (kit-options.txt; gaming-check.ps1 / nvidia-settings.ps1 apply them at the next check)
+                $opts = @()
+                foreach ($o in @(@('defenderexclusions', 'off', 'Microsoft Defender skips my game folders', 'Less stutter while games load and build their shaders. A small security trade-off: files in those folders are no longer scanned. Off by default.'),
+                        @('nvidiasettings', 'on', 'NVIDIA driver settings for games', 'Low-latency mode on and an unlimited shader cache (less stutter), set in the driver for every game. Off: no longer applied (the driver keeps the last values until changed in the NVIDIA Control Panel).'))) {
+                    $r2 = New-Object Windows.Controls.DockPanel -Property @{ Margin = '0,0,0,10' }
+                    $s2 = New-Object Windows.Controls.CheckBox -Property @{ IsChecked = ((Get-Opt $o[0] $o[1]) -eq 'on'); VerticalAlignment = 'Center'; Tag = $o[0] }
+                    $s2.Style = $win.FindResource('Switch'); [Windows.Controls.DockPanel]::SetDock($s2, 'Right')
+                    $s2.Add_Click({ Set-Opt $this.Tag $(if ($this.IsChecked) { 'on' } else { 'off' }); Say 'Saved - applied at the next check (or click Run maintenance now).' })
+                    $l2 = New-Object Windows.Controls.StackPanel
+                    [void]$l2.Children.Add((New-Text $o[2] $brush.Text 14 'Normal' '0')); [void]$l2.Children.Add((New-Text $o[3] $brush.Sub 12 'Normal' '0,2,0,0'))
+                    [void]$r2.Children.Add($s2); [void]$r2.Children.Add($l2); $opts += $r2
+                }
+                [void]$out.Add((New-Card 'Gaming' 'E7FC' $opts $null))
                 $kv = Get-Content 'C:\PCSetupKit\kit-version.txt' -TotalCount 1 -ErrorAction SilentlyContinue
                 [void]$out.Add((New-Card 'About' 'E946' @(
                             @{ Text = "$name - part of the PC Setup Kit$(if ($kv) { " $kv" })"; Level = 'info' },

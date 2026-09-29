@@ -6,14 +6,15 @@ $bk = "$Work\tweaks-backup.json"
 Set-Content "$Work\tweaks.ps1" $tweaksText.Replace("'C:\PCSetupKit\tweaks-backup.json'", "'$bk'")
 $mocked = 'Set-ItemProperty', 'New-Item', 'Get-ItemProperty', 'Set-Service', 'Stop-Service', 'Get-Service', 'Disable-ScheduledTask', 'Unregister-ScheduledTask',
     'Get-ScheduledTask', 'Get-AppxPackage', 'Get-AppxProvisionedPackage', 'Remove-AppxPackage', 'Remove-AppxProvisionedPackage', 'Get-CimInstance', 'Set-CimInstance',
-    'Get-NetAdapter', 'Get-NetAdapterAdvancedProperty', 'Set-NetAdapterAdvancedProperty', 'Get-Printer', 'Test-Path'
+    'Get-NetAdapter', 'Get-NetAdapterAdvancedProperty', 'Set-NetAdapterAdvancedProperty', 'Get-Printer', 'Test-Path', 'powercfg', 'Get-Process', 'Stop-Process', 'Start-Process', 'Remove-ItemProperty'
 if (-not (Test-Tripwire "$Work\tweaks.ps1" $mocked)) { Finish }
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
 
 $svcNames = 'DiagTrack', 'dmwappushservice', 'SysMain', 'MapsBroker', 'lfsvc', 'TrkWks', 'WSAIFabricSvc', 'PcaSvc', 'RetailDemo', 'StiSvc', 'PhoneSvc', 'diagsvc', 'Spooler'
 function Fresh {
     $global:TW = @{
-        Reg = @{}; Services = @{}; Printers = @(); Apps = @('Microsoft.Copilot', 'Microsoft.BingNews', 'MSTeams', 'SpotifyAB.SpotifyMusic'); Prov = @('Microsoft.BingNews')
+        Reg = @{ 'HKLM:\SYSTEM\CurrentControlSet\Control\Power|HibernateEnabled' = 1 }; Services = @{}; Printers = @(); Apps = @('Microsoft.Copilot', 'Microsoft.BingNews', 'MSTeams', 'SpotifyAB.SpotifyMusic', 'Microsoft.XboxGamingOverlay'); Prov = @('Microsoft.BingNews')
+        Run = @(); Battery = $null; Plan = '381b4222-f694-41f0-9685-ff5bb260df2e'; Plans = @('381b4222-f694-41f0-9685-ff5bb260df2e'); Ac = @{}; Hib = 1; OneDrive = $false; Cpu = 'AMD Ryzen 7 5800X3D 8-Core Processor'; Cs = [pscustomobject]@{ AutomaticManagedPagefile = $true }; PageFiles = @()
         Tasks = @(@{ P = '\Microsoft\Windows\Application Experience\'; N = 'Microsoft Compatibility Appraiser'; S = 'Ready' }, @{ P = '\Microsoft\Windows\Feedback\Siuf\'; N = 'DmClient'; S = 'Ready' },
             @{ P = '\'; N = 'AsrAPPShopUpdate'; S = 'Ready' }, @{ P = '\Microsoft\Windows\Defrag\'; N = 'ScheduledDefrag'; S = 'Ready' }, @{ P = '\'; N = 'MyOwnTask'; S = 'Ready' })
         Power = @(@{ I = 'USB\VID_045E&PID_0B00\1_0'; E = $true }, @{ I = 'PCI\VEN_10EC&DEV_8125\X_0'; E = $true }, @{ I = 'USB\VID_046D&PID_C08B\M_0'; E = $true })
@@ -25,7 +26,7 @@ function Fresh {
 function Set-ItemProperty { param($Path, $Name, $Value, $Type) $global:TW.Reg["$Path|$Name"] = $Value; $global:TWlog.Add("reg $Name=$Value") }
 function Get-ItemProperty { param($Path, $Name) if ($global:TW.Reg.ContainsKey("$Path|$Name")) { [pscustomobject]@{ $Name = $global:TW.Reg["$Path|$Name"] } } }
 function New-Item { param($Path, [switch]$Force, $ItemType) if ("$Path" -match '^HK') { $global:TWlog.Add("new key $Path") } else { Microsoft.PowerShell.Management\New-Item @PSBoundParameters } }
-function Test-Path { $a = @($args | ForEach-Object { $_ }) -join ' '; if ($a -match '^HK') { return $true }; Microsoft.PowerShell.Management\Test-Path @args }
+function Test-Path { $a = @($args | ForEach-Object { $_ }) -join ' '; if ($a -match '^HK') { return $true }; if ($a -match 'OneDrive(Setup)?\.exe$') { return [bool]$global:TW.OneDrive }; Microsoft.PowerShell.Management\Test-Path @args }
 function Get-Service { param($Name) if ($global:TW.Services.ContainsKey($Name)) { [pscustomobject]@{ Name = $Name; StartType = $global:TW.Services[$Name] } } }
 function Set-Service { param($Name, $StartupType) $global:TW.Services[$Name] = $StartupType; $global:TWlog.Add("service $Name $StartupType") }
 function Stop-Service { param($Name, [switch]$Force) $global:TWlog.Add("stop $Name") }
@@ -36,18 +37,38 @@ function Get-AppxPackage { param([switch]$AllUsers, $Name) $n = if ($Name) { $Na
 function Remove-AppxPackage { param($Package, [switch]$AllUsers) $n = ($Package -split '_')[0]; $global:TW.Apps = @($global:TW.Apps | Where-Object { $_ -ne $n }); $global:TWlog.Add("app removed $n") }
 function Get-AppxProvisionedPackage { param([switch]$Online) $global:TW.Prov | ForEach-Object { [pscustomobject]@{ DisplayName = $_; PackageName = "$_`_prov" } } }
 function Remove-AppxProvisionedPackage { param([switch]$Online, $PackageName) $global:TW.Prov = @($global:TW.Prov | Where-Object { "$_`_prov" -ne $PackageName }); $global:TWlog.Add("provisioned removed $PackageName") }
-function Get-CimInstance { if ("$args" -match 'MSPower_DeviceEnable') { return $global:TW.Power | ForEach-Object { [pscustomobject]@{ InstanceName = $_.I; Enable = $_.E } } }; CimCmdlets\Get-CimInstance @args }
-function Set-CimInstance { param($InputObject, $Property) ($global:TW.Power | Where-Object I -eq $InputObject.InstanceName).E = $Property.Enable; $global:TWlog.Add("power off $($InputObject.InstanceName)") }
+function Get-CimInstance { if ("$args" -match 'MSPower_DeviceEnable') { return $global:TW.Power | ForEach-Object { [pscustomobject]@{ InstanceName = $_.I; Enable = $_.E } } }
+    if ("$args" -match 'Win32_Battery') { return $global:TW.Battery }
+    if ("$args" -match 'Win32_Processor') { return [pscustomobject]@{ Name = $global:TW.Cpu } }; if ("$args" -match 'Win32_ComputerSystem') { return $global:TW.Cs }
+    if ("$args" -match 'Win32_PageFileSetting') { return $global:TW.PageFiles }; CimCmdlets\Get-CimInstance @args }
+function Set-CimInstance { param($InputObject, $Property) if ($Property.ContainsKey('AutomaticManagedPagefile')) { $global:TW.Cs.AutomaticManagedPagefile = $Property.AutomaticManagedPagefile; $global:TWlog.Add('pagefile auto'); return }; ($global:TW.Power | Where-Object I -eq $InputObject.InstanceName).E = $Property.Enable; $global:TWlog.Add("power off $($InputObject.InstanceName)") }
 function Get-NetAdapter { param([switch]$Physical) [pscustomobject]@{ Name = 'Ethernet'; MediaType = '802.3'; PnPDeviceID = 'PCI\VEN_10EC&DEV_8125\X' } }
 function Get-NetAdapterAdvancedProperty { param($Name, $DisplayName) if ($global:TW.Nic.ContainsKey($DisplayName)) { [pscustomobject]@{ DisplayName = $DisplayName; DisplayValue = $global:TW.Nic[$DisplayName]; ValidDisplayValues = @('Disabled', 'Enabled') } } }
 function Set-NetAdapterAdvancedProperty { param($Name, $DisplayName, $DisplayValue, [switch]$NoRestart) $global:TW.Nic[$DisplayName] = $DisplayValue; $global:TWlog.Add("nic $DisplayName=$DisplayValue") }
 function Get-Printer { $global:TW.Printers }
+function powercfg {
+    $a = "$args"; if ($a -notmatch '^/(getactivescheme|list|q) ' -and $a -notmatch '^/(getactivescheme|list)$') { $global:TWlog.Add("powercfg $a") }
+    switch -Regex ($a) {
+        '^/getactivescheme' { "Power Scheme GUID: $($TW.Plan)  (active)" }
+        '^/list' { $TW.Plans | ForEach-Object { "Power Scheme GUID: $_  (plan)" } }
+        '^/duplicatescheme \S+ (\S+)' { $TW.Plans += $Matches[1] }
+        '^/setactive (\S+)' { if ($Matches[1] -ne 'SCHEME_CURRENT') { $TW.Plan = $Matches[1] } }
+        '^/q SCHEME_CURRENT (\S+) (\S+)' { $v = $TW.Ac["$($Matches[1])|$($Matches[2])"]; if ($null -eq $v) { $v = 1 }; "    Current AC Power Setting Index: 0x{0:x8}" -f $v }
+        '^/setacvalueindex SCHEME_CURRENT (\S+) (\S+) (\d+)' { $TW.Ac["$($Matches[1])|$($Matches[2])"] = [int]$Matches[3] }
+        '^/hibernate off' { $TW.Reg['HKLM:\SYSTEM\CurrentControlSet\Control\Power|HibernateEnabled'] = 0 }
+    }
+}
+function Get-Process { param($Name) }
+function Stop-Process { $global:TWlog.Add('stop-process') }
+function Start-Process { param($FilePath, $ArgumentList, [switch]$Wait) $global:TWlog.Add("run $(Split-Path $FilePath -Leaf) $ArgumentList"); $TW.OneDrive = $false }
+function Remove-ItemProperty { $global:TWlog.Add("remove $($args[1]) $($args[2])") }
+function Get-Item { if ("$args" -match '^HKCU:.+CurrentVersion\\Run$') { return [pscustomobject]@{ Property = $global:TW.Run } }; if ("$args" -match '^HK.+CurrentVersion\\Run$') { return $null }; Microsoft.PowerShell.Management\Get-Item @args }
 if (-not (Assert-Mocks $mocked)) { Finish }
 function Run { @(& "$Work\tweaks.ps1") }
 
 Section 'a fresh Windows: every tweak applied once'
 Fresh; $o = Run
-$regSets = @($TWlog -match '^reg ').Count; $setRegCalls = $TW.Reg.Count   # distinct settings (some Set-Reg lines are loops)
+$regSets = @($TWlog -match '^reg ').Count; $setRegCalls = @($TW.Reg.Keys | Where-Object { $_ -notmatch 'HibernateEnabled' }).Count   # distinct settings (some Set-Reg lines are loops)
 Check "all $setRegCalls settings written, each exactly once" ($regSets -eq $setRegCalls -and $setRegCalls -ge 50) "writes: $regSets, distinct: $setRegCalls"
 Check 'each change is reported (one line per kind)' (($o -match '^setting ').Count -ge 1 -and ($o -contains 'service DiagTrack off') -and ($o -contains 'task Microsoft Compatibility Appraiser off')) ($o -join ' / ')
 Check 'telemetry, Copilot, Recall/Click to Do, ads and Bing search turned off' ($TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection|AllowTelemetry'] -eq 0 -and $TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot|TurnOffWindowsCopilot'] -eq 1 -and $TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI|DisableClickToDo'] -eq 1 -and $TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search|DisableWebSearch'] -eq 1) ''
@@ -81,4 +102,40 @@ Fresh; $TW.Printers = @([pscustomobject]@{ Name = 'Microsoft Print to PDF'; Port
 Check 'only "Print to PDF": counts as no printer' ($TW.Services['Spooler'] -eq 'Manual') ''
 Fresh; $TW.Services.Remove('WSAIFabricSvc'); $TW.Services.Remove('RetailDemo'); Clear-Path $bk; $e = @(& "$Work\tweaks.ps1" 2>&1 | Where-Object { $_ -is [Management.Automation.ErrorRecord] })
 Check 'services missing on this Windows version: skipped without errors' ($e.Count -eq 0) "$e"
+$sa = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
+Fresh; $TW.Run = @('AdobeGCInvoker-1.0', 'Steam', 'Discord', 'SteelSeriesGG', 'CCleaner Smart Cleaning', 'MSI LiveUpdate'); Clear-Path $bk; $o = Run
+$off = @($TW.Reg.Keys | Where-Object { $_ -like "$sa|*" } | ForEach-Object { ($_ -split '\|')[1] } | Sort-Object)
+Check 'start-up clutter (vendor updaters, promo tools) turned off the Task Manager way' (($off -join ',') -eq 'AdobeGCInvoker-1.0,CCleaner Smart Cleaning,MSI LiveUpdate' -and $TW.Reg["$sa|MSI LiveUpdate"][0] -eq 3) ($off -join ', ')
+Check '... Steam, Discord, SteelSeries GG left alone' (-not ($off -match 'Steam|Discord|SteelSeries')) ''
+Check '... recorded so the uninstaller turns them back on' ((Get-Content $bk -Raw | ConvertFrom-Json).PSObject.Properties.Name -contains "startup|$sa|MSI LiveUpdate") ''
+$TWlog.Clear(); $o = Run
+Check '... already off: nothing done again' (-not ($TWlog -match 'reg ')) ($TWlog -join ' / ')
+$dxk = 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences|DirectXUserGlobalSettings'
+Fresh; Clear-Path $bk; [void](Run)
+Check 'windowed-games optimization and variable refresh rate on' ($TW.Reg[$dxk] -eq 'SwapEffectUpgradeEnable=1;VRROptimizeEnable=1;') "$($TW.Reg[$dxk])"
+Check 'Windows Update: no restart while signed in, active hours 8:00-2:00' ($TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU|NoAutoRebootWithLoggedOnUsers'] -eq 1 -and $TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate|ActiveHoursStart'] -eq 8 -and $TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate|ActiveHoursEnd'] -eq 2) ''
+Check 'a single-CCD CPU: the Xbox Game Bar removed like the other bloat' ('Microsoft.XboxGamingOverlay' -notin $TW.Apps) ''
+Fresh; $TW.Reg[$dxk] = 'AutoHDREnable=1;SwapEffectUpgradeEnable=0;'; Clear-Path $bk; [void](Run)
+Check "... the owner's other DirectX settings kept (Auto HDR), ours set" ($TW.Reg[$dxk] -eq 'AutoHDREnable=1;SwapEffectUpgradeEnable=1;VRROptimizeEnable=1;') "$($TW.Reg[$dxk])"
+Fresh; $TW.Cpu = 'AMD Ryzen 9 9950X3D 16-Core Processor'; Clear-Path $bk; [void](Run)
+Check 'a dual-CCD X3D CPU (9950X3D): the Xbox Game Bar kept (AMD needs it to put games on the V-Cache cores)' ('Microsoft.XboxGamingOverlay' -in $TW.Apps -and 'Microsoft.Copilot' -notin $TW.Apps) ($TW.Apps -join ', ')
+Fresh; $TW.Cs.AutomaticManagedPagefile = $false; Clear-Path $bk; $o = Run
+Check 'no page file at all (a "debloat" guide): Windows manages it again' ($TW.Cs.AutomaticManagedPagefile -and ($o -match 'page file managed by Windows')) ($o -join ' / ')
+Fresh; $TW.Cs.AutomaticManagedPagefile = $false; $TW.PageFiles = @([pscustomobject]@{ Name = 'C:\pagefile.sys'; InitialSize = 16384 }); Clear-Path $bk; [void](Run)
+Check "... a page file size the owner chose: kept" (-not $TW.Cs.AutomaticManagedPagefile) ''
+Section 'power plan and OneDrive (guarded: driver installers and feature updates switch them back)'
+$usb = '2a737441-1930-4402-8d77-b2bebba308a3|48e6b7a6-50f5-4782-a5d4-53bb8f07e226'; $ult = '99999999-9999-9999-9999-999999999999'
+Fresh; Clear-Path $bk; $o = Run
+Check 'a desktop: Ultimate Performance (made under its fixed id, found in any Windows language), active' ($TW.Plans -contains $ult -and $TW.Plan -eq $ult -and ($o -contains 'power plan Ultimate Performance')) ($o -join ' / ')
+Check '... no USB sleep, no hibernation' ($TW.Ac[$usb] -eq 0 -and $TW.Reg['HKLM:\SYSTEM\CurrentControlSet\Control\Power|HibernateEnabled'] -eq 0) ''
+Check '... the plan it had is recorded (the uninstaller puts it back)' ((Get-Content $bk -Raw | ConvertFrom-Json).'plan|active'.Guid -eq '381b4222-f694-41f0-9685-ff5bb260df2e') ''
+$TWlog.Clear(); [void](Run)
+Check '... already right: no powercfg changes at all' (-not ($TWlog -match '^powercfg')) ($TWlog -join ' / ')
+$TW.Plan = '381b4222-f694-41f0-9685-ff5bb260df2e'; $TW.Reg['HKLM:\SYSTEM\CurrentControlSet\Control\Power|HibernateEnabled'] = 1; $TWlog.Clear(); $o = Run
+Check 'a driver install switched to Balanced and back on hibernation: both put back, said' ($TW.Plan -eq $ult -and ($o -contains 'power plan Ultimate Performance') -and ($o -contains 'hibernation off') -and @($TWlog -match 'duplicatescheme').Count -eq 0) ($o -join ' / ')
+Fresh; $TW.Battery = [pscustomobject]@{ Name = 'Battery' }; $TW.Plan = $ult; Clear-Path $bk; $o = Run
+Check 'a laptop: Balanced (not Ultimate - the battery), full speed and no USB sleep when plugged in, hibernation kept' ($TW.Plan -eq '381b4222-f694-41f0-9685-ff5bb260df2e' -and $TW.Ac['54533251-82be-4824-96c1-47b60b740d00|893dee8e-2bef-41e0-89c6-b55d0929964c'] -eq 100 -and $TW.Ac[$usb] -eq 0 -and $TW.Reg['HKLM:\SYSTEM\CurrentControlSet\Control\Power|HibernateEnabled'] -eq 1 -and -not ($TWlog -match 'setdcvalueindex')) ($o -join ' / ')
+Check '... "Best performance" power mode when plugged in' ($TW.Reg['HKLM:\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes|ActiveOverlayAcPowerScheme'] -eq 'ded574b5-45a0-4f42-8737-46345c09c238') ''
+Fresh; $TW.OneDrive = $true; Clear-Path $bk; $o = Run
+Check 'OneDrive back after a feature update: uninstalled again, its start-up entry removed' (($o -contains 'OneDrive removed') -and ($TWlog -match '^run OneDriveSetup\.exe /uninstall') -and ($TWlog -match '^remove .*OneDrive')) (($o + $TWlog) -join ' / ')
 Finish

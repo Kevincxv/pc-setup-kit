@@ -59,6 +59,8 @@ if ($fn) {
     Remove-Item Function:\winget, Function:\Start-Sleep, Function:\Install-App
 }
 
+Section 'setup.ps1: the power plan and OneDrive come from tweaks.ps1 (guarded after every update - see tweaks.ps1 tests)'
+Check 'setup sets no power plan and removes nothing itself (a second copy would drift from the guarded one)' ($setup -notmatch '(?m)^\s*powercfg ' -and $setup -notmatch 'OneDriveSetup' -and $setup -match "& `"\`$kit\\tweaks\.ps1`"") ''
 Section 'setup.ps1: the maintenance part, with and without Claude, in a sandbox profile'
 $a = $setup.IndexOf("Step 'Setting up the maintenance"); $b = $setup.IndexOf("if (-not `$WithClaude) {", [Math]::Max(0, $a))   # the part ends where the Claude-free finish (optimize, done) begins
 Check 'the maintenance part is found in setup.ps1' ($a -ge 0 -and $b -gt $a) "start $a, end $b"

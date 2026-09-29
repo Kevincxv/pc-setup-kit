@@ -47,10 +47,25 @@ if ($inRepo) {
     Check 'nothing personal in the kit (names, email, hardware, tokens)' (-not $hits) ($hits -join ', ')
     # the install page (GitHub Pages, docs\): its download buttons point at files that run the real one-line installer
     $page = Get-Content "$repoRoot\docs\index.html" -Raw -ErrorAction SilentlyContinue
-    $links = @([regex]::Matches("$page", 'href="([^"]+\.cmd)" download') | ForEach-Object { [uri]::UnescapeDataString($_.Groups[1].Value) })
+    $links = @([regex]::Matches("$page", 'href="([^"]+\.cmd)" download') | ForEach-Object { [uri]::UnescapeDataString($_.Groups[1].Value) } | Where-Object { $_ -like 'Install*' })
     $bad = @($links | Where-Object { $f = "$repoRoot\docs\$_"; -not (Test-Path $f) -or (Get-Content $f -Raw) -notmatch 'github\.com/Kevincxv/pc-setup-kit/releases/latest/download/install\.ps1' -or [IO.File]::ReadAllText($f) -match '[^\r]\n' })
     Check 'install page: both download buttons (without / with Messiah) lead to CRLF batch files running install.ps1' ($links.Count -eq 2 -and -not $bad -and ($links -match 'Messiah').Count -eq 1 -and (Get-Content "$repoRoot\docs\$($links -match 'Messiah')" -Raw) -match '-WithClaude') "links: $($links -join ', '); bad: $($bad -join ', ')"
-    # the installer is release-gated: fetched from the latest release that passed every test, never from main
+    # every PC updates with the updater it already has: the kit-update.ps1 of the release it runs, possibly several behind.
+    # Each of those only installs a release holding its list of required files ($need) - this release must hold them all,
+    # or PCs on that release would never update again. The last 10 releases' updaters (their tags, in the repo).
+    $tags = @(& git -C $repoRoot tag --list 'v*' --sort=-creatordate 2>$null | Select-Object -First 10)
+    if ($tags) {
+        $refused = @(foreach ($tg in $tags) {
+                $old = (& git -C $repoRoot show "${tg}:PCSetupKit/claude/kit-update.ps1" 2>$null) -join "`n"
+                if ($old -match '(?s)\$need = (.+?)\n\s*\$') {
+                    foreach ($p in [regex]::Matches($Matches[1], "'([^']+)'") | ForEach-Object { $_.Groups[1].Value }) { if (-not (Test-Path (Join-Path $Kit $p))) { "$tg needs $p" } }
+                }
+            })
+        Check "every updater of the last $($tags.Count) releases accepts this release (all the files each one requires are here)" (-not $refused) ($refused -join ', ')
+    } else { Skip 'older updaters accept this release' 'no release tags here (a shallow checkout)' }
+    # the install-USB button: a CRLF batch file saving make-usb.ps1 from the latest tested release and running it
+    $usbCmd = "$repoRoot\docs\Make install USB.cmd"
+    Check 'install page: the install-USB button runs make-usb.ps1 from the latest tested release' ("$page" -match 'href="Make%20install%20USB\.cmd" download' -and (Test-Path $usbCmd) -and (Get-Content $usbCmd -Raw) -match 'releases/latest/download/make-usb\.ps1 -OutFile' -and [IO.File]::ReadAllText($usbCmd) -notmatch '[^\r]\n') ''    # the installer is release-gated: fetched from the latest release that passed every test, never from main
     $raw = @(Get-ChildItem $repoRoot -Recurse -File -Include *.ps1, *.cmd, *.html, *.md, *.txt | Where-Object { $_.FullName -notmatch '\\\.git\\|\\tests\\' } |
             Where-Object { (Get-Content $_.FullName -Raw) -match 'raw\.githubusercontent\.com/[^\s"'']*/main/install\.ps1' } | ForEach-Object Name)
     Check 'the installer is always fetched from the latest tested release (releases/latest/download), never from main' (-not $raw) ($raw -join ', ')} else { Skip 'nothing personal in the kit' 'checked where the kit is published from' }

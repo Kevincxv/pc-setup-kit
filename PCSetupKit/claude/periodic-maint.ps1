@@ -66,12 +66,41 @@ if (-not $game -and (Due 'monthly-cleanup' 30)) {
         'Windows Upgrade Log Files', 'Old ChkDsk Files', 'Internet Cache Files', 'Downloaded Program Files', 'Active Setup Temp Folders',
         'BranchCache', 'Content Indexer Cleaner', 'Feedback Hub Archive log files', 'Diagnostic Data Viewer database files',
         'RetailDemo Offline Content', 'Windows Reset Log Files', 'Windows Defender'
+    # The previous Windows (Windows.old, often 20+ GB) once going back is no longer possible anyway: Windows' own
+    # rollback window (10 days unless changed - DISM says) has passed
+    $wo = Get-Item 'C:\Windows.old' -Force
+    if ($wo) {
+        $days = if ("$(DISM /Online /Get-OSUninstallWindow 2>$null)" -match 'Uninstall Window\s*:\s*(\d+)') { [int]$Matches[1] } else { 10 }
+        if ($wo.CreationTime -lt (Get-Date).AddDays(-$days)) { $safe += 'Previous Installations'; $woDays = $days }
+    }
     $vc = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches'
     foreach ($k in Get-ChildItem $vc) {
         if ($k.PSChildName -in $safe) { Set-ItemProperty $k.PSPath StateFlags0078 2 -Type DWord } else { Remove-ItemProperty $k.PSPath StateFlags0078 }
     }
     $cm = Start-Process cleanmgr.exe -ArgumentList '/sagerun:78' -WindowStyle Hidden -PassThru
     if (-not $cm.WaitForExit(900000)) { Stop-Process -Id $cm.Id -Force; 'Disk Cleanup: stopped after 15 min' }
+    if ($woDays -and -not (Test-Path 'C:\Windows.old')) { "Removed the previous Windows (Windows.old) - its $woDays-day window for going back had passed" }
+    # Steam (only while it's closed): downloads and temp files untouched for 14 days (abandoned installs), and folders of
+    # uninstalled games no installed game points to - those go to the Recycle Bin (some old games keep saves there)
+    $sp = "$((Get-ItemProperty 'HKCU:\Software\Valve\Steam').SteamPath)" -replace '/', '\'
+    if ($sp -and -not (Get-Process steam)) {
+        $vdf = @("$sp\steamapps\libraryfolders.vdf", "$sp\config\libraryfolders.vdf") | Where-Object { Test-Path $_ } | Select-Object -First 1
+        $libs = @(if ($vdf) { Select-String -Path $vdf -Pattern '"path"\s+"([^"]+)"' | ForEach-Object { $_.Matches[0].Groups[1].Value -replace '\\\\', '\' } }) + $sp | Select-Object -Unique
+        $old = (Get-Date).AddDays(-14); $gone = 0L; $bin = @()
+        Add-Type -AssemblyName Microsoft.VisualBasic
+        foreach ($l in $libs | Where-Object { Test-Path "$_\steamapps" }) {
+            foreach ($d in Get-ChildItem "$l\steamapps\downloading", "$l\steamapps\temp" -Directory -Force | Where-Object { $_.LastWriteTime -lt $old }) {
+                $gone += (Get-ChildItem $d.FullName -Recurse -File -Force | Measure-Object Length -Sum).Sum; [IO.Directory]::Delete($d.FullName, $true)
+            }
+            $used = @(Get-ChildItem "$l\steamapps\appmanifest_*.acf" | ForEach-Object { if ((Get-Content $_.FullName -Raw) -match '"installdir"\s+"([^"]+)"') { $Matches[1] } })
+            foreach ($d in Get-ChildItem "$l\steamapps\common" -Directory -Force | Where-Object { $_.Name -notin $used -and $_.LastWriteTime -lt $old }) {
+                $size = (Get-ChildItem $d.FullName -Recurse -File -Force | Measure-Object Length -Sum).Sum
+                if ($size -ge 200MB) { if ($env:PCKIT_IN_TESTS) { $rb = Join-Path $env:TEMP 'pckit-test-recycle'; New-Item $rb -ItemType Directory -Force | Out-Null; Move-Item $d.FullName $rb } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($d.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin') }; $bin += "$($d.Name) ($([Math]::Round($size / 1GB, 1)) GB)" }
+            }
+        }
+        if ($gone -gt 50MB) { "Steam: removed $([Math]::Round($gone / 1GB, 1)) GB of abandoned downloads" }
+        if ($bin) { "Steam: moved leftover folders of uninstalled games to the Recycle Bin: $($bin -join ', ')" }
+    }
     # Old driver versions (in-use packages are refused by pnputil without /force, so this only removes stale ones)
     $pk = [regex]::Matches((pnputil /enum-drivers | Out-String), 'Published Name:\s+(\S+)\s+Original Name:\s+(\S+)[\s\S]*?Driver Version:\s+\S+\s+(\S+)') |
         ForEach-Object { [pscustomobject]@{ Pub = $_.Groups[1].Value; Orig = $_.Groups[2].Value; Ver = [version]($_.Groups[3].Value -replace '[^\d.]', '') } }

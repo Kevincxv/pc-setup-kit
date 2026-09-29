@@ -37,6 +37,10 @@
   .copy { float: right; font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 6px; padding: 2px 10px; cursor: pointer; }
   footer { color: var(--sub); font-size: 14px; margin-top: 32px; }
   a { color: var(--accent); }
+  .shots { display: grid; gap: 12px; }
+  .shots figure { margin: 0; }
+  .shots img { width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); display: block; }
+  .shots figcaption { font-size: 13px; color: var(--sub); margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -60,9 +64,33 @@
       <li>Click <strong>Yes</strong> when it asks for administrator rights, read what it will do, then type <code>YES</code>.</li>
       <li>Wait 15-30 minutes. It tweaks Windows, installs the apps, optimizes the PC and opens a report of what it did.</li>
     </ol>
-    <div class="note">Afterwards the <strong>tray icon next to the clock</strong> and <strong>"PC Setup Kit Status"</strong> in the Start menu show what the PC is doing and anything that needs you. The kit never restarts your PC by itself.</div>
+    <div class="note">Afterwards the <strong>"PC Setup Kit"</strong> app (Start menu and desktop, or the icon in the hidden tray next to the clock) shows what the PC is doing and anything that needs you. The kit never restarts your PC by itself.</div>
   </div>
 
+  <div class="card">
+    <h2>Installing Windows from scratch</h2>
+    <p style="margin:0 0 12px">For a new PC, or to wipe and reinstall one: a USB stick (8 GB or bigger) that installs Windows 11 and sets the PC up by itself.</p>
+    <div class="btns">
+      <a class="btn" href="Make%20install%20USB.cmd" download>
+        <strong>Make an install USB</strong><span>Windows 11 from Microsoft + the kit; erases the stick</span>
+      </a>
+    </div>
+    <ol>
+      <li>On any Windows PC, open the downloaded file and pick the USB stick. It downloads Windows 11 from Microsoft (about 7 GB) and puts the kit on the stick: 20-40 minutes. (Already have the kit? The app's <strong>Maintenance</strong> page has the same button, and it can put your settings on the stick too.)</li>
+      <li>Plug the stick into the new PC, turn it on and press the boot-menu key (often <strong>F8</strong>, <strong>F11</strong> or <strong>F12</strong>). Pick the USB.</li>
+      <li>Choose the language, then the drive to install on. That's the one screen to be careful on: delete the old partitions only on the drive you want wiped.</li>
+      <li>After a few restarts, pick a username and password (no Microsoft account needed). At the desktop a <strong>"Setting up this PC"</strong> window shows the progress. Keep the stick in until it says it's finished.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>What you'll see</h2>
+    <div class="shots">
+      <figure><img src="img/setup-progress.png" alt="The Setting up this PC window with the steps, a progress bar and the time left" loading="lazy"><figcaption>While it sets up: every step, the progress and about how long is left.</figcaption></figure>
+      <figure><img src="img/app-overview.png" alt="The app's Overview page: All good - nothing needs you" loading="lazy"><figcaption>Afterwards the app says whether anything needs you. Usually nothing does.</figcaption></figure>
+      <figure><img src="img/app-history.png" alt="The app's History page with charts of start-up time, free space and temperatures" loading="lazy"><figcaption>History: start-up time, disk space, temperatures, frame rates and ping over time.</figcaption></figure>
+    </div>
+  </div>
   <div class="card">
     <h2>What it does</h2>
     <ul>

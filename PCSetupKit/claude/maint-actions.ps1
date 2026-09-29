@@ -45,6 +45,12 @@ if ($healthRan) {
             Todo 'monitor-hz' "$($Matches[1]) could run at $($Matches[2])Hz but Windows can't switch it with this connection. Use a DisplayPort cable (or an HDMI 2.1 cable) and plug it into the graphics card, not the motherboard."
         } else { Done 'monitor-hz' }
     } else { Done 'monitor-hz' }
+    # gaming-check.ps1's reminders: things only the owner can do (BIOS, a driver, moving games) - the reminder's own words
+    foreach ($r in @(@('rebar', '^Reminder: Resizable BAR is off'), @('x3d-chipset', "^Reminder: the .+ needs AMD's chipset driver"),
+            @('x3d-gamebar', '^Reminder: the .+ needs the Xbox Game Bar'), @('games-hdd', '^Reminder: \d+ Steam game\(s\) are on a hard drive'),
+            @('hypervisor', '^Reminder: the Windows hypervisor is running'))) {
+        if ($l = Line $r[1]) { Todo $r[0] ($l -replace '^Reminder: ', '') } else { Done $r[0] }
+    }
     if (($l = Line '^Reminder: (.+) network link is only (.+?) \(') -and $l -match '^Reminder: (.+) network link is only (.+?) \(') {
         Todo 'network-link' "Your wired network ($($Matches[1])) connects at only $($Matches[2]). Try another network cable (Cat5e or better) or another port on the router."
     } else { Done 'network-link' }

@@ -138,7 +138,7 @@ foreach ($k in 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run', 'HKLM:\Sof
 }
 $auto += (Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\*", "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\*" -Exclude desktop.ini).BaseName
 # (the kit's own tasks aren't news: the tray, the maintenance, the one-shot resume task, test runs' throwaway tasks)
-$own = '^(Messiah Tray|Claude Admin Tray|Claude Background Maintenance|Claude Resume After Restart)$|^PCSetupKit|KITTEST'
+$own = '^(Messiah Tray|Claude Admin Tray|Claude Background Maintenance|Claude Resume After Restart)$|^PCSetupKit|^PC Setup Kit |KITTEST'
 $auto += Get-ScheduledTask | Where-Object { $_.TaskPath -notlike '\Microsoft\*' -and $_.TaskPath -notlike '\PCSetupKit*' -and $_.State -ne 'Disabled' -and $_.TaskName -notmatch $own } | ForEach-Object { "task: $($_.TaskName -replace '_?\{[0-9A-Fa-f-]+\}$' -replace '\d+(\.\d+)+$')" }
 $auto = @($auto | Where-Object { $_ } | Sort-Object -Unique)
 $base = "$env:USERPROFILE\.claude\startup-baseline.txt"
@@ -151,6 +151,11 @@ Set-Content $base -Value $auto   # also when empty (a clean PC): no baseline fil
 # --- Wired network link speed (a gigabit+ adapter stuck at 100 Mbps / 10 Mbps usually means a bad cable or port) ---
 Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' -and $_.MediaType -eq '802.3' -and $_.ReceiveLinkSpeed -lt 1e9 -and $_.InterfaceDescription -match 'Gigabit|GbE|2\.5G|5G|10G|Gaming|I2[0-9]{2}' } |
     ForEach-Object { "Reminder: $($_.Name) network link is only $($_.LinkSpeed) (adapter supports 1 Gbps or more) - check the cable (Cat5e or better) and router port" }
+# gaming: dual-CCD X3D needs (Game Bar, V-Cache service), Resizable BAR, games on a hard drive, the hypervisor,
+# optional Defender exclusions for the game folders
+if (Test-Path "$PSScriptRoot\gaming-check.ps1") { & "$PSScriptRoot\gaming-check.ps1" }
+# NVIDIA driver settings for games (low latency, unlimited shader cache) - once per driver version
+if (Test-Path "$PSScriptRoot\nvidia-settings.ps1") { & "$PSScriptRoot\nvidia-settings.ps1" }
 # ping, jitter, packet loss and DNS speed over time (a slow router DNS is switched to a fast public one where safe)
 if (Test-Path "$PSScriptRoot\network-check.ps1") { & "$PSScriptRoot\network-check.ps1" }
 

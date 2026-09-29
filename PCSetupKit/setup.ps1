@@ -1,6 +1,6 @@
 # PC Setup Kit - first-logon setup. Started automatically by autounattend.xml (FirstLogonCommands) from the USB.
 # Can also be run by hand on an existing Windows 11 PC: right-click > Run with PowerShell (it asks for admin).
-# Steps: copy kit to C:\PCSetupKit > tweaks > power plan > remove OneDrive > install apps > maintenance (scripts, login
+# Steps: copy kit to C:\PCSetupKit > tweaks (with the power plan and removing OneDrive) > install apps > maintenance (scripts, login
 # task, tray). No AI needed: everything is scripts.
 # -WithClaude: also install the optional Claude part (Messiah: Claude Code with admin rights, needs the owner's own Claude
 #   account) and open it with the /pc-optimize playbook at the end. From the USB: a file "with-claude.txt" next to setup.ps1.
@@ -20,28 +20,22 @@ $kit = 'C:\PCSetupKit'
 if ($src -ne $kit) { New-Item $kit -ItemType Directory -Force | Out-Null; Copy-Item "$src\*" $kit -Recurse -Force }
 if ((Test-Path "$kit\kit-version.txt") -and (Test-Path "$kit\tests")) { Copy-Item "$kit\kit-version.txt" "$kit\tests\tests-version.txt" -Force }   # tests match this release (self-test.ps1)
 Start-Transcript "$kit\setup.log" -Append | Out-Null
-function Step($msg) { Write-Host "`n=== $msg" -ForegroundColor Cyan }
+# each step also goes to setup-progress.txt, which the progress window (setup-progress.ps1) follows - not under tests
+# or on GitHub's machines (nobody to see it)
+$progress = "$kit\setup-progress.txt"; [IO.File]::WriteAllText($progress, '')
+function Step($msg) { Write-Host "`n=== $msg" -ForegroundColor Cyan; Add-Content $progress "$((Get-Date).ToString('o'))|$msg" -ErrorAction SilentlyContinue }
+if (-not $env:PCKIT_IN_TESTS -and -not $env:GITHUB_ACTIONS -and (Test-Path "$kit\setup-progress.ps1")) {
+    Start-Process powershell -ArgumentList (@('-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$kit\setup-progress.ps1`"", '-SetupPid', $PID) + @(if ($WithClaude) { '-WithClaude' }))
+}
 
 Step 'Waiting for internet'
 for ($i = 0; $i -lt 60 -and -not (Test-NetConnection 1.1.1.1 -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue); $i++) { Start-Sleep 5 }
 
-Step 'Applying Windows tweaks'
+Step 'Applying Windows tweaks (with the power plan and removing OneDrive)'
 & "$kit\tweaks.ps1" | ForEach-Object { "  $_" }
 
-Step 'Power plan: Ultimate Performance, no USB sleep, no hibernation'
-$ult = powercfg /list | Select-String 'Ultimate Performance' | Select-Object -First 1
-if (-not $ult) { powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 | Out-Null; $ult = powercfg /list | Select-String 'Ultimate Performance' | Select-Object -First 1 }
-if ($ult -match '([0-9a-f-]{36})') { powercfg /setactive $Matches[1] }
-powercfg /setacvalueindex SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0
-powercfg /setactive SCHEME_CURRENT
-powercfg /hibernate off
-
-Step 'Removing OneDrive'
-Get-Process OneDrive -ErrorAction SilentlyContinue | Stop-Process -Force
-foreach ($o in "$env:SystemRoot\System32\OneDriveSetup.exe", "$env:SystemRoot\SysWOW64\OneDriveSetup.exe", (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\OneDrive\*\OneDriveSetup.exe" -ErrorAction SilentlyContinue).FullName) {
-    if ($o -and (Test-Path $o)) { Start-Process $o '/uninstall' -Wait }
-}
-Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name OneDrive -ErrorAction SilentlyContinue
+# (the power plan - laptops kept on Balanced - and removing OneDrive are part of tweaks.ps1 above: its guard puts
+# them back after every update)
 
 Step 'Getting winget ready'
 # Windows brings winget with the Store's App Installer, which can take minutes to appear after the first login. Where

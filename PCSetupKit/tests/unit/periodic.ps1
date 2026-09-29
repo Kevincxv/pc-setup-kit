@@ -5,7 +5,7 @@ $d = "$Work\pm"; New-Item $d -ItemType Directory -Force | Out-Null
 Copy-Item "$Src\periodic-maint.ps1" $d; '' | Set-Content "$d\game-check.ps1"
 $mocked = 'winget', 'DISM', 'Start-Process', 'Stop-Process', 'Checkpoint-Computer', 'Get-ComputerRestorePoint', 'pnputil', 'Get-NetFirewallApplicationFilter',
     'Get-NetFirewallRule', 'Remove-NetFirewallRule', 'Optimize-Volume', 'Set-ItemProperty', 'Remove-ItemProperty', 'Get-PSDrive', 'Get-ScheduledTask',
-    'Get-ScheduledTaskInfo', 'Get-CimInstance', 'Get-WindowsDriver'
+    'Get-ScheduledTaskInfo', 'Get-CimInstance', 'Get-WindowsDriver', 'Get-Process', 'Get-ItemProperty'
 if (-not (Test-Tripwire "$d\periodic-maint.ps1" $mocked -Guarded 'Get-ChildItem')) { Finish }   # (Get-ChildItem only reads the Disk Cleanup category list)
 
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
@@ -15,7 +15,7 @@ function Reset-M {
     $global:PM = @{
         Winget = @('No installed package found matching input criteria.'); WingetOk = @('Vendor.Good'); WinDrivers = @()
         Rps = @(RestorePt 10); RpWorks = $true; Reboot = $false; Free = 100GB; FreeAfter = 102GB; CleanmgrHangs = $false
-        Drivers = ''; FwFilters = @(); Services = @(); Tasks = @(); DefragLast = $now.AddDays(-2)
+        Drivers = ''; FwFilters = @(); Services = @(); Tasks = @(); DefragLast = $now.AddDays(-2); SteamPath = $null; SteamRunning = $false
     }
     $global:PMcalls = New-Object System.Collections.Generic.List[string]
 }
@@ -38,6 +38,8 @@ function Get-PSDrive { $global:psdriveCalls++; [pscustomobject]@{ Free = $(if ($
 function Get-ScheduledTask { param($TaskPath, $TaskName) if ($TaskName -eq 'ScheduledDefrag') { [pscustomobject]@{ TaskName = 'ScheduledDefrag' } } else { $PM.Tasks } }
 function Get-ScheduledTaskInfo { [pscustomobject]@{ LastRunTime = $PM.DefragLast } }
 function Get-CimInstance { if ("$args" -match 'Win32_Service') { return $PM.Services }; CimCmdlets\Get-CimInstance @args }
+function Get-Process { param($Name) if ($Name -eq 'steam' -and $PM.SteamRunning) { [pscustomobject]@{ Name = 'steam' } } }
+function Get-ItemProperty { if ("$args" -match 'Valve\\Steam') { return [pscustomobject]@{ SteamPath = $PM.SteamPath } }; Microsoft.PowerShell.Management\Get-ItemProperty @args }
 function Test-Path { $a = @($args | ForEach-Object { $_ }) -join ' '; if ($a -match 'RebootPending|RebootRequired') { return $PM.Reboot }; Microsoft.PowerShell.Management\Test-Path @args }
 function State([hashtable]$s) { $base = @{ 'weekly-apps' = $now.ToString('o'); 'monthly-cleanup' = $now.ToString('o'); 'trim' = $now.ToString('o') }; foreach ($k in $s.Keys) { $base[$k] = $s[$k] }; $base | ConvertTo-Json | Set-Content "$d\maint-state.json" }
 function PM { $global:psdriveCalls = 0; @(& "$d\periodic-maint.ps1" -TestDisplayVersion 25H2 -TestEdition Professional -TestToday $now.ToString('s')) }
@@ -150,6 +152,20 @@ Check 'Disk Cleanup hanging: stopped after 15 min and said so' (($PMcalls -match
 Reset-M; State @{ 'monthly-cleanup' = $old }; $PM.Rps = @(); $PM.RpWorks = $false; $o = PM
 Check 'System Protection off: restore point FAILED is reported' ([bool]($o -match 'Restore point FAILED')) ($o -join ' / ')
 
+Section 'Steam cleanup (monthly, Steam closed)'
+$sl = "$Work\Steam"; foreach ($p in 'steamapps\downloading\111', 'steamapps\downloading\222', 'steamapps\common\Installed Game', 'steamapps\common\Uninstalled Game', 'steamapps\common\Small Leftover') { New-Item "$sl\$p" -ItemType Directory -Force | Out-Null }
+'"AppState" { "installdir" "Installed Game" }' | Set-Content "$sl\steamapps\appmanifest_1.acf"
+foreach ($p in 'steamapps\downloading\111\part.bin', 'steamapps\common\Installed Game\game.pak', 'steamapps\common\Uninstalled Game\data.pak') { $fs = [IO.File]::Create("$sl\$p"); $fs.SetLength(300MB); $fs.Close() }
+'x' | Set-Content "$sl\steamapps\common\Small Leftover\a.txt"
+foreach ($p in 'steamapps\downloading\111', 'steamapps\common\Installed Game', 'steamapps\common\Uninstalled Game', 'steamapps\common\Small Leftover') { (Get-Item "$sl\$p").LastWriteTime = $now.AddDays(-30) }
+$rb = Join-Path $env:TEMP 'pckit-test-recycle'; if (Test-Path $rb) { Clear-Path $rb }
+Reset-M; $PM.SteamPath = $sl -replace '\\', '/'; $PM.SteamRunning = $true; State @{ 'monthly-cleanup' = $old }; $o = PM
+Check 'Steam running: its folders are not touched' ((Test-Path "$sl\steamapps\downloading\111") -and (Test-Path "$sl\steamapps\common\Uninstalled Game") -and -not ($o -match '^Steam:')) ($o -join ' / ')
+Reset-M; $PM.SteamPath = $sl -replace '\\', '/'; State @{ 'monthly-cleanup' = $old }; $o = PM
+Check 'an abandoned download (untouched 14+ days): removed; a recent one kept' (-not (Test-Path "$sl\steamapps\downloading\111") -and (Test-Path "$sl\steamapps\downloading\222") -and ($o -match '^Steam: removed 0\.3 GB of abandoned downloads')) ($o -join ' / ')
+Check "an uninstalled game's leftover folder: to the Recycle Bin, said with its size" (-not (Test-Path "$sl\steamapps\common\Uninstalled Game") -and (Test-Path "$rb\Uninstalled Game") -and ($o -match 'Recycle Bin: Uninstalled Game \(0\.3 GB\)')) ($o -join ' / ')
+Check '... an installed game and a tiny leftover: kept' ((Test-Path "$sl\steamapps\common\Installed Game\game.pak") -and (Test-Path "$sl\steamapps\common\Small Leftover")) ''
+if (Test-Path $rb) { Clear-Path $rb }
 Section 'TRIM and the next-run line'
 Reset-M; State @{ 'trim' = $old }; $PM.DefragLast = $now.AddDays(-20); $o = PM
 Check 'Windows has not trimmed the SSD in 2+ weeks: TRIM is run' (($PMcalls -match 'Optimize-Volume.*ReTrim') -and ($o -match 'SSD TRIM run')) ($PMcalls -join ', ')

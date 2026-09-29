@@ -48,6 +48,11 @@ Microsoft's Media Creation Tool USB plus `autounattend.xml` and the `PCSetupKit`
 - **Zero maintenance**, hidden in the background after each login: drivers, app updates, crash detection with
   automatic dump diagnosis, antivirus/clock/TRIM checks, monthly cleanup and restore point, a benchmark every 3 months,
   dusting reminder every 6 months, full re-optimize yearly. It waits while you're gaming.
+- **More gaming settings**: Windows' "optimizations for windowed games" and variable refresh rate, NVIDIA low-latency
+  mode and an unlimited shader cache (once per driver), no Windows Update restarts while you're signed in, the page
+  file kept on, laptops kept on Balanced with full speed when plugged in. AMD dual-CCD X3D CPUs keep the Xbox Game Bar
+  and AMD's V-Cache optimizer (they need them to put games on the right cores). Reminders for Resizable BAR off, games
+  on a hard drive and the hypervisor running. Optional: Defender skips the game folders (the app's Settings).
 - **Games, measured while you play**: a minute of each game's real frame rate (average and 1% lows, via Intel's
   PresentMon) plus the graphics card's temperature and throttling - so "the last driver or Windows update made my games
   slower" and "it runs hot while gaming" get noticed and named. Graphics driver resets (a freeze or black screen for a
@@ -62,7 +67,8 @@ Microsoft's Media Creation Tool USB plus `autounattend.xml` and the `PCSetupKit`
   (BIOS settings, cleaning, cables) become plain step-by-step items in the tray - and disappear once fixed.
 - **Tray icon** (next to the clock) and **the app**: status, what needs you, what's scheduled, and a **History** page (start-up time, disk space, temperatures, frame rates, ping over time); small alerts appear when
   something needs you (never over a game). **Optimize this PC now** re-runs the optimization anytime.
-- **Automatic updates of the kit itself**: new releases install by themselves at login.
+- **Automatic updates of the kit itself**: a new release installs within 4 hours (and at every login), without a restart, only once it passed every test and fresh install. Its self-test runs right away; a release that fails on a PC goes back to the version before by itself. Each release is checked to be accepted by the updaters of the last 10 releases, so PCs that fell behind catch up in one step.
+- **Settings stay optimized**: 2 minutes after every Windows Update or driver install, everything an update can undo (settings, services, removed apps, the power plan, OneDrive, monitors, NVIDIA settings) is put back.
 - **Self-testing**: weekly and after every update, the kit's test suite checks the maintenance scripts on the PC
   itself (in a sandbox - nothing changes).
 - **With Messiah** (optional): a Claude Code session always ready in the tray, hidden Claude runs that handle the

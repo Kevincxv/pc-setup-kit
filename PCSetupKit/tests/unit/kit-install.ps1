@@ -75,7 +75,7 @@ else {
     }
     $fk = "$Work\fb-kit"; New-Item $fk, "$Work\fb-cl" -ItemType Directory -Force | Out-Null
     "repo=$fbRepo" | Set-Content "$fk\kit-source.txt"; 'v2000.01.01' | Set-Content "$fk\kit-version.txt"
-    $o = & "$Src\kit-update.ps1" -KitDir $fk -ClaudeDir "$Work\fb-cl" -TrayDir "$Work\fb-td" -Force 2>&1 | Out-String
+    $o = & "$Src\kit-update.ps1" -KitDir $fk -ClaudeDir "$Work\fb-cl" -TrayDir "$Work\fb-td" -Saved "$Work\saved3" -Force 2>&1 | Out-String
     Check "updater: finds and installs $latest the same way" ((Get-Content "$fk\kit-version.txt") -eq $latest -and $o -match [regex]::Escape($latest)) $o
     Remove-Item Function:\Invoke-RestMethod
 }
@@ -104,20 +104,28 @@ $kd = "$Work\kd"; $cd = "$Work\cd"; $td = "$Work\td"; New-Item $kd, $cd, $td -It
 Get-Content "$Kit\kit-source.txt" | Set-Content "$kd\kit-source.txt"; 'v2000.01.01' | Set-Content "$kd\kit-version.txt"; 'old' | Set-Content "$td\Messiah Tray.ahk"
 New-Item "$kd\tests\unit" -ItemType Directory -Force | Out-Null; 'old' | Set-Content "$kd\tests\unit\removed-long-ago.ps1"
 'claude=on' | Set-Content "$cd\kit-options.txt"   # this install has the optional Claude part (skills, hook)
-$o = GitHubStep { & "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force } { param($x) "$x" -match 'updated' }
+$o = GitHubStep { & "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Saved "$Work\saved" -Force } { param($x) "$x" -match 'updated' }
 Check 'an old install updates itself to the latest release' ("$o" -match 'PC Setup Kit updated v2000.01.01 -> v') "$o"
 Check '... scripts, skills, hook, tray and uninstaller installed' ((@(Get-ChildItem "$cd\*.ps1").Count -ge 15) -and (Test-Path "$cd\skills\maintain\SKILL.md") -and (Test-Path "$cd\hooks\no-power-off.ps1") -and ((Get-Content "$td\Messiah Tray.ahk" -Raw) -match 'Persistent') -and (Test-Path "$kd\uninstall.ps1")) ''
 Check '... the kit copy''s test suite refreshed (for the weekly self-test), removed tests gone' ((Test-Path "$kd\tests\run-tests.ps1") -and (Test-Path "$kd\tests\unit\static.ps1") -and -not (Test-Path "$kd\tests\unit\removed-long-ago.ps1")) ''
 Check '... the tests are stamped with the release they belong to (self-test.ps1 checks it)' ((Get-Content "$kd\tests\tests-version.txt" -ErrorAction SilentlyContinue) -eq (Get-Content "$kd\kit-version.txt")) ''
-'stale' | Set-Content "$kd\tests\tests-version.txt"; $o = GitHubStep { & "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force -Reinstall } { param($x) "$x" -match 'updated' }
+if ("$o" -match 'updated') {
+    $new = (Get-Content "$kd\kit-version.txt").Trim()
+    Check '... the version it replaced was saved first (to go back to)' ((Get-Content "$Work\saved\version.txt") -eq 'v2000.01.01' -and (Get-Content "$Work\saved\tray\Messiah Tray.ahk") -eq 'old' -and (Test-Path "$Work\saved\kit\tests\unit\removed-long-ago.ps1")) ''
+    $o = @(& "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Saved "$Work\saved" -Force -Rollback)
+    Check '-Rollback (its self-test failed on this PC): the saved version is back, said' ((Get-Content "$kd\kit-version.txt") -eq 'v2000.01.01' -and (Get-Content "$td\Messiah Tray.ahk") -eq 'old' -and (Test-Path "$kd\tests\unit\removed-long-ago.ps1") -and "$o" -match "went back to v2000\.01\.01 - $([regex]::Escape($new)) failed its self-test") "$o"
+    $o = @(& "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Saved "$Work\saved" -Force)
+    Check "... and that release isn't installed again (the next one will be)" (-not $o -and (Get-Content "$kd\kit-version.txt") -eq 'v2000.01.01') "$o"
+}
+'stale' | Set-Content "$kd\tests\tests-version.txt"; $o = GitHubStep { & "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Saved "$Work\saved" -Force -Reinstall } { param($x) "$x" -match 'updated' }
 Check '-Reinstall installs the current release again (a stale test suite gets replaced)' ((Get-Content "$kd\tests\tests-version.txt") -eq (Get-Content "$kd\kit-version.txt") -and "$o" -match 'updated') "$o"
 $nd = "$Work\nd"; $nc = "$Work\nc"; New-Item $nd, $nc -ItemType Directory -Force | Out-Null
 Get-Content "$Kit\kit-source.txt" | Set-Content "$nd\kit-source.txt"; 'v2000.01.01' | Set-Content "$nd\kit-version.txt"; 'claude=off' | Set-Content "$nc\kit-options.txt"
-$o = GitHubStep { & "$Src\kit-update.ps1" -KitDir $nd -ClaudeDir $nc -TrayDir "$Work\ntd" -Force } { param($x) "$x" -match 'updated' }
+$o = GitHubStep { & "$Src\kit-update.ps1" -KitDir $nd -ClaudeDir $nc -TrayDir "$Work\ntd" -Saved "$Work\saved2" -Force } { param($x) "$x" -match 'updated' }
 Check 'an install without Claude: updated, but no Claude skills or hook added' ("$o" -match 'updated' -and (@(Get-ChildItem "$nc\*.ps1").Count -ge 15) -and -not (Test-Path "$nc\skills") -and -not (Test-Path "$nc\hooks")) "$o"
 'v2099.01.01' | Set-Content "$nd\kit-version.txt"
-Check 'never back to an older release (a newer one is installed)' (-not (& "$Src\kit-update.ps1" -KitDir $nd -ClaudeDir $nc -TrayDir "$Work\ntd" -Force) -and (Get-Content "$nd\kit-version.txt") -eq 'v2099.01.01') ''
-Check 'already current: silent' (-not (& "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force)) ''
+Check 'never back to an older release (a newer one is installed)' (-not (& "$Src\kit-update.ps1" -KitDir $nd -ClaudeDir $nc -TrayDir "$Work\ntd" -Saved "$Work\saved2" -Force) -and (Get-Content "$nd\kit-version.txt") -eq 'v2099.01.01') ''
+Check 'already current: silent' (-not (& "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Saved "$Work\saved" -Force)) ''
 [IO.File]::Delete("$kd\kit-source.txt")
-Check 'no kit-source.txt (not installed from the kit): silent' (-not (& "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Force)) ''
+Check 'no kit-source.txt (not installed from the kit): silent' (-not (& "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Saved "$Work\saved" -Force)) ''
 Finish

@@ -37,6 +37,8 @@ if (-not $Yes -and -not $WhatIf) {
 }
 
 # the DNS network-check.ps1 switched to, if it did (read now: its history is moved away with the scripts below)
+# the game folders gaming-check.ps1 asked Defender to skip (read now, before its state moves away)
+$gameEx = try { @((Get-Content "$env:USERPROFILE\.claude\gaming-state.json" -Raw -ErrorAction Stop | ConvertFrom-Json).excluded) } catch { @() }
 $dnsSet = try { @(Get-Content "$env:USERPROFILE\.claude\net-history.json" -Raw -ErrorAction Stop | ConvertFrom-Json | ForEach-Object { $_ } | Where-Object { $_.dnsSet }) | Select-Object -Last 1 } catch { $null }
 if (-not $RevertOnly) {
     Write-Host "`n=== Stopping Messiah" -ForegroundColor Cyan
@@ -46,7 +48,7 @@ if (-not $RevertOnly) {
         Do-It "stop $($pr.Name) $($pr.ProcessId)" { Stop-Process -Id $pr.ProcessId -Force }
     }
     Write-Host "`n=== Scheduled tasks" -ForegroundColor Cyan
-    foreach ($t in 'Messiah Tray', 'Claude Admin Tray', 'Claude Background Maintenance', 'Claude Resume After Restart') {
+    foreach ($t in 'Messiah Tray', 'Claude Admin Tray', 'Claude Background Maintenance', 'Claude Resume After Restart', 'PC Setup Kit Update Guard', 'PC Setup Kit Update Check') {
         if (Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue) { Do-It "remove task '$t'" { Unregister-ScheduledTask -TaskName $t -Confirm:$false } }
     }
     Write-Host "`n=== Shortcuts and tray icon" -ForegroundColor Cyan
@@ -77,7 +79,7 @@ if (-not $RevertOnly) {
         'health-check.ps1', 'maint-due.ps1', 'maint-watch.ps1', 'periodic-maint.ps1', 'resume-after-restart.ps1', 'restart-check.ps1', 'session-lib.ps1',
         'refresh-session.ps1', 'status.ps1', 'status-lib.ps1', 'dashboard.ps1', 'tray-app.ps1', 'app-icon.ps1', 'driver-guard.ps1', 'driver-blocklist.txt', 'trends.ps1', 'health-history.json', 'Messiah Session.lnk', 'app-window.txt', 'tray-hwnd.txt', 'rehearse-login.ps1', 'game-check.ps1', 'kit-update.ps1', 'migrate-names.ps1', 'self-test.ps1', 'self-test.json', 'self-test.log', 'ai-enabled.ps1', 'kit-options.txt', 'optimize.ps1', 'maint-actions.ps1', 'ensure-schedule.ps1', 'todo.ps1', 'display-refresh.ps1', 'todo-scripted.json', 'actions-state.json', 'tweaks-local.ps1',
         'game-perf.ps1', 'perf-history.json', 'tools', 'gpu-watch.ps1', 'gpu-state.json', 'network-check.ps1', 'net-history.json', 'settings-backup.ps1',
-        'settings-restored.txt', 'display-state.json', 'notifications.log',
+        'settings-restored.txt', 'display-state.json', 'notifications.log', 'gaming-check.ps1', 'gaming-state.json', 'make-usb.ps1', 'after-update.ps1', 'update-check.ps1', 'update-state.json', 'nvidia-settings.ps1', 'nvidia-settings.txt',
         'maint-report.txt', 'maint-state.json', 'maint-todo.txt', 'maint-todo.shown', 'maint-requests.txt', 'maint-claude-running', 'maint-claude-session',
         'maint-history', 'maint-claude-log', 'restart-ledger.json', 'restart-canary.txt', 'admin-sessions.txt', 'resume-after-login.txt', 'rehearsal.txt',
         'games.txt', 'tray-notified.ini', 'tray-errors.log', 'selfimprove-last', 'selfimprove-journal.md', 'selfimprove-backup', 'session-refresh.log', 'benchmarks.json',
@@ -105,15 +107,22 @@ if ($RevertTweaks) {
             'power' { $d = Get-CimInstance -Namespace root\wmi MSPower_DeviceEnable | Where-Object InstanceName -eq $k[1]
                 if ($d) { Do-It "USB/network power-saving back on ($($k[1].Split('\')[1]))" { Set-CimInstance -InputObject $d -Property @{ Enable = $true } } } }
             'app' { $apps += $k[1] }
+            'startup' { Do-It "start-up item $($k[2]) back on" { if ($v.Existed) { Set-ItemProperty -Path $k[1] -Name $k[2] -Value ([Convert]::FromBase64String($v.Value)) -Type Binary } else { Remove-ItemProperty -Path $k[1] -Name $k[2] } } }
+            'plan' { $plan = $v.Guid }   # put back below
+            'pagefile' { }   # kept: no page file at all makes games crash when memory runs short
         }
     }
     if (-not $RevertOnly) {
-        Do-It 'power plan back to Balanced' { powercfg /setactive 381b4222-f694-41f0-9685-ff5bb260df2e }
+        $to = if ($plan) { $plan } else { '381b4222-f694-41f0-9685-ff5bb260df2e' }   # the plan it had (else Balanced)
+        Do-It "power plan back to $(if ($plan) { 'the one it had' } else { 'Balanced' })" { powercfg /setactive $to }
         Do-It 'hibernation (and fast startup) back on' { powercfg /hibernate on }
     }
     if ($dnsSet.dnsSet -eq 'public' -and $dnsSet.ifIndex) { Do-It 'DNS back to automatic (the router''s)' { Set-DnsClientServerAddress -InterfaceIndex $dnsSet.ifIndex -ResetServerAddresses } }
     if ($apps) { "  Windows apps the kit removed (reinstall any you want from the Microsoft Store): $($apps -join ', ')" }
 }
+
+# Defender scans the game folders again (always: a leftover exclusion would be a security gap nobody knows about)
+foreach ($p in $gameEx | Where-Object { $_ }) { Do-It "Defender scans $p again" { Remove-MpPreference -ExclusionPath $p } }
 
 if ($RemoveClaudeCode -and -not $RevertOnly) {
     Write-Host "`n=== Claude Code" -ForegroundColor Cyan

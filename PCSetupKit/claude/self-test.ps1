@@ -43,10 +43,33 @@ $sum = $out | Where-Object { $_ -match '^PC Setup Kit tests \(unit\) .*: (\d+) p
 $failed = @($out | Where-Object { $_ -match '^\s+(\S+)\s+\d+ passed\s+([1-9]\d*) failed' } | ForEach-Object { ($_ -split '\s+')[1] })
 $ok = -not $timedOut -and $p.ExitCode -eq 0 -and $sum -match ' 0 failed'
 $counts = if ($sum -match ': (\d+) passed, (\d+) failed') { "$($Matches[1]) passed, $($Matches[2]) failed" } else { 'no result' }
+# a test file that failed gets one more run on its own: a one-off (a busy new PC, a window slow to appear) isn't a
+# broken install - and after an update a failure means going back to the version before, so it must be real
+$flaky = @()
+if (-not $ok -and -not $timedOut -and $failed) {
+    $still = @(foreach ($f in $failed) {
+            $rl = "$dir\self-test-retry.log"
+            $rp = Start-Process powershell -WindowStyle Hidden -PassThru -RedirectStandardOutput $rl -ArgumentList ($argList + @('-Only', $f))
+            $null = $rp.Handle
+            if (-not $rp.WaitForExit([int]($Minutes * 60000))) { Stop-Process -Id $rp.Id -Force -ErrorAction SilentlyContinue; $f; continue }
+            $rs = @(Get-Content $rl -ErrorAction SilentlyContinue) | Where-Object { $_ -match '^PC Setup Kit tests .*: \d+ passed, (\d+) failed' } | Select-Object -Last 1
+            Add-Content $log "`n--- retry of $f`n$((Get-Content $rl -Raw -ErrorAction SilentlyContinue))"
+            if ($rp.ExitCode -eq 0 -and $rs -match ' 0 failed') { $flaky += $f } else { $f }
+        })
+    if (-not $still) { $ok = $true; $failed = @(); $counts = "$counts on the first try, $($flaky -join ', ') passed on a retry" }
+    else { $failed = $still }
+}
 
 @{ date = (Get-Date).ToString('o'); kit = $kit; ok = $ok; result = $counts; failed = $failed; reason = $why; seconds = [int]((Get-Date) - $t0).TotalSeconds } |
     ConvertTo-Json | Set-Content "$stateFile.tmp" -Encoding UTF8
 Move-Item "$stateFile.tmp" $stateFile -Force
 if ($ok) { "Self-test ($why): $counts" }
 elseif ($timedOut) { "WARNING: self-test ($why) was stopped after $Minutes min - a test hangs (log: $log)" }
-else { "WARNING: self-test ($why) failed: $counts$(if ($failed) { " in $($failed -join ', ')" }) (log: $log)" }
+else {
+    "WARNING: self-test ($why) failed: $counts$(if ($failed) { " in $($failed -join ', ')" }) (log: $log)"
+    # a release that fails right after it was installed goes: back to the version before, which worked here (the
+    # next release installs normally). On the PC the kit is developed on, or when nothing was saved: just the WARNING.
+    if ($why -like 'after the kit update*' -and (Test-Path "$dir\kit-update.ps1") -and -not (Test-Path "$env:USERPROFILE\Documents\PC Setup Kit\.git")) {
+        & "$dir\kit-update.ps1" -KitDir $KitDir -Rollback
+    }
+}

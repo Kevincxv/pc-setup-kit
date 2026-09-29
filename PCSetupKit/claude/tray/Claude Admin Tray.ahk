@@ -50,6 +50,7 @@ known := Map()  ; pid -> true if it's a Messiah launcher window
 note := 0       ; the corner note currently shown
 SetTimer Notify, 30000
 SetTimer GamePerf, 300000   ; in-game frame rate and temperatures (game-perf.ps1)
+OnMessage(0x219, DeviceChange)   ; WM_DEVICECHANGE: a kit USB plugged in gets a fresh settings backup
 if AI {
     SetTimer Watch, 500
     SetTimer AutoStart, -3000
@@ -246,6 +247,18 @@ NoteClick(*) {
 CloseNote() {
     global note
     try note.Destroy()
+}
+
+; A drive arrived (DBT_DEVICEARRIVAL): 15 s later - once Windows has mounted it - settings-backup.ps1 -ToUsb puts a
+; fresh backup on it if it's a kit USB (once a day), so a full reinstall brings the settings back. Not under tests.
+DeviceChange(wParam, *) {
+    if wParam = 0x8000
+        SetTimer UsbBackup, -15000
+}
+UsbBackup() {
+    if EnvGet("PCKIT_IN_TESTS") != "" || !FileExist(CL "\settings-backup.ps1")
+        return
+    try Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' CL '\settings-backup.ps1" -ToUsb', , "Hide"
 }
 
 ; Every 5 minutes while something is fullscreen: game-perf.ps1 records a minute of the game's frame rate and the graphics

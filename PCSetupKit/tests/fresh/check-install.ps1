@@ -16,7 +16,8 @@ Section 'Windows tweaks'
 Check 'tweaks applied and their originals recorded (for the uninstaller)' (Test-Path "$kit\tweaks-backup.json") ''
 $again = @(& "$kit\tweaks.ps1")
 Check 'running the tweak guard again changes nothing (it all stuck)' ($again.Count -eq 0) ($again -join ' / ')
-Check 'Ultimate Performance power plan active' ((powercfg /getactivescheme) -match 'Ultimate Performance') "$(powercfg /getactivescheme)"
+if ((Get-CimInstance Win32_Battery) -or $env:PCKIT_TEST_BATTERY -eq '1') { Check 'a laptop: the Balanced power plan kept (Ultimate would drain the battery)' ((powercfg /getactivescheme) -match '381b4222-f694-41f0-9685-ff5bb260df2e') "$(powercfg /getactivescheme)" }
+else { Check 'Ultimate Performance power plan active' ((powercfg /getactivescheme) -match '99999999-9999-9999-9999-999999999999|Ultimate Performance') "$(powercfg /getactivescheme)" }
 Check 'hibernation off' (-not (Test-Path 'C:\hiberfil.sys')) ''
 
 Section 'apps'
