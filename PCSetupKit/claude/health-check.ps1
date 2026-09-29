@@ -49,14 +49,15 @@ if ($mp -and $mp.QuickScanAge -gt 7 -and -not (& "$PSScriptRoot\game-check.ps1")
     Start-Process "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -ArgumentList '-Scan', '-ScanType', '1' -WindowStyle Hidden
     "Security: started a quick virus scan (last one $(if ($mp.QuickScanAge -ge 10000) { 'never' } else { "$($mp.QuickScanAge) days ago" }))"
 }
-$lastSync = [datetime]::MinValue
-$sync = w32tm /query /status | Select-String 'Last Successful Sync Time: (.+)$'
-if ($sync) { try { $lastSync = [datetime]$sync.Matches[0].Groups[1].Value.Trim() } catch {} }
-if ($lastSync -lt (Get-Date).AddDays(-8)) { w32tm /resync /force | Out-Null }
+# the clock: synced in the last 8 days? (the Time Service's own "synchronized" events 35/37 - w32tm's text is translated
+# on non-English Windows)
+$synced = Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Time-Service'; Id = 35, 37; StartTime = (Get-Date).AddDays(-8) } -MaxEvents 1
+if (-not $synced) { w32tm /resync /force | Out-Null }
 # App updates: read the Name column of winget's table (header positions tell where the Id column starts)
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}   # winget writes UTF-8
 $raw = @(winget upgrade --accept-source-agreements --disable-interactivity 2>$null)
-$h = [array]::FindIndex($raw, [Predicate[object]] { param($l) "$l" -match 'Name\s+Id\s+Version' })
+$h = [array]::FindIndex($raw, [Predicate[object]] { param($l) "$l" -match '^-{10,}\s*$' }) - 1   # the header: the line above the dashes (its words are translated on non-English Windows)
+if ($h -lt 0) { $h = [array]::FindIndex($raw, [Predicate[object]] { param($l) "$l" -match 'Name\s+Id\s+Version' }) }
 if ($h -ge 0) {
     # rows read from the right (Id, Version, Available, Source never contain spaces): a shortened name can't shift them
     $up = @(for ($i = $h + 2; $i -lt $raw.Count -and $raw[$i] -match '\S' -and $raw[$i] -notmatch 'upgrades? available|explicit targeting'; $i++) {

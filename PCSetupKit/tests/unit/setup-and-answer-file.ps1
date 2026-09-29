@@ -46,16 +46,20 @@ Check 'setup.ps1 installs each app through Install-App' ($fn -and $setup -match 
 if ($fn) {
     . ([scriptblock]::Create($fn.Extent.Text))
     function Start-Sleep { }
-    function winget { $global:wg += , ($args -join ' '); if ($args[0] -eq 'install') { if ($global:wgEmpty-- -gt 0) { 'No packages were found among the working sources.' } else { 'Successfully installed' } } }
+    function winget { $global:wg += , ($args -join ' '); $global:LASTEXITCODE = 0; if ($args[0] -eq 'install') { if ($global:wgEmpty-- -gt 0) { $global:LASTEXITCODE = -1978335212; 'No packages were found among the working sources.' } else { 'Successfully installed' } } elseif ($args[0] -eq 'list') { $global:LASTEXITCODE = if ($global:wgMissing) { -1978335212 } else { 0 } } }
     $global:wg = @(); $global:wgEmpty = 1
     $o = Install-App 'Valve.Steam'
-    Check 'nothing found at first: the package list is reset and fetched again, then the install works' ("$o" -eq 'Successfully installed' -and ($global:wg -match '^source reset').Count -eq 1 -and ($global:wg -match '^source update').Count -eq 1 -and ($global:wg -match '^install').Count -eq 2) ($global:wg -join ' / ')
+    Check 'nothing found at first: the package list is reset and fetched again, then the install works' ("$o" -eq '  Valve.Steam installed' -and ($global:wg -match '^source reset').Count -eq 1 -and ($global:wg -match '^source update').Count -eq 1 -and ($global:wg -match '^install').Count -eq 2) ($global:wg -join ' / ')
     $global:wg = @(); $global:wgEmpty = 9
     $o = Install-App 'Valve.Steam'
     Check '... never found: 3 tries, then it says so (setup goes on)' ("$o" -match "Valve\.Steam: winget couldn't find it" -and ($global:wg -match '^install').Count -eq 3) "$o"
     $global:wg = @(); $global:wgEmpty = 0
     [void](Install-App 'Git.Git')
     Check '... found right away: no reset' (-not ($global:wg -match '^source')) ($global:wg -join ' / ')
+    $global:wg = @(); $global:wgEmpty = 0; $global:wgMissing = $true
+    $o = Install-App 'Git.Git'
+    Check '... winget says done but the app isn''t there (winget list): NOT installed, said' ("$o" -match 'Git\.Git: NOT installed') "$o"
+    $global:wgMissing = $false
     Remove-Item Function:\winget, Function:\Start-Sleep, Function:\Install-App
 }
 

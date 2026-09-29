@@ -39,4 +39,14 @@ Check 'removing ours never removes theirs' ((Lines) -join '|' -eq 'Blue screen t
 Check 'unicode survives (UTF-8, no BOM)' ($(T -Id u -Text 'Café ✓ done'; (Get-Content "$D\maint-todo.txt" -Encoding UTF8) -contains 'Café ✓ done') -and [IO.File]::ReadAllBytes("$D\maint-todo.txt")[0] -ne 0xEF) ''
 '{ broken' | Set-Content "$D\todo-scripted.json"; T -Id x -Text 'X.'
 Check 'a damaged store: starts over without errors, other lines kept' ((Lines) -contains 'X.' -and (Lines) -contains 'Blue screen test: EXPO is off - use the PC normally.') ((Lines) -join ' | ')
+Section 'snooze (the app: Remind me in a week)'
+Clear-Path "$D\maint-todo.txt"; Clear-Path "$D\todo-scripted.json"
+T -Id rebar -Text 'Resizable BAR is off'; 'A line Claude wrote' | Add-Content "$D\maint-todo.txt"
+T -Snooze 'Resizable BAR is off'; T -Snooze 'A line Claude wrote'
+T -Id rebar -Text 'Resizable BAR is off'
+Check 'snoozed: off the list - the kit''s item doesn''t put itself back meanwhile' (-not @(Get-Content "$D\maint-todo.txt" -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })) ((Get-Content "$D\maint-todo.txt") -join ' | ')
+$j = Get-Content "$D\todo-scripted.json" -Raw | ConvertFrom-Json; foreach ($p in $j.snoozed.PSObject.Properties) { $p.Value.until = (Get-Date).AddDays(-1).ToString('o') }; $j | ConvertTo-Json -Depth 4 | Set-Content "$D\todo-scripted.json"
+T -Id rebar -Text 'Resizable BAR is off'
+$l = @(Get-Content "$D\maint-todo.txt")
+Check '... a week later: both back (not counted as dismissed)' (($l -contains 'Resizable BAR is off') -and ($l -contains 'A line Claude wrote') -and -not ((Get-Content "$D\todo-scripted.json" -Raw | ConvertFrom-Json).dismissed.PSObject.Properties.Name -contains 'rebar')) ($l -join ' | ')
 Finish

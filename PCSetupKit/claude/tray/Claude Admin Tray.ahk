@@ -30,6 +30,12 @@ if AI {
     tray.Add()
 }
 tray.Add("Run maintenance now", (*) => RunMaint())
+; Pause: the background maintenance, update check and update guard wait (kit-options.txt "pause-until=")
+pauseMenu := Menu()
+pauseMenu.Add("For 2 hours", (*) => SetPause(2))
+pauseMenu.Add("Until tomorrow", (*) => SetPause(24))
+pauseMenu.Add("Resume now", (*) => SetPause(0))
+tray.Add("Pause maintenance", pauseMenu)
 tray.Add()
 tray.Add("Remove tray icon", (*) => ExitApp())
 tray.Default := "Open " NAME
@@ -51,6 +57,7 @@ note := 0       ; the corner note currently shown
 SetTimer Notify, 30000
 SetTimer GamePerf, 300000   ; in-game frame rate and temperatures (game-perf.ps1)
 OnMessage(0x219, DeviceChange)   ; WM_DEVICECHANGE: a kit USB plugged in gets a fresh settings backup
+try Hotkey(AI ? "^!m" : "^!p", (*) => ShowApp())   ; Ctrl+Alt+M (Messiah) / Ctrl+Alt+P (PC Setup Kit) opens the app from anywhere
 if AI {
     SetTimer Watch, 500
     SetTimer AutoStart, -3000
@@ -99,7 +106,10 @@ SessionShortcut() {
 AppCommand(wParam, *) {
     static work := Map(1, (*) => Run(LNK), 2, (*) => ShowAll(), 3, (*) => HideAll(), 4, (*) => RunMaint(true),
         5, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\optimize.ps1"'),
-        6, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\maint-watch.ps1"'))
+        6, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\maint-watch.ps1"'),
+        7, (*) => Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' CL '\after-update.ps1" -Now', , "Hide"),   ; the owner's tweak choices, now (even while paused)
+        8, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\kit-update.ps1" -Reinstall'),               ; repair: the current release again
+        9, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\kit-update.ps1" -Rollback'))                ; undo the last update
     if work.Has(wParam)
         SetTimer work[wParam], -10
     return 1
@@ -180,6 +190,16 @@ Notify() {
                 return ShowNote("Needs you (" items.Length "): " first (items.Length > 1 ? "`n+ " items.Length - 1 " more" : ""))
         }
     }
+    f := CL "\tray-news.txt"   ; a short message from the maintenance: what's new after a kit update, the weekly summary
+    if FileExist(f) {
+        stamp := FileGetTime(f)
+        if stamp != IniRead(notified, "shown", "news", "") {
+            IniWrite stamp, notified, "shown", "news"
+            txt := Trim(FileRead(f, "UTF-8"), " `r`n")
+            if txt != ""
+                return ShowNote(StrLen(txt) > 330 ? SubStr(txt, 1, 327) "..." : txt)
+        }
+    }
     f := CL "\restart-ledger.json"   ; work waiting for the owner's next shutdown/restart (once per new batch)
     if FileExist(f) {
         txt := FileRead(f, "UTF-8"), n := 0, p := 1
@@ -247,6 +267,19 @@ NoteClick(*) {
 CloseNote() {
     global note
     try note.Destroy()
+}
+
+; Pause maintenance for some hours (0 = resume): kit-options.txt "pause-until=<local time>", read by
+; claude-bg-maint.ps1, update-check.ps1 and after-update.ps1 (paused.ps1)
+SetPause(hours) {
+    f := CL "\kit-options.txt", keep := ""
+    try Loop Parse FileRead(f, "UTF-8"), "`n", "`r"
+        if Trim(A_LoopField) != "" && !RegExMatch(A_LoopField, "^\s*pause-until\s*=")
+            keep .= A_LoopField "`n"
+    if hours
+        keep .= "pause-until=" FormatTime(DateAdd(A_Now, hours, "Hours"), "yyyy-MM-ddTHH:mm:ss") "`n"
+    try FileOpen(f, "w", "UTF-8-RAW").Write(keep)
+    ShowNote(hours ? "Maintenance paused until " FormatTime(DateAdd(A_Now, hours, "Hours"), "ddd h:mm tt") ".`nTray > Pause maintenance > Resume now to start it again." : "Maintenance runs again as usual.", false, 8)
 }
 
 ; A drive arrived (DBT_DEVICEARRIVAL): 15 s later - once Windows has mounted it - settings-backup.ps1 -ToUsb puts a
@@ -399,7 +432,7 @@ MaintRunning() {
 RunMaint(quiet := false) {
     if AI && MaintRunning()
         return quiet ? 0 : ShowNote("Hidden maintenance is already running.`nOpen " NAME " > Maintenance > Watch live to follow it.", false, 8)
-    Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\claude-bg-maint.ps1" -Force -Unattended', , "Hide"
+    Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\claude-bg-maint.ps1" -Force -Unattended -Now', , "Hide"
     if !quiet
         ShowNote("Maintenance started in the background.`nThe result shows in " NAME " (click this).", true, 8)
 }

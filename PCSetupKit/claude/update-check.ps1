@@ -5,10 +5,14 @@
 # maint-history (the app's History page). Waits while a game runs (the check itself is invisible, but the tray reloads).
 param([string]$Dir = $PSScriptRoot)
 $ErrorActionPreference = 'SilentlyContinue'
-$mx = New-Object Threading.Mutex($false, 'Global\ClaudeBgMaint')   # never alongside the background maintenance (it updates too)
+# the background maintenance running right now updates the kit itself: nothing to do. (Only looked at - holding its lock
+# would make a maintenance starting meanwhile skip its whole run.)
+$bm = $null; if (-not $env:PCKIT_IN_TESTS -and [Threading.Mutex]::TryOpenExisting('Global\ClaudeBgMaint', [ref]$bm)) { $bm.Dispose(); return }
+$mx = New-Object Threading.Mutex($false, 'Global\PCSetupKitUpdateCheck')
 if (-not $mx.WaitOne(0)) { return }
 try {
     if ((Test-Path "$Dir\game-check.ps1") -and (& "$Dir\game-check.ps1")) { return }   # next check
+    if ((Test-Path "$Dir\paused.ps1") -and (& "$Dir\paused.ps1")) { return }           # paused by the owner
     $t0 = Get-Date
     $lines = @(& "$Dir\kit-update.ps1")
     if ($lines -match '^PC Setup Kit updated') { $lines += @(& "$Dir\self-test.ps1") }   # (self-test sees the new version and runs)

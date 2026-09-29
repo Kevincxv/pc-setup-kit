@@ -8,6 +8,10 @@
 param([string]$KitDir = 'C:\PCSetupKit', [string]$ClaudeDir = $PSScriptRoot, [string]$TrayDir = "$env:USERPROFILE\Documents\Messiah Tray", [switch]$Force, [switch]$Reinstall, [switch]$Rollback, [string]$Saved = "$env:ProgramData\PCSetupKit\previous")   # -Reinstall: install the current release again (self-test.ps1: its test suite is missing or stale)
 $ErrorActionPreference = 'Stop'
 if ($env:PCKIT_IN_TESTS -and -not $PSBoundParameters.ContainsKey('Saved')) { $Saved = Join-Path $env:TEMP "pckit-saved-$PID" }   # never the real saved version
+# one update at a time (the maintenance, the 4-hourly check, the app's Repair / Undo): a second one just stops
+$umx = New-Object Threading.Mutex($false, "Global\PCSetupKitUpdate$(if ($env:PCKIT_IN_TESTS) { "-$PID" })")
+$got = try { $umx.WaitOne(0) } catch [Threading.AbandonedMutexException] { $true }
+if (-not $got) { return }
 $srcFile = "$KitDir\kit-source.txt"
 if (-not (Test-Path $srcFile)) { return }
 if (-not $Force -and (Test-Path "$env:USERPROFILE\Documents\PC Setup Kit\.git")) { return }   # the owner's PC publishes, it doesn't update
@@ -91,6 +95,12 @@ try {
     }
     $tag | Set-Content $verFile
     $st.failingSince = $null; $st.failing = $null; Save-State
+    # what's new, as a short note in the corner (the tray shows tray-news.txt once): the release's first points
+    try {
+            $notes = "$((Invoke-RestMethod "https://api.github.com/repos/$($cfg.repo)/releases/tags/$tag" -Headers @{ 'User-Agent' = 'pc-setup-kit' } -TimeoutSec 20).body)"
+            $pts = @($notes -split "`r?`n" | Where-Object { $_ -match '^\s*-\s+\S' } | ForEach-Object { ($_ -replace '^\s*-\s+', '' -replace '\s*\(.*$', '' -replace ':.*$', '').Trim() } | Where-Object { $_ } | Select-Object -First 3)
+            "Updated to $tag$(if ($pts) { " - new: $($pts -join '; ')" }). Details: the app > Maintenance." | Set-Content "$ClaudeDir\tray-news.txt" -Encoding UTF8
+        } catch { "Updated to $tag." | Set-Content "$ClaudeDir\tray-news.txt" -Encoding UTF8 }
     "PC Setup Kit updated $(if ($cur) { "$cur -> " })$tag"
 }
 catch {

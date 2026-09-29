@@ -74,9 +74,13 @@ function Install-App([string]$Id) {
         # --source winget: with the msstore source too, a fresh winget can find the id twice and installs nothing
         # ("Multiple packages found" - the Windows Sandbox test, 9/28)
         $out = @(winget install --id $Id -e --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | ForEach-Object { "$_" } | Where-Object { $_.Trim() -and $_ -notmatch '^\s*[-\\|/]\s*$|[\u2588\u2592]' })
-        if (-not ($out -match 'No package(s were)? found')) {
-            if ($out -match 'Successfully installed|already installed|No available upgrade|No newer package') { return $out | Select-Object -Last 1 }
-            return "  $Id`: NOT installed - winget said: $(($out | Select-Object -Last 4) -join ' / ')"
+        $code = $LASTEXITCODE
+        # (winget's words are translated on non-English Windows: its exit code says "not found", and whether the app is
+        # really there afterwards is asked with winget list)
+        if ($code -ne -1978335212 -and -not ($out -match 'No package(s were)? found')) {   # 0x8A150014: no package found
+            $null = winget list --id $Id -e --source winget --accept-source-agreements --disable-interactivity 2>&1
+            if ($LASTEXITCODE -eq 0) { return "  $Id installed" }
+            return "  $Id`: NOT installed - winget said: $(($out | Select-Object -Last 4) -join ' / ') (exit $code)"
         }
         if ($try -lt 3) {
             winget source reset --force 2>&1 | Out-Null

@@ -23,17 +23,19 @@ if (-not $game -and (Due 'weekly-apps' 7)) {
     # A table of updates, or "No installed package found" = winget answered. Anything else (no answer, "No packages
     # were found", a source error) = its package list is missing or broken: fetched again, then asked once more.
     # Still no answer: not marked done, so the next run tries again - never a silently skipped week.
-    $answered = { param($r) [array]::FindIndex($r, [Predicate[object]] { param($l) "$l" -match 'Name\s+Id\s+Version' }) -ge 0 -or ($r -match 'No installed package found') }
-    $raw = @(winget upgrade --accept-source-agreements --disable-interactivity 2>$null)
-    if (-not (& $answered $raw)) {
+    # (winget's text is translated on non-English Windows: the table is found by its line of dashes, and exit code 0 = it answered)
+    $hdr = { param($r) $i = [array]::FindIndex($r, [Predicate[object]] { param($l) "$l" -match '^-{10,}\s*$' }); if ($i -ge 1) { $i - 1 } else { [array]::FindIndex($r, [Predicate[object]] { param($l) "$l" -match 'Name\s+Id\s+Version' }) } }
+    $answered = { param($r, $code) (& $hdr $r) -ge 0 -or ($r -match 'No installed package found') -or ($code -eq 0 -and @($r | Where-Object { "$_".Trim() }).Count) }
+    $raw = @(winget upgrade --accept-source-agreements --disable-interactivity 2>$null); $code = $LASTEXITCODE
+    if (-not (& $answered $raw $code)) {
         winget source reset --force 2>&1 | Out-Null; winget source update --accept-source-agreements 2>&1 | Out-Null
-        $raw = @(winget upgrade --accept-source-agreements --disable-interactivity 2>$null)
-        if (& $answered $raw) { 'App updates: winget''s package list was broken - fetched it again' }
+        $raw = @(winget upgrade --accept-source-agreements --disable-interactivity 2>$null); $code = $LASTEXITCODE
+        if (& $answered $raw $code) { 'App updates: winget''s package list was broken - fetched it again' }
     }
-    $h = [array]::FindIndex($raw, [Predicate[object]] { param($l) "$l" -match 'Name\s+Id\s+Version' })
+    $h = & $hdr $raw
     # one miss (offline, winget busy) is "held"; three weeks without app updates is a FAILED line (it gets looked at).
     # winget's own message stays out of the line: its "Failed when searching..." would read as FAILED.
-    if (-not (& $answered $raw)) { "App updates $(if (Due 'weekly-apps' 21) { 'FAILED' } else { 'held' }): winget couldn't load its package list - trying again next run" }
+    if (-not (& $answered $raw $code)) { "App updates $(if (Due 'weekly-apps' 21) { 'FAILED' } else { 'held' }): winget couldn't load its package list - trying again next run" }
     elseif ($h -ge 0) {
         # each row read from the right (Id, Version, Available, Source never contain spaces): a shortened or oddly
         # encoded name can't shift the columns
@@ -41,10 +43,10 @@ if (-not $game -and (Due 'weekly-apps' 7)) {
             $id = $src = $null; if ("$($raw[$i])" -match '^(?<name>.+?)\s+(?<id>\S+)\s+(?<ver>(<\s)?\S+)\s+(?<avail>\S+)\s+(?<src>\S+)\s*$') { $id = $Matches['id']; $src = $Matches['src'] }
             if (-not $id -or ($skip | Where-Object { $id -like "$_*" })) { continue }
             $o = winget upgrade --id $id -e --source $src --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | Out-String
-            if ($o -match 'Successfully installed') { "Updated app: $id" } else { "App update FAILED: $id" }
+            if ($LASTEXITCODE -eq 0 -or $o -match 'Successfully installed') { "Updated app: $id" } else { "App update FAILED: $id" }
         }
     }
-    if (& $answered $raw) { Done 'weekly-apps' }
+    if (& $answered $raw $code) { Done 'weekly-apps' }
 }
 
 # --- Weekly: settings backup (the look, game settings, the kit's memory - setup brings them back after a reinstall) ---
@@ -102,14 +104,17 @@ if (-not $game -and (Due 'monthly-cleanup' 30)) {
         if ($bin) { "Steam: moved leftover folders of uninstalled games to the Recycle Bin: $($bin -join ', ')" }
     }
     # Old driver versions (in-use packages are refused by pnputil without /force, so this only removes stale ones)
-    $pk = [regex]::Matches((pnputil /enum-drivers | Out-String), 'Published Name:\s+(\S+)\s+Original Name:\s+(\S+)[\s\S]*?Driver Version:\s+\S+\s+(\S+)') |
-        ForEach-Object { [pscustomobject]@{ Pub = $_.Groups[1].Value; Orig = $_.Groups[2].Value; Ver = [version]($_.Groups[3].Value -replace '[^\d.]', '') } }
+    # (Get-WindowsDriver, not pnputil's text: that is translated on non-English Windows)
+    $drv = @(Get-WindowsDriver -Online)
+    $pk = $drv | Where-Object { $_.Driver -match '^oem\d+\.inf$' -and $_.OriginalFileName } | ForEach-Object {
+        $v = $null; [void][version]::TryParse(("$($_.Version)" -replace '[^\d.]', ''), [ref]$v)
+        [pscustomobject]@{ Pub = $_.Driver; Orig = Split-Path $_.OriginalFileName -Leaf; Ver = $v } } | Where-Object Ver
     # A driver updated in the last 30 days keeps its previous version: driver-guard.ps1 goes back to it if the new
     # one causes blue screens (arrival time = its driver store folder's creation time)
-    $recent = @(Get-WindowsDriver -Online | Where-Object { (Get-Item -LiteralPath (Split-Path $_.OriginalFileName)).CreationTime -gt (Get-Date).AddDays(-30) } | ForEach-Object { Split-Path $_.OriginalFileName -Leaf })
+    $recent = @($drv | Where-Object { (Get-Item -LiteralPath (Split-Path $_.OriginalFileName)).CreationTime -gt (Get-Date).AddDays(-30) } | ForEach-Object { Split-Path $_.OriginalFileName -Leaf })
     foreach ($g in $pk | Group-Object Orig | Where-Object { $_.Count -gt 1 -and $_.Name -notin $recent }) {
         foreach ($old in $g.Group | Sort-Object Ver -Descending | Select-Object -Skip 1) {
-            if ((pnputil /delete-driver $old.Pub 2>&1 | Out-String) -match 'deleted successfully') { "Removed old driver $($old.Orig) $($old.Ver)" }
+            $null = pnputil /delete-driver $old.Pub 2>&1; if ($LASTEXITCODE -eq 0) { "Removed old driver $($old.Orig) $($old.Ver)" }   # (in use: refused, exit code not 0)
         }
     }
     # Orphans that are always safe to remove: firewall rules and uninstall entries for programs that no longer exist

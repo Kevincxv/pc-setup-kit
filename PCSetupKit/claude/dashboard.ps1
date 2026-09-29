@@ -171,7 +171,7 @@ try {
 
     # --- actions. The tray (elevated) runs what needs admin rights: it listens for this message (tray-hwnd.txt)
     $trayMsg = [KitApp.N]::RegisterWindowMessage('PCSetupKitAppCommand')
-    $cmd = @{ NewSession = 1; ShowSessions = 2; HideSessions = 3; RunMaint = 4; Optimize = 5; WatchLive = 6 }
+    $cmd = @{ NewSession = 1; ShowSessions = 2; HideSessions = 3; RunMaint = 4; Optimize = 5; WatchLive = 6; ApplyTweaks = 7; Repair = 8; Rollback = 9 }
     function Send-Tray([int]$n) {
         $h = [IntPtr][long]("0$(Get-Content "$cl\tray-hwnd.txt" -ErrorAction SilentlyContinue)" -replace '\D')
         $h -ne [IntPtr]::Zero -and [KitApp.N]::IsWindow($h) -and [KitApp.N]::PostMessage($h, $trayMsg, [IntPtr]$n, [IntPtr]::Zero)
@@ -191,6 +191,20 @@ try {
         Report       = { if (Test-Path "$cl\maint-report.txt") { Start-Process notepad.exe "`"$cl\maint-report.txt`"" } else { Say 'No report yet.' } }
         Todo         = { if (Test-Path "$cl\maint-todo.txt") { Start-Process notepad.exe "`"$cl\maint-todo.txt`"" } else { Say 'Nothing needs you right now.' } }
         Journal      = { if (Test-Path "$cl\selfimprove-journal.md") { Start-Process notepad.exe "`"$cl\selfimprove-journal.md`"" } else { Say 'No self-improvement runs yet.' } }
+        Repair       = { if (Send-Tray $cmd.Repair) { Say 'Repairing: the current version installs again (a window shows the result).' } else { Start-Process powershell -Verb RunAs -ArgumentList ((& $psArgs 'kit-update.ps1' -Keep) + '-Reinstall') } }
+        Rollback     = { if (-not (Test-Path "$env:ProgramData\PCSetupKit\previous\version.txt")) { Say 'There is no earlier version saved to go back to.'; return }
+            if ([Windows.MessageBox]::Show("Go back to $((Get-Content "$env:ProgramData\PCSetupKit\previous\version.txt" -TotalCount 1).Trim())? The current version isn't installed again - the next release is.", 'Undo the last update', 'YesNo', 'Question') -ne 'Yes') { return }
+            if (Send-Tray $cmd.Rollback) { Say 'Going back to the version before (a window shows the result).' } else { Start-Process powershell -Verb RunAs -ArgumentList ((& $psArgs 'kit-update.ps1' -Keep) + '-Rollback') } }
+        BackupNow    = { $o = @(& "$cl\settings-backup.ps1" -Force); Say "$(if ($o) { $o[-1] } else { 'Backed up.' })" }
+        RestoreFrom  = {
+            $dlg = New-Object Microsoft.Win32.OpenFileDialog -Property @{ Title = 'Pick a settings backup'; Filter = 'Settings backup (*.zip)|*.zip'; InitialDirectory = "$([Environment]::GetFolderPath('MyDocuments'))\PC Setup Kit Backup" }
+            if (-not $dlg.ShowDialog()) { return }
+            $o = @(& "$cl\settings-backup.ps1" -Restore -From $dlg.FileName)
+            if ("$o" -match 'made on another PC') {
+                if ([Windows.MessageBox]::Show("This backup was made on another PC. Put its look and game settings on this one anyway?", 'Restore settings', 'YesNo', 'Question') -ne 'Yes') { return }
+                $o = @(& "$cl\settings-backup.ps1" -Restore -From $dlg.FileName -AnyPc)
+            }
+            Say "$(if ($o) { $o[-1] } else { 'Nothing to restore in that backup.' })" }
         MakeUsb      = { if (Test-Path "$cl\make-usb.ps1") { Start-Process powershell -Verb RunAs -ArgumentList (& $psArgs 'make-usb.ps1' -Keep); Say 'The install USB maker opened in its own window.' } else { Say 'The USB maker is missing - it comes with the next kit update.' } }
         Logs         = { if (Test-Path "$cl\maint-claude-log") { Start-Process explorer.exe "`"$cl\maint-claude-log`"" } else { Say 'No hidden runs yet.' } }
     }
@@ -231,6 +245,35 @@ try {
             [void]$sp.Children.Add($wp)
         }
         $card.Child = $sp; $card
+    }
+    # to-do items with their own buttons: the place to fix it where there is one, and "Remind me in a week" (todo.ps1
+    # -Snooze: off the list, back in 7 days - unless it got fixed meanwhile)
+    function Get-TodoFix([string]$t) {
+        switch -Regex ($t) {
+            'hypervisor' { return @('Windows features', 'optionalfeatures.exe') }
+            'Xbox Game Bar' { return @('Microsoft Store', 'ms-windows-store://pdp/?ProductId=9NZKPSTSNW4P') }
+            "chipset driver" { return @('AMD drivers', 'https://www.amd.com/en/support/download/drivers.html') }
+            'DNS server' { return @('Network settings', 'ms-settings:network-status') }
+            'Wi-Fi' { return @('Wi-Fi settings', 'ms-settings:network-wifi') }
+            'nothing is backed up|File History' { return @('File History', 'control.exe /name Microsoft.FileHistory') }
+            'Steam game\(s\) are on a hard drive' { return @('Steam storage', 'steam://open/settings/') }
+            'Hz|refresh|monitor' { return @('Display settings', 'ms-settings:display-advancedgraphics') }
+            'storage|full|free space' { return @('Storage settings', 'ms-settings:storagesense') }
+        }
+    }
+    function New-TodoLines($lines) {
+        foreach ($l in @($lines)) {
+            if ($l.Level -ne 'warn') { $l; continue }
+            $text = ($l.Text -replace '^- ', '').Trim()
+            $row = New-Object Windows.Controls.StackPanel -Property @{ Margin = '0,2,0,10' }
+            [void]$row.Children.Add((New-Text "$([char]0x2022)  $text" $brush.Text 14))
+            $bp = New-Object Windows.Controls.WrapPanel -Property @{ Margin = '14,4,0,0' }
+            $fx = Get-TodoFix $text
+            if ($fx) { $b = New-Btn 'E8A7' $fx[0] { $c = $this.Uid; if ($c -match '^(\S+\.exe)( (.+))?$') { if ($Matches[3]) { Start-Process $Matches[1] -ArgumentList $Matches[3] } else { Start-Process $Matches[1] } } else { Start-Process $c } }; $b.Uid = $fx[1]; [void]$bp.Children.Add($b) }   # (Uid: the button's own data)
+            $sb = New-Btn 'E823' 'Remind me in a week' { & "$cl\todo.ps1" -Snooze $this.Uid -Days 7; Say 'Snoozed - it comes back in a week if it still needs you.'; Update-View -Force }
+            $sb.Uid = $text; [void]$bp.Children.Add($sb)
+            [void]$row.Children.Add($bp); $row
+        }
     }
     function New-Rows($pairs) {   # label | value table (scheduled checks); rows are @(label, value, level)
         if (@($pairs).Count -and @($pairs)[0] -isnot [array]) { $pairs = , @($pairs) }   # one row arrives unrolled by PowerShell
@@ -340,10 +383,12 @@ try {
                 $badge.Child = New-Glyph $state[1] 22 $(if ($light) { [Windows.Media.Brushes]::White } else { [Windows.Media.Brushes]::Black }); $badge.Child.HorizontalAlignment = 'Center'
                 $txt = New-Object Windows.Controls.StackPanel -Property @{ VerticalAlignment = 'Center' }
                 [void]$txt.Children.Add((New-Text $state[2] $brush.Text 20 'SemiBold' '0'))
-                [void]$txt.Children.Add((New-Text "$(if ($when) { $when.Text } else { 'No check yet' })  $([char]0xB7)  updates by itself" $brush.Sub 12 'Normal' '0,2,0,0'))
+                [void]$txt.Children.Add((New-Text "$(if ($when) { $when.Text } else { 'No check yet' })  $([char]0xB7)  kit $(("$(Get-Content 'C:\PCSetupKit\kit-version.txt' -TotalCount 1 -ErrorAction SilentlyContinue)").Trim()), updates by itself" $brush.Sub 12 'Normal' '0,2,0,0'))
                 [Windows.Controls.Grid]::SetColumn($txt, 1); [void]$hero.Children.Add($badge); [void]$hero.Children.Add($txt)
                 [void]$out.Add((New-Card $null $null @($hero) @((New-Btn 'E768' 'Run maintenance now' $act.RunMaint -Accent), (New-Btn 'E945' 'Optimize this PC' $act.Optimize))))
-                [void]$out.Add((New-Card 'Needs you' 'E7BA' $needs.Lines @(if ($todo) { New-Btn 'E8A5' 'Open the to-do list' $act.Todo }) -Calm))
+                $pz = if (Test-Path "$cl\paused.ps1") { & "$cl\paused.ps1" }
+                if ($pz) { [void]$out.Add((New-Card 'Maintenance paused' 'E769' @(@{ Text = "Until $($pz.ToString('ddd h:mm tt')) - updates, checks and cleanup wait (the tray's Pause maintenance)."; Level = 'warn' }) @(New-Btn 'E768' 'Resume now' { Set-Opt 'pause-until' ''; Say 'Maintenance runs again as usual.'; Update-View -Force }) -Calm)) }
+                [void]$out.Add((New-Card 'Needs you' 'E7BA' @(New-TodoLines $needs.Lines) @(if ($todo) { New-Btn 'E8A5' 'Open the to-do list' $act.Todo }) -Calm))
                 [void]$out.Add((New-Card $wait.Title 'E777' $wait.Lines $null))
                 if ($ai -and $mess) {
                     $n = @($mess.Lines | Where-Object { $_.Text -like 'Session*' }).Count
@@ -361,7 +406,12 @@ try {
             'Maintenance' {
                 [void]$out.Add((New-Card 'Last background check' 'E9D9' $last.Lines @((New-Btn 'E768' 'Run maintenance now' $act.RunMaint -Accent), (New-Btn 'E8A5' 'Full report' $act.Report))))
                 if ($hidden) { [void]$out.Add((New-Card 'Hidden Claude maintenance' 'E90F' (@($hidden.Lines) + @(@{ Text = 'About 2 minutes after each login: /maintain when something needs judgment, then /self-improve at most once a day.'; Level = 'dim' })) @((New-Btn 'E890' 'Watch live' $act.WatchLive), (New-Btn 'E8F1' 'Self-improvement journal' $act.Journal), (New-Btn 'E8B7' 'Run logs' $act.Logs)))) }
-                [void]$out.Add((New-Card 'Needs you' 'E7BA' $needs.Lines @(New-Btn 'E8A5' 'Open the to-do list' $act.Todo) -Calm))
+                [void]$out.Add((New-Card 'Needs you' 'E7BA' @(New-TodoLines $needs.Lines) @(New-Btn 'E8A5' 'Open the to-do list' $act.Todo) -Calm))
+                $kvf = Get-Item 'C:\PCSetupKit\kit-version.txt' -ErrorAction SilentlyContinue
+                $prev = Get-Content "$env:ProgramData\PCSetupKit\previous\version.txt" -TotalCount 1 -ErrorAction SilentlyContinue
+                $kl = @(@{ Text = "Version $(if ($kvf) { "$((Get-Content $kvf.FullName -TotalCount 1).Trim()), since $($kvf.LastWriteTime.ToString('MMM d'))" } else { 'unknown' }) - it updates itself (checks every 4 hours) and tests itself after each update"; Level = 'info' })
+                if ($prev) { $kl += @{ Text = "The version before ($("$prev".Trim())) is kept: Undo goes back to it."; Level = 'dim' } }
+                [void]$out.Add((New-Card 'PC Setup Kit' 'E946' $kl @((New-Btn 'E90F' 'Repair the kit' $act.Repair), (New-Btn 'E7A7' 'Undo the last update' $act.Rollback))))
                 [void]$out.Add((New-Card 'Install USB' 'E88E' @(@{ Text = 'Makes a USB stick that installs Windows 11 on a new PC (or reinstalls this one) and sets it up by itself - Windows from Microsoft, the newest kit, and optionally this PC''s settings. The stick is erased; takes 20-40 minutes.'; Level = 'dim' }) @(New-Btn 'E88E' 'Make an install USB' $act.MakeUsb)))
             }
             'History' {
@@ -418,6 +468,10 @@ try {
                 [void]$lbl.Children.Add((New-Text "Open $name when I log in" $brush.Text 14 'Normal' '0'))
                 [void]$lbl.Children.Add((New-Text "Off: $name starts in the hidden tray (^ next to the clock) and works on its own. On: this window also opens once per start-up (not while a game is fullscreen)." $brush.Sub 12 'Normal' '0,2,0,0'))
                 [void]$row.Children.Add($sw); [void]$row.Children.Add($lbl)
+                $bks = @(@("$([Environment]::GetFolderPath('MyDocuments'))\PC Setup Kit Backup") + @(Get-PSDrive -PSProvider FileSystem | ForEach-Object { "$($_.Root)PC Setup Kit Backup" }) | Where-Object { Test-Path $_ } | ForEach-Object { Get-ChildItem "$_\*.zip" -ErrorAction SilentlyContinue } | Sort-Object LastWriteTime -Descending)
+                $bl = @(if ($bks) { @(@{ Text = "Last backup: $($bks[0].LastWriteTime.ToString('ddd MMM d, h:mm tt')) in $(Split-Path $bks[0].FullName)"; Level = 'info' }) } else { @(@{ Text = 'No backup yet - the first one is made at the next weekly maintenance.'; Level = 'dim' }) })
+                $bl += @{ Text = 'Weekly: wallpaper, dark mode, colours, taskbar, mouse, Start pins, game settings and the kit''s memory. Reinstalling Windows with the kit brings them back by itself; plug in the kit USB once in a while and a copy goes onto it too.'; Level = 'dim' }
+                [void]$out.Add((New-Card 'Settings backup' 'E777' $bl @((New-Btn 'E777' 'Back up now' $act.BackupNow), (New-Btn 'E896' 'Restore from a backup...' $act.RestoreFrom))))
                 [void]$out.Add((New-Card 'Start-up' 'E7E8' @($row) $null))
                 # gaming options (kit-options.txt; gaming-check.ps1 / nvidia-settings.ps1 apply them at the next check)
                 $opts = @()
@@ -432,10 +486,41 @@ try {
                     [void]$r2.Children.Add($s2); [void]$r2.Children.Add($l2); $opts += $r2
                 }
                 [void]$out.Add((New-Card 'Gaming' 'E7FC' $opts $null))
+                # every change the kit makes, each one the owner's to keep or not (tweaks.ps1 reads "tweak.<id>=off", puts
+                # back what it had changed, and keeps to the choice after updates)
+                $tw = @(
+                    @('memory-integrity', 'Memory integrity off', 'Core isolation (VBS) costs 5-10% in many games. On: extra protection against malicious drivers, a bit less speed.'),
+                    @('telemetry', 'Telemetry, ads and Windows AI off', 'No diagnostic data, ads, suggestions, Bing in search, Copilot or Recall.'),
+                    @('bloat-apps', 'Preinstalled apps removed', 'News, Weather, Teams, Clipchamp, Solitaire, TikTok and the like. Off: the kit stops removing them (reinstall any from the Microsoft Store).'),
+                    @('game-bar', 'Xbox Game Bar removed', 'Its overlay and background capture cost frame rate. Off: it comes back. (Always kept on AMD dual-CCD X3D CPUs, which need it.)'),
+                    @('game-recording', 'Background game recording off', 'Game DVR records every game in the background. Off: recording and clips work again.'),
+                    @('onedrive', 'OneDrive removed', 'Off: OneDrive comes back and can sync again.'),
+                    @('start-menu', 'Start menu recommendations and Task View off', 'A cleaner Start menu and taskbar.'),
+                    @('transparency', 'Transparency effects off', 'Slightly less work for the graphics card. Off: see-through Start menu and windows again.'),
+                    @('sticky-keys', 'Sticky Keys pop-up off', 'Pressing Shift five times in a game no longer opens the Sticky Keys prompt and throws you out of fullscreen. The feature itself stays in Accessibility.'),
+                    @('mouse-acceleration', 'Mouse acceleration off', 'The same hand movement always moves the cursor the same distance - better aim.'),
+                    @('power-plan', 'Best power plan', 'Desktops: Ultimate Performance. Laptops: Balanced, full speed when plugged in. Off: your own plan.'),
+                    @('hibernation', 'Hibernation off (desktops)', 'Frees disk space and gives a clean start every time. Laptops always keep it.'),
+                    @('windowed-games', 'Optimizations for windowed games and VRR', 'Lower input lag in borderless-window games, variable refresh rate where supported.'),
+                    @('restart-block', 'No Windows Update restarts while you''re signed in', 'Updates still install; the restart waits for yours.'),
+                    @('startup-clutter', 'Start-up clutter off', 'Vendor updaters and promo tools don''t start with Windows. Off: they start again.'))
+                $rows2 = foreach ($o in $tw) {
+                    $r3 = New-Object Windows.Controls.DockPanel -Property @{ Margin = '0,0,0,10' }
+                    $s3 = New-Object Windows.Controls.CheckBox -Property @{ IsChecked = ((Get-Opt "tweak.$($o[0])" 'on') -ne 'off'); VerticalAlignment = 'Center'; Tag = $o[0] }
+                    $s3.Style = $win.FindResource('Switch'); [Windows.Controls.DockPanel]::SetDock($s3, 'Right')
+                    $s3.Add_Click({
+                            Set-Opt "tweak.$($this.Tag)" $(if ($this.IsChecked) { 'on' } else { 'off' })
+                            if (Send-Tray $cmd.ApplyTweaks) { Say 'Saved - applying it now (a few seconds; some changes need a restart).' } else { Say 'Saved - applied at the next check (or click Run maintenance now).' } })
+                    $l3 = New-Object Windows.Controls.StackPanel
+                    [void]$l3.Children.Add((New-Text $o[1] $brush.Text 14 'Normal' '0')); [void]$l3.Children.Add((New-Text $o[2] $brush.Sub 12 'Normal' '0,2,0,0'))
+                    [void]$r3.Children.Add($s3); [void]$r3.Children.Add($l3); $r3
+                }
+                [void]$out.Add((New-Card 'What the kit changes' 'E771' @($rows2) $null))
                 $kv = Get-Content 'C:\PCSetupKit\kit-version.txt' -TotalCount 1 -ErrorAction SilentlyContinue
                 [void]$out.Add((New-Card 'About' 'E946' @(
                             @{ Text = "$name - part of the PC Setup Kit$(if ($kv) { " $kv" })"; Level = 'info' },
-                            @{ Text = 'Keeps this PC updated, tuned and checked by itself. Updates itself from the published kit.'; Level = 'dim' }) $null))
+                            @{ Text = 'Keeps this PC updated, tuned and checked by itself. Updates itself from the published kit.'; Level = 'dim' },
+                            @{ Text = "Tip: Ctrl+Alt+$(if ($ai) { 'M' } else { 'P' }) opens this window from anywhere."; Level = 'dim' }) $null))
             }
         }
         $out

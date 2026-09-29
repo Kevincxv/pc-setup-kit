@@ -31,7 +31,8 @@ INSTALL ON THE NEW PC
    No Microsoft account is needed; the ad and privacy screens are skipped.
 5. At the first desktop a "Setting up this PC" window shows the progress. KEEP THE USB PLUGGED IN until it says it's finished
    (15-30 minutes, depending on internet speed). It:
-     - removes Windows bloat (Copilot, Widgets, Teams, Outlook, OneDrive, news/ads, Xbox Game Bar...)
+     - removes Windows bloat (Copilot, Widgets, Teams, Outlook, OneDrive, news/ads, Xbox Game Bar...) - each change can
+       be switched off later in the app (Settings > What the kit changes), which puts it back
      - turns off telemetry, ads, Bing search, Recall/AI features, background tasks
      - gaming tweaks: Ultimate Performance power plan, Game Mode on, hardware GPU scheduling, Game DVR off,
        memory integrity (VBS) off, mouse acceleration off, no power-saving on controllers/Ethernet

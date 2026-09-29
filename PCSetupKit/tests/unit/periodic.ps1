@@ -19,14 +19,14 @@ function Reset-M {
     }
     $global:PMcalls = New-Object System.Collections.Generic.List[string]
 }
-function winget { if ("$args" -match '^source (reset|update)') { $global:PMcalls.Add("winget source $($Matches[1])"); if ($Matches[1] -eq 'update' -and $PM.FixedByRefresh) { $PM.Winget = @('No installed package found matching input criteria.') }; return }; if ("$args" -match '--id (\S+)') { $global:PMcalls.Add("winget upgrade $($Matches[1])"); if ($PM.WingetOk -contains $Matches[1]) { 'Successfully installed' } else { 'Installer failed with exit code: 1603' } } else { $PM.Winget } }
+function winget { if ("$args" -match '^source (reset|update)') { $global:PMcalls.Add("winget source $($Matches[1])"); if ($Matches[1] -eq 'update' -and $PM.FixedByRefresh) { $PM.Winget = @('No installed package found matching input criteria.') }; return }; if ("$args" -match '--id (\S+)') { $global:PMcalls.Add("winget upgrade $($Matches[1])"); if ($PM.WingetOk -contains $Matches[1]) { $global:LASTEXITCODE = 0; 'Successfully installed' } else { $global:LASTEXITCODE = 1603; 'Installer failed with exit code: 1603' } } else { $global:LASTEXITCODE = if ($PM.Winget -match 'No packages? (were )?found|Failed|error') { -1978335212 } else { 0 }; $PM.Winget } }
 function Get-WindowsDriver { param([switch]$Online) $PM.WinDrivers }
 function DISM { $global:PMcalls.Add("DISM $args") }
 function Start-Process { $global:PMcalls.Add("Start-Process $args"); $p = [pscustomobject]@{ Id = 4242 }; $h = $PM.CleanmgrHangs; $p | Add-Member ScriptMethod WaitForExit ([scriptblock]::Create("param(`$ms) -not `$$h")); $p }
 function Stop-Process { $global:PMcalls.Add("Stop-Process $args") }
 function Get-ComputerRestorePoint { $PM.Rps }
 function Checkpoint-Computer { $global:PMcalls.Add('Checkpoint-Computer'); if ($PM.RpWorks) { $PM.Rps = @($PM.Rps) + (RestorePt 0) } }
-function pnputil { if ("$args" -match 'enum-drivers') { $PM.Drivers } elseif ("$args" -match 'delete-driver (\S+)') { $global:PMcalls.Add("pnputil delete $($Matches[1])"); if ($Matches[1] -eq 'oem10.inf') { 'One or more devices are presently installed using the specified INF.' } else { 'Driver package deleted successfully.' } } }
+function pnputil { if ("$args" -match 'delete-driver (\S+)') { $global:PMcalls.Add("pnputil delete $($Matches[1])"); $global:LASTEXITCODE = if ($Matches[1] -eq 'oem10.inf') { 1 } else { 0 } } }   # (oem10: in use - refused)
 function Get-NetFirewallApplicationFilter { $PM.FwFilters }
 function Get-NetFirewallRule { $input | ForEach-Object { [pscustomobject]@{ Name = "rule-$($_.Program)" } } }
 function Remove-NetFirewallRule { $input | ForEach-Object { $global:PMcalls.Add("remove firewall $($_.Name)") } }
@@ -80,37 +80,18 @@ Check '... still broken: "held" (no alarm for one miss), NOT marked done - the n
 Reset-M; State @{ 'weekly-apps' = $old }; $PM.Winget = @(); $o = PM
 Check '... no app updates for 3+ weeks: FAILED (gets looked at)' ($o -match '^App updates FAILED: winget couldn''t load') ($o -join ' / ')
 
+Section 'weekly app updates on a non-English Windows (winget''s text is translated)'
+Reset-M; State @{ 'weekly-apps' = $old }
+$PM.Winget = @('Name              ID            Version  Verfügbar Quelle', '---------------------------------------------------------', 'Gute App          Vendor.Good   1.0      2.0       winget', '1 Aktualisierungen verfügbar.')
+$o = PM
+Check 'a translated table (German): the update is found by the table''s shape and installed' (($PMcalls -contains 'winget upgrade Vendor.Good') -and ($o -contains 'Updated app: Vendor.Good') -and (St).'weekly-apps' -ne $old) ($o -join ' / ')
+Reset-M; State @{ 'weekly-apps' = $old }; $PM.Winget = @('Es wurde kein installiertes Paket gefunden, das den Eingabekriterien entspricht.')
+$o = PM
+Check '... "no updates" in German: winget answered (exit code 0) - done, not held' ((St).'weekly-apps' -ne $old -and -not ($o -match 'held|FAILED')) ($o -join ' / ')
 Section 'monthly cleanup'
 Reset-M; State @{ 'monthly-cleanup' = $old }
-$PM.Drivers = @"
-Published Name:     oem7.inf
-Original Name:      nvlddmkm.inf
-Provider Name:      NVIDIA
-Class Name:         Display
-Driver Version:     07/01/2026 32.0.15.9000
-Signer Name:        Microsoft Windows Hardware Compatibility Publisher
-
-Published Name:     oem8.inf
-Original Name:      nvlddmkm.inf
-Provider Name:      NVIDIA
-Class Name:         Display
-Driver Version:     09/01/2026 32.0.16.1714
-Signer Name:        Microsoft Windows Hardware Compatibility Publisher
-
-Published Name:     oem9.inf
-Original Name:      rt640x64.inf
-Provider Name:      Realtek
-Class Name:         Net
-Driver Version:     01/01/2025 10.60.1.0
-Signer Name:        Microsoft Windows Hardware Compatibility Publisher
-
-Published Name:     oem10.inf
-Original Name:      rt640x64.inf
-Provider Name:      Realtek
-Class Name:         Net
-Driver Version:     01/01/2024 10.50.0.0
-Signer Name:        Microsoft Windows Hardware Compatibility Publisher
-"@
+$drvFix = { param($pub, $orig, $ver, $dir = 'C:\none') [pscustomobject]@{ Driver = $pub; OriginalFileName = "$dir\$orig"; Version = $ver } }
+$PM.WinDrivers = @((& $drvFix 'oem7.inf' 'nvlddmkm.inf' '32.0.15.9000'), (& $drvFix 'oem8.inf' 'nvlddmkm.inf' '32.0.16.1714'), (& $drvFix 'oem9.inf' 'rt640x64.inf' '10.60.1.0'), (& $drvFix 'oem10.inf' 'rt640x64.inf' '10.50.0.0'))
 $PM.FwFilters = @([pscustomobject]@{ Program = 'C:\Games\Removed\game.exe' }, [pscustomobject]@{ Program = "$env:WINDIR\System32\svchost.exe" },
     [pscustomobject]@{ Program = '%SystemRoot%\system32\foo.exe' }, [pscustomobject]@{ Program = 'System' }, [pscustomobject]@{ Program = 'Any' })
 $PM.Services = @([pscustomobject]@{ Name = 'GoneSvc'; PathName = '"C:\Program Files\Gone\gone.exe" -service' }, [pscustomobject]@{ Name = 'OkSvc'; PathName = "$env:WINDIR\System32\svchost.exe -k netsvcs" },
@@ -133,7 +114,7 @@ Check 'a driver still in use is not reported as removed' (-not ($o -match 'rt640
 # the NVIDIA driver was updated 5 days ago (its driver store folder is new): the previous version stays, so
 # driver-guard.ps1 can go back to it after a blue screen
 $store = "$Work\store\nvlddmkm.inf_amd64_new"; New-Item $store -ItemType Directory -Force | Out-Null; (Get-Item $store).CreationTime = (Get-Date).AddDays(-5)
-$PM.WinDrivers = @([pscustomobject]@{ Driver = 'oem8.inf'; OriginalFileName = "$store\nvlddmkm.inf" }); $PM.Reboot = $false
+$PM.WinDrivers[1] = & $drvFix 'oem8.inf' 'nvlddmkm.inf' '32.0.16.1714' $store; $PM.Reboot = $false
 $global:PMcalls.Clear(); State @{ 'monthly-cleanup' = $old }; $o = PM
 Check 'a driver updated in the last 30 days keeps its previous version (rollback after a blue screen)' (-not ($PMcalls -contains 'pnputil delete oem7.inf') -and -not ($o -match 'Removed old driver nvlddmkm')) ($PMcalls -join ', ')
 (Get-Item $store).CreationTime = (Get-Date).AddDays(-31); $global:PMcalls.Clear(); State @{ 'monthly-cleanup' = $old }; $o = PM

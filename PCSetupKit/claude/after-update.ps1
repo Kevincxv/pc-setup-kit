@@ -4,10 +4,12 @@
 # OneDrive), this PC's own extras, the monitors, the NVIDIA settings. What it had to fix goes to maint-history as a
 # small report (the app's History page, "What maintenance did"). Never under a game (the monitor switch is skipped
 # then by display-refresh itself; the rest is invisible). -Dir / -Kit: tests.
-param([string]$Dir = $PSScriptRoot, [string]$Kit = 'C:\PCSetupKit')
+param([string]$Dir = $PSScriptRoot, [string]$Kit = 'C:\PCSetupKit', [switch]$Now)   # -Now: the owner just changed a choice in the app (runs even while paused)
 $ErrorActionPreference = 'SilentlyContinue'
+if (-not $Now -and (Test-Path "$Dir\paused.ps1") -and (& "$Dir\paused.ps1")) { return }   # paused by the owner
 $mx = New-Object Threading.Mutex($false, 'Global\PCSetupKitAfterUpdate')
 if (-not $mx.WaitOne(0)) { return }   # a burst of update events: one run is enough
+$bm = $null; if (-not $Now -and -not $env:PCKIT_IN_TESTS -and [Threading.Mutex]::TryOpenExisting('Global\ClaudeBgMaint', [ref]$bm)) { $bm.Dispose(); return }   # the maintenance running now runs the guard itself
 $t0 = Get-Date
 $fixed = @(if (Test-Path "$Kit\tweaks.ps1") { & "$Kit\tweaks.ps1" }) + @(if (Test-Path "$Dir\tweaks-local.ps1") { & "$Dir\tweaks-local.ps1" })
 $lines = @(if ($fixed) { "Tweaks: an update had reverted $($fixed.Count) - re-applied: $(($fixed | Select-Object -Unique) -join ', ')" })

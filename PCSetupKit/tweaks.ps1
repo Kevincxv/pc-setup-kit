@@ -4,6 +4,10 @@
 # Must run elevated, as the user who owns the PC (HKCU settings apply to that user).
 $ErrorActionPreference = 'SilentlyContinue'
 $changes = New-Object System.Collections.Generic.List[string]
+# one guard at a time (health-check, the update guard, setup, the app's choices): the originals file isn't written twice at
+# once - the second waits (up to 2 min). Tests each get their own.
+$tmx = New-Object Threading.Mutex($false, "Global\PCSetupKitTweaks$(if ($env:PCKIT_IN_TESTS) { "-$PID" })")
+try { [void]$tmx.WaitOne(120000) } catch [Threading.AbandonedMutexException] { }
 
 # Originals: the first time a setting is changed, its previous state is kept in C:\PCSetupKit\tweaks-backup.json,
 # so uninstall.ps1 -RevertTweaks can put everything back exactly as it was
@@ -12,8 +16,30 @@ $bk = @{}; try { (Get-Content $bkFile -Raw | ConvertFrom-Json -ErrorAction Stop)
 $bkDirty = $false
 function Save-Original($Key, $Data) { if (-not $bk.ContainsKey($Key)) { $bk[$Key] = $Data; $script:bkDirty = $true } }
 
+# The owner's choices (the app's Settings > What the kit changes; kit-options.txt "tweak.<group>=off"): a group turned
+# off is not applied, and what it changed goes back to how it was before the kit (the originals above) - checked at
+# every run like everything else, so a choice holds after updates too. Groups: see $script:group below.
+$optFile = if ($env:PCKIT_TWEAK_OPTIONS) { $env:PCKIT_TWEAK_OPTIONS } else { "$env:USERPROFILE\.claude\kit-options.txt" }
+$off = @(Get-Content $optFile | Where-Object { $_ -match '^\s*tweak\.([\w-]+)\s*=\s*off\s*$' } | ForEach-Object { $Matches[1] })
+function Want([string]$Group) { -not $Group -or $Group -notin $off }
+$group = $null   # the group the next settings belong to (none: always applied)
+# once per group turned off (reinstalling an app, turning hibernation back on): 'undone|<group>' in the backup file,
+# cleared when the group is turned on again
+function Undo-Once([string]$Group, [scriptblock]$Action, [string]$Said) {
+    if ($bk.ContainsKey("undone|$Group")) { return }
+    & $Action; $bk["undone|$Group"] = @{ Date = (Get-Date).ToString('o') }; $script:bkDirty = $true; $changes.Add($Said)
+}
+function Redo([string]$Group) { if ($bk.ContainsKey("undone|$Group")) { $bk.Remove("undone|$Group"); $script:bkDirty = $true } }
+
 function Set-Reg($Path, $Name, $Value, $Type = 'DWord') {
     $cur = (Get-ItemProperty -Path $Path -Name $Name).$Name
+    if (-not (Want $script:group)) {
+        # turned off by the owner: back to the original (only if the kit had changed it)
+        $o = $bk["reg|$Path|$Name"]; if (-not $o) { return }
+        if ($o.Existed) { if ("$cur" -ne "$($o.Value)") { Set-ItemProperty -Path $Path -Name $Name -Value $o.Value -Type $(if ($o.Kind) { $o.Kind } else { 'DWord' }); $changes.Add("setting $Name back (your choice)") } }
+        elseif ($null -ne (Get-ItemProperty -Path $Path -Name $Name)) { Remove-ItemProperty -Path $Path -Name $Name; $changes.Add("setting $Name back (your choice)") }
+        return
+    }
     if ("$cur" -ne "$Value") {
         $had = $null -ne (Get-ItemProperty -Path $Path -Name $Name)
         Save-Original "reg|$Path|$Name" @{ Existed = $had; Value = $cur; Kind = $(if ($had) { "$((Get-Item $Path).GetValueKind($Name))" }) }
@@ -24,6 +50,7 @@ function Set-Reg($Path, $Name, $Value, $Type = 'DWord') {
 }
 
 # --- Telemetry, ads, suggestions, AI features ---
+$group = 'telemetry'
 $P = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows'
 Set-Reg "$P\DataCollection" AllowTelemetry 0
 Set-Reg "$P\DataCollection" DoNotShowFeedbackNotifications 1
@@ -42,9 +69,9 @@ Set-Reg "$P\WindowsCopilot" TurnOffWindowsCopilot 1
 Set-Reg "$P\WindowsAI" DisableAIDataAnalysis 1
 Set-Reg "$P\WindowsAI" DisableClickToDo 1
 Set-Reg "$P\WindowsAI" TurnOffSavingSnapshots 1
-Set-Reg "$P\OneDrive" DisableFileSyncNGSC 1
+$group = 'onedrive'; Set-Reg "$P\OneDrive" DisableFileSyncNGSC 1; $group = 'telemetry'
 Set-Reg "$P\DeliveryOptimization" DODownloadMode 1              # update sharing only with this home network
-Set-Reg "$P\GameDVR" AllowGameDVR 0
+$group = 'game-recording'; Set-Reg "$P\GameDVR" AllowGameDVR 0; $group = 'telemetry'
 Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh' AllowNewsAndInterests 0   # Widgets
 Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' StartupBoostEnabled 0    # Edge stays (apps need WebView2) but stays out of the way
 Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' BackgroundModeEnabled 0
@@ -69,29 +96,42 @@ Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' BingSearchEnabl
 Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications' ToastEnabled 0
 
 # --- Taskbar / Start / look ---
+$group = 'start-menu'
 $ADV = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
 Set-Reg $ADV ShowCopilotButton 0
 Set-Reg $ADV ShowTaskViewButton 0
 Set-Reg $ADV Start_IrisRecommendations 0
 Set-Reg $ADV Start_TrackDocs 0
 Set-Reg $ADV Start_AccountNotifications 0
-Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' EnableTransparency 0
+# the Sticky Keys / Filter Keys / Toggle Keys prompts (Shift five times, holding Shift, Num Lock) that throw a game out of
+# fullscreen - only their keyboard shortcuts; the features stay in Settings > Accessibility
+$group = 'sticky-keys'
+Set-Reg 'HKCU:\Control Panel\Accessibility\StickyKeys' Flags '506' String
+Set-Reg 'HKCU:\Control Panel\Accessibility\ToggleKeys' Flags '58' String
+Set-Reg 'HKCU:\Control Panel\Accessibility\Keyboard Response' Flags '122' String
+$group = 'transparency'; Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' EnableTransparency 0
+$group = 'mouse-acceleration'
 Set-Reg 'HKCU:\Control Panel\Mouse' MouseSpeed '0' String       # no mouse acceleration
 Set-Reg 'HKCU:\Control Panel\Mouse' MouseThreshold1 '0' String
 Set-Reg 'HKCU:\Control Panel\Mouse' MouseThreshold2 '0' String
 
 # --- Gaming / performance ---
+$group = 'game-recording'
 Set-Reg 'HKCU:\System\GameConfigStore' GameDVR_Enabled 0
 Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR' AppCaptureEnabled 0
+$group = $null
 Set-Reg 'HKCU:\Software\Microsoft\GameBar' AutoGameModeEnabled 1
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers' HwSchMode 2                      # hardware GPU scheduling
+$group = 'memory-integrity'
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard' EnableVirtualizationBasedSecurity 0  # memory integrity / VBS off (gaming)
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity' Enabled 0
+$group = $null
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' DisableWpbtExecution 1          # blocks motherboard "auto driver installer" bloat
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl' CrashDumpEnabled 7                  # keep crash dumps for diagnosis
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl' AlwaysKeepMemoryDump 1
 # Windows 11 "Optimizations for windowed games" (DX10/11 borderless games get the low-latency flip model) and
 # variable refresh rate for games that don't ask for it - one string of "key=value;" pairs, other keys kept
+$group = 'windowed-games'
 $dxk = 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences'
 $dx = "$((Get-ItemProperty -Path $dxk -Name DirectXUserGlobalSettings).DirectXUserGlobalSettings)"
 $pairs = [ordered]@{}; foreach ($p in $dx -split ';' | Where-Object { $_ -match '=' }) { $kv = $p -split '=', 2; $pairs[$kv[0]] = $kv[1] }
@@ -99,6 +139,7 @@ $pairs['SwapEffectUpgradeEnable'] = '1'; $pairs['VRROptimizeEnable'] = '1'
 Set-Reg $dxk DirectXUserGlobalSettings ((($pairs.Keys | ForEach-Object { "$_=$($pairs[$_])" }) -join ';') + ';') String
 # Windows Update never restarts the PC by itself while someone is signed in (mid-game), and its active hours cover
 # the whole gaming day (8:00-2:00) - updates still install; the restart waits for the owner's own
+$group = 'restart-block'
 $WU = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
 Set-Reg "$WU\AU" NoAutoRebootWithLoggedOnUsers 1
 Set-Reg $WU SetActiveHours 1
@@ -106,6 +147,7 @@ Set-Reg $WU ActiveHoursStart 8
 Set-Reg $WU ActiveHoursEnd 2
 # The page file: some "debloat" guides turn it off, and games then crash when memory runs short - with none at all,
 # Windows manages it again (a size the owner chose is kept; takes effect after a restart)
+$group = $null
 $cs = Get-CimInstance Win32_ComputerSystem
 if ($cs -and -not $cs.AutomaticManagedPagefile -and -not (Get-CimInstance Win32_PageFileSetting)) {
     Save-Original 'pagefile|auto' @{ Automatic = $false }
@@ -116,7 +158,9 @@ if ($cs -and -not $cs.AutomaticManagedPagefile -and -not (Get-CimInstance Win32_
 foreach ($log in 'Application', 'System', 'Windows PowerShell') { Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\$log" MaxSize 67108864 }
 
 # --- Services ---
-foreach ($n in 'DiagTrack', 'dmwappushservice', 'SysMain', 'MapsBroker', 'lfsvc', 'TrkWks', 'WSAIFabricSvc', 'PcaSvc', 'RetailDemo') {
+# SysMain (prefetch) only goes where Windows is on an SSD: on a hard drive it's what makes apps start quicker
+$sysHdd = "$((Get-PhysicalDisk | Where-Object DeviceId -eq "$((Get-Partition -DriveLetter C).DiskNumber)").MediaType)" -eq 'HDD'
+foreach ($n in @('DiagTrack', 'dmwappushservice', 'SysMain', 'MapsBroker', 'lfsvc', 'TrkWks', 'WSAIFabricSvc', 'PcaSvc', 'RetailDemo') | Where-Object { -not ($sysHdd -and $_ -eq 'SysMain') }) {
     $s = Get-Service $n
     if ($s -and $s.StartType -ne 'Disabled') { Save-Original "service|$n" @{ StartType = "$($s.StartType)" }; Stop-Service $n -Force; Set-Service $n -StartupType Disabled; $changes.Add("service $n off") }
 }
@@ -164,6 +208,15 @@ $apps = 'Microsoft.Copilot', 'Microsoft.Windows.Ai.Copilot.Provider', 'Microsoft
 # see that a game runs and to put it on the V-Cache cores - without it games can lose a lot of frame rate
 $dualX3D = "$((Get-CimInstance Win32_Processor | Select-Object -First 1).Name)" -match 'Ryzen 9 \d{4}X3D'
 if ($dualX3D) { $apps = @($apps | Where-Object { $_ -ne 'Microsoft.XboxGamingOverlay' }) }
+# the owner's choices: keep the preinstalled apps ('bloat-apps' off) and/or keep the Xbox Game Bar ('game-bar' off -
+# brought back once from the Microsoft Store if the kit had removed it)
+if (-not (Want 'bloat-apps')) { $apps = @($apps | Where-Object { $_ -eq 'Microsoft.XboxGamingOverlay' }) }
+if (-not (Want 'game-bar')) {
+    $apps = @($apps | Where-Object { $_ -ne 'Microsoft.XboxGamingOverlay' })
+    if ($bk.ContainsKey('app|Microsoft.XboxGamingOverlay') -and -not (Get-AppxPackage Microsoft.XboxGamingOverlay)) {
+        Undo-Once 'game-bar' { $null = winget install --id 9NZKPSTSNW4P --source msstore --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 } 'Xbox Game Bar reinstalled (your choice)'
+    }
+} else { Redo 'game-bar' }
 foreach ($a in $apps) {
     $pkg = Get-AppxPackage -AllUsers $a
     if ($pkg) {
@@ -178,10 +231,21 @@ foreach ($a in $apps) {
 # A desktop: Ultimate Performance (made from Windows' own template under a fixed id - found in any language), no USB
 # sleep, no hibernation. A laptop (a battery): Balanced kept - Ultimate would drain it - with hibernation (a flat
 # battery saves open work), and flat out when plugged in (processor 100%, "Best performance", no USB sleep). ---
-function Get-AcIndex($Sub, $Setting) { if ("$(powercfg /q SCHEME_CURRENT $Sub $Setting)" -match 'Current AC Power Setting Index:\s*0x([0-9a-fA-F]+)') { [Convert]::ToInt32($Matches[1], 16) } }
+# the plugged-in value of a setting: of the last two "...: 0x..." lines (plugged in, then battery) - by position, since the
+# labels are translated on non-English Windows
+function Get-AcIndex($Sub, $Setting) { $v = @(powercfg /q SCHEME_CURRENT $Sub $Setting | Where-Object { $_ -match ':\s*0x[0-9a-fA-F]{8}\s*$' }); if ($v.Count -ge 2 -and $v[-2] -match '0x([0-9a-fA-F]{8})') { [Convert]::ToInt32($Matches[1], 16) } }
 $usbSub = '2a737441-1930-4402-8d77-b2bebba308a3'; $usbSet = '48e6b7a6-50f5-4782-a5d4-53bb8f07e226'
 $active = if ("$(powercfg /getactivescheme)" -match '([0-9a-fA-F-]{36})') { $Matches[1].ToLower() }
-if ((Get-CimInstance Win32_Battery) -or $env:PCKIT_TEST_BATTERY -eq '1') {   # (PCKIT_TEST_BATTERY: the Windows Sandbox laptop test)
+$laptop = [bool]((Get-CimInstance Win32_Battery) -or $env:PCKIT_TEST_BATTERY -eq '1')   # (PCKIT_TEST_BATTERY: the Windows Sandbox laptop test)
+# the owner's choices: their own power plan ('power-plan' off: the one from before the kit, once) and hibernation
+# on a desktop ('hibernation' off: turned back on, once)
+if (-not (Want 'power-plan')) {
+    if ($bk['plan|active'].Guid) { Undo-Once 'power-plan' { powercfg /setactive $bk['plan|active'].Guid } 'power plan back to the one from before (your choice)' }
+} else { Redo 'power-plan' }
+if (-not $laptop -and -not (Want 'hibernation')) { Undo-Once 'hibernation' { powercfg /hibernate on } 'hibernation back on (your choice)' } else { Redo 'hibernation' }
+$group = 'power-plan'
+if (-not (Want 'power-plan')) { if ($laptop) { Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes' ActiveOverlayAcPowerScheme 'ded574b5-45a0-4f42-8737-46345c09c238' String } }   # (off: Set-Reg puts it back)
+elseif ($laptop) {
     $bal = '381b4222-f694-41f0-9685-ff5bb260df2e'
     if ($active -ne $bal) { Save-Original 'plan|active' @{ Guid = $active }; powercfg /setactive $bal; $changes.Add('power plan Balanced (a laptop)') }
     if ((Get-AcIndex '54533251-82be-4824-96c1-47b60b740d00' '893dee8e-2bef-41e0-89c6-b55d0929964c') -ne 100) {
@@ -196,12 +260,17 @@ else {
     if ("$(powercfg /list)" -notmatch $ult) { powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 $ult | Out-Null }
     if ($active -ne $ult) { Save-Original 'plan|active' @{ Guid = $active }; powercfg /setactive $ult; $changes.Add('power plan Ultimate Performance') }
     if ((Get-AcIndex $usbSub $usbSet) -ne 0) { powercfg /setacvalueindex SCHEME_CURRENT $usbSub $usbSet 0; powercfg /setactive SCHEME_CURRENT; $changes.Add('USB sleep off') }
-    if ((Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name HibernateEnabled).HibernateEnabled -ne 0) { powercfg /hibernate off; $changes.Add('hibernation off') }
 }
+$group = $null
+if (-not $laptop -and (Want 'hibernation') -and (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name HibernateEnabled).HibernateEnabled -ne 0) { powercfg /hibernate off; $changes.Add('hibernation off') }
 
 # --- OneDrive: a feature update can bring it back - removed again (its sync is also off by policy, above) ---
 $od = @("$env:LOCALAPPDATA\Microsoft\OneDrive\OneDrive.exe", "$env:ProgramFiles\Microsoft OneDrive\OneDrive.exe") | Where-Object { Test-Path $_ }
-if ($od) {
+if (-not (Want 'onedrive')) {   # the owner wants OneDrive: back once (winget), its sync allowed again (the policy, above)
+    if (-not $od) { Undo-Once 'onedrive' { $null = winget install --id Microsoft.OneDrive -e --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 } 'OneDrive reinstalled (your choice)' }
+}
+elseif ($od) {
+    Redo 'onedrive'
     Get-Process OneDrive | Stop-Process -Force
     foreach ($o in "$env:SystemRoot\System32\OneDriveSetup.exe", "$env:SystemRoot\SysWOW64\OneDriveSetup.exe", (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\OneDrive\*\OneDriveSetup.exe").FullName, (Get-ChildItem "$env:ProgramFiles\Microsoft OneDrive\*\OneDriveSetup.exe").FullName) {
         if ($o -and (Test-Path $o)) { Start-Process $o '/uninstall' -Wait; break }
@@ -216,7 +285,16 @@ if ($od) {
 $clutter = '^(AdobeGCInvoker(-1\.0)?|Adobe ARM|AdobeAAMUpdater-1\.0|Adobe Acrobat Synchronizer|Adobe Updater Startup Utility|SunJavaUpdateSched|jusched|CCleaner.*|' +
     'Avast.*Browser.*Update.*|McAfee ?WebAdvisor|WebAdvisor|AsusUpdate.*|ASUS ?(Live ?Update|Promo).*|ArmouryCrate\.(Update|Notif).*|MSI ?(Live ?Update|Promo).*|' +
     'GigabyteUpdateService|HP ?(JumpStart|Registration|Support Solutions).*|Dell ?SupportAssist.*|Lenovo ?(Welcome|Notification).*|Opera Browser Assistant|Skype.*|Cortana)$'
-foreach ($r in @(@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Run', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'),
+if (-not (Want 'startup-clutter')) {   # the owner wants them: each one the kit turned off goes back on, once
+    $sus = @($bk.Keys | Where-Object { $_ -like 'startup|*' })
+    if ($sus) {
+        Undo-Once 'startup-clutter' {
+            foreach ($k in $sus) { $p = $k -split '\|'; $o = $bk[$k]
+                if ($o.Existed -and $o.Value) { Set-ItemProperty -Path $p[1] -Name $p[2] -Value ([Convert]::FromBase64String($o.Value)) -Type Binary } else { Remove-ItemProperty -Path $p[1] -Name $p[2] } }
+        } "start-up items back on (your choice): $(($sus | ForEach-Object { ($_ -split '\|')[2] }) -join ', ')"
+    }
+} else { Redo 'startup-clutter' }
+if (Want 'startup-clutter') { foreach ($r in @(@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Run', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'),
         @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'),
         @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32'))) {
     $run = Get-Item $r[0]; if (-not $run) { continue }
@@ -228,10 +306,11 @@ foreach ($r in @(@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Run', 'HKCU:
         Set-ItemProperty -Path $r[1] -Name $n -Value ([byte[]](@(3, 0, 0, 0) + [BitConverter]::GetBytes((Get-Date).ToFileTime()))) -Type Binary
         $changes.Add("start-up item $n off")
     }
-}
+} }
 
 # --- Devices: no power-saving on controllers and wired network ---
-foreach ($d in Get-CimInstance -Namespace root\wmi MSPower_DeviceEnable | Where-Object { $_.Enable -and $_.InstanceName -match 'VID_045E' }) {   # Xbox controllers
+# game controllers: Xbox (045E), PlayStation (054C), Nintendo (057E), 8BitDo (2DC8), Hori (0F0D), PowerA (20D6), PDP (0E6F)
+foreach ($d in Get-CimInstance -Namespace root\wmi MSPower_DeviceEnable | Where-Object { $_.Enable -and $_.InstanceName -match 'VID_(045E|054C|057E|2DC8|0F0D|20D6|0E6F)' }) {
     Save-Original "power|$($d.InstanceName)" @{ Enable = $true }
     Set-CimInstance -InputObject $d -Property @{ Enable = $false }; $changes.Add('controller power-saving off')
 }
@@ -250,9 +329,20 @@ foreach ($nic in Get-NetAdapter -Physical | Where-Object { $_.MediaType -eq '802
     }
 }
 
+# a desktop on Wi-Fi: no power-saving on the Wi-Fi adapter either (it causes lag spikes); laptops keep it (the battery)
+if (-not $laptop) {
+    foreach ($nic in Get-NetAdapter -Physical | Where-Object { $_.NdisPhysicalMedium -eq 9 }) {   # 9 = native 802.11
+        foreach ($d in Get-CimInstance -Namespace root\wmi MSPower_DeviceEnable | Where-Object { $_.Enable -and $_.InstanceName -like "$($nic.PnPDeviceID)*" }) {
+            Save-Original "power|$($d.InstanceName)" @{ Enable = $true }
+            Set-CimInstance -InputObject $d -Property @{ Enable = $false }; $changes.Add('Wi-Fi power-saving off')
+        }
+    }
+}
+
 if ($bkDirty) {
     New-Item (Split-Path $bkFile) -ItemType Directory -Force | Out-Null
     $bk | ConvertTo-Json -Depth 4 | Set-Content "$bkFile.tmp" -Encoding utf8
     Move-Item "$bkFile.tmp" $bkFile -Force
 }
+try { $tmx.ReleaseMutex() } catch { }
 $changes | Select-Object -Unique

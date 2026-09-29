@@ -18,7 +18,7 @@ $now = Get-Date
 function Ev($id, $min, $msg = '', $prov = '', $val = 0) { [pscustomobject]@{ Id = $id; TimeCreated = $now.AddMinutes(-$min); Message = $msg; ProviderName = $prov; Properties = @([pscustomobject]@{ Value = $val }) } }
 function Healthy {
     $script:M = @{
-        Events = @(); Dumps = @(); Reboot = $false
+        Events = @([pscustomobject]@{ Id = 35; ProviderName = 'Microsoft-Windows-Time-Service'; TimeCreated = $now.AddHours(-3) }); Dumps = @(); Reboot = $false   # (35: the clock was synced)
         Mp = [pscustomobject]@{ RealTimeProtectionEnabled = $true; QuickScanAge = 1 }
         W32 = @("Last Successful Sync Time: $($now.AddHours(-3).ToString())")
         Winget = @('No installed package found matching input criteria.')
@@ -35,7 +35,7 @@ function Healthy {
 }
 function Get-WinEvent { param($FilterHashtable, $MaxEvents, $ErrorAction)
     $f = $FilterHashtable
-    @($M.Events | Where-Object { (-not $f.Id -or $_.Id -eq $f.Id) -and (-not $f.ProviderName -or $_.ProviderName -eq $f.ProviderName) -and (-not $f.StartTime -or $_.TimeCreated -ge $f.StartTime) }) }
+    @($M.Events | Where-Object { (-not $f.Id -or $_.Id -in @($f.Id)) -and (-not $f.ProviderName -or $_.ProviderName -eq $f.ProviderName) -and (-not $f.StartTime -or $_.TimeCreated -ge $f.StartTime) }) }
 function Get-ChildItem { if ((@($args | ForEach-Object { $_ }) -join ' ') -match 'Minidump|MEMORY\.DMP') { return $M.Dumps }; Microsoft.PowerShell.Management\Get-ChildItem @args }
 function Test-Path { $a = @($args | ForEach-Object { $_ }) -join ' '; if ($a -match 'PCSetupKit\\tweaks\.ps1') { return $false }; if ($a -match 'RebootPending|RebootRequired') { return $M.Reboot }; Microsoft.PowerShell.Management\Test-Path @args }
 function Get-CimInstance { if ("$args" -match 'Win32_PhysicalMemory') { return $M.Ram }; if ("$args" -match 'Win32_BIOS') { return $M.Bios }; CimCmdlets\Get-CimInstance @args }
@@ -81,7 +81,7 @@ $o = HC
 Check 'the next check does not report the same crashes again' (($o -contains 'Crashes: none since last check') -and -not ($o -match 'crash dump')) ($o -join ' / ')
 
 Section 'security, clock, app updates'
-Healthy; $M.Mp = [pscustomobject]@{ RealTimeProtectionEnabled = $false; QuickScanAge = 9 }; $M.W32 = @("Last Successful Sync Time: $($now.AddDays(-10).ToString())")
+Healthy; $M.Mp = [pscustomobject]@{ RealTimeProtectionEnabled = $false; QuickScanAge = 9 }; $M.Events = @($M.Events | Where-Object ProviderName -ne 'Microsoft-Windows-Time-Service')   # no sync in 10 days
 $M.Winget = @('Name           Id              Version  Available  Source', '----------------------------------------------------------', 'App One        Vendor.AppOne   1.0      1.1        winget', 'App Two Long   Vendor.AppTwo   2.0      2.5        winget', '2 upgrades available.')
 $o = HC
 Check 'Defender real-time protection off = WARNING' ([bool]($o -match 'WARNING: Defender real-time protection is OFF')) ''
@@ -97,7 +97,7 @@ Healthy; $M.Mp.QuickScanAge = 9; 'x' | Set-Content "$d\gaming.flag"
 $o = HC
 Check 'no virus scan while a game runs' (-not ($global:HCcalls -match 'MpCmdRun')) ($global:HCcalls -join ', ')
 Clear-Path "$d\gaming.flag"
-Healthy; $M.W32 = @('The following error occurred: The service has not been started.')
+Healthy; $M.Events = @()   # the time service never synced (not started)
 [void](HC); Check 'time service not answering -> resync (no error)' ([bool]($global:HCcalls -contains 'w32tm resync')) ''
 
 Section 'tweak guard'

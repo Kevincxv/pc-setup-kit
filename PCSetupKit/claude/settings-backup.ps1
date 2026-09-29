@@ -12,8 +12,8 @@
 # positions (not restorable reliably), the lock screen picture (needs a policy).
 # -ToUsb: the tray runs it when a drive is plugged in - a kit USB (PCSetupKit\setup.ps1 on it) gets a fresh backup, once a day, so
 # it's there for a full reinstall even on a one-drive PC.
-# -Restore [-From zip]; -Force (back up even if one is recent); tests: -RegRoot -HomeDir -Dest -NoApply -MachineId
-param([switch]$Restore, [string]$From, [switch]$Force, [switch]$ToUsb, [string]$RegRoot = 'HKCU:', [string]$HomeDir = $env:USERPROFILE, [string[]]$Dest,
+# -Restore [-From zip] [-AnyPc: a backup of another PC too - the app asks first]; -Force (back up even if one is recent); tests: -RegRoot -HomeDir -Dest -NoApply -MachineId
+param([switch]$Restore, [string]$From, [switch]$Force, [switch]$ToUsb, [switch]$AnyPc, [string]$RegRoot = 'HKCU:', [string]$HomeDir = $env:USERPROFILE, [string[]]$Dest,
     [switch]$NoApply, [string]$MachineId, [string]$ClaudeDir = $PSScriptRoot)
 $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -136,7 +136,7 @@ if (-not $From) {
 $st = Join-Path $env:TEMP "pckit-restore-$PID"
 try { [IO.Compression.ZipFile]::ExtractToDirectory($From, $st) } catch { "Restore FAILED: $From could not be opened"; return }
 $meta = Get-Content "$st\backup.json" -Raw | ConvertFrom-Json
-if ($meta.machine -ne $MachineId) { [IO.Directory]::Delete($st, $true); 'Restore: that backup was made on another PC - not used'; return }
+if ($meta.machine -ne $MachineId -and -not $AnyPc) { [IO.Directory]::Delete($st, $true); 'Restore: that backup was made on another PC - not used'; return }   # (-AnyPc: the owner picked it in the app and said yes)
 $done = @()
 # the look
 foreach ($k in $meta.look.PSObject.Properties) {

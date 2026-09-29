@@ -56,6 +56,8 @@ try {
     New-Item "$nh\Documents\My Games\TestGame", "$nh\.claude" -ItemType Directory -Force | Out-Null
     $o = Restore 'PC-2'
     Check "another PC's backup is never used (a kit USB shared between friends)" ("$o" -match 'made on other PCs - not used' -and -not (Test-Path "$new\Control Panel\Desktop")) ($o -join ' / ')
+    $o2 = @(& $sb -Restore -From $zip[0].FullName -RegRoot "HKCU:\Software\$rk\anypc" -HomeDir "$Work\anypc" -MachineId 'PC-2' -ClaudeDir "$Work\anypc\.claude" -NoApply -AnyPc)
+    Check '... unless the owner picks it in the app and says yes (-AnyPc)' ("$o2" -match '^Restore: brought back') ($o2 -join ' / ')
     'fov=90 (changed on the new install)' | Set-Content "$nh\Documents\My Games\TestGame\settings.ini"
     $o = Restore
     Check "this PC's backup: restored, saying what came back" ("$o" -match '^Restore: brought back from the backup of .+colours and dark mode.+wallpaper.+game settings') ($o -join ' / ')

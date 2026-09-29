@@ -69,7 +69,7 @@ if (-not $FromMaintenance) {
     foreach ($k in 'claude-quarterly', 'claude-halfyear', 'claude-yearly') { $s[$k] = (Get-Date).ToString('o') }
     $s | ConvertTo-Json | Set-Content "$ms.tmp" -Encoding UTF8; Move-Item "$ms.tmp" $ms -Force
     Say 'Maintenance: running everything now (drivers, app updates, checks, cleanup, self-test)...'
-    & "$dir\claude-bg-maint.ps1" -Force -Unattended
+    & "$dir\claude-bg-maint.ps1" -Force -Unattended -Now
     Get-Content "$dir\maint-report.txt" -Encoding UTF8 -ErrorAction SilentlyContinue | Select-Object -Skip 1 | ForEach-Object { $out.Add("  $_") }
 }
 

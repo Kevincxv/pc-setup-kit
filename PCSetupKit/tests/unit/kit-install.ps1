@@ -106,6 +106,7 @@ New-Item "$kd\tests\unit" -ItemType Directory -Force | Out-Null; 'old' | Set-Con
 'claude=on' | Set-Content "$cd\kit-options.txt"   # this install has the optional Claude part (skills, hook)
 $o = GitHubStep { & "$Src\kit-update.ps1" -KitDir $kd -ClaudeDir $cd -TrayDir $td -Saved "$Work\saved" -Force } { param($x) "$x" -match 'updated' }
 Check 'an old install updates itself to the latest release' ("$o" -match 'PC Setup Kit updated v2000.01.01 -> v') "$o"
+Check '... and a what''s-new note for the tray (the release''s first points)' ((Get-Content "$cd\tray-news.txt" -Raw -ErrorAction SilentlyContinue) -match '^Updated to v\S+') (Get-Content "$cd\tray-news.txt" -Raw -ErrorAction SilentlyContinue)
 Check '... scripts, skills, hook, tray and uninstaller installed' ((@(Get-ChildItem "$cd\*.ps1").Count -ge 15) -and (Test-Path "$cd\skills\maintain\SKILL.md") -and (Test-Path "$cd\hooks\no-power-off.ps1") -and ((Get-Content "$td\Messiah Tray.ahk" -Raw) -match 'Persistent') -and (Test-Path "$kd\uninstall.ps1")) ''
 Check '... the kit copy''s test suite refreshed (for the weekly self-test), removed tests gone' ((Test-Path "$kd\tests\run-tests.ps1") -and (Test-Path "$kd\tests\unit\static.ps1") -and -not (Test-Path "$kd\tests\unit\removed-long-ago.ps1")) ''
 Check '... the tests are stamped with the release they belong to (self-test.ps1 checks it)' ((Get-Content "$kd\tests\tests-version.txt" -ErrorAction SilentlyContinue) -eq (Get-Content "$kd\kit-version.txt")) ''

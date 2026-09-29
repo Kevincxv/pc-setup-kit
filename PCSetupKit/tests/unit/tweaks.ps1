@@ -6,7 +6,7 @@ $bk = "$Work\tweaks-backup.json"
 Set-Content "$Work\tweaks.ps1" $tweaksText.Replace("'C:\PCSetupKit\tweaks-backup.json'", "'$bk'")
 $mocked = 'Set-ItemProperty', 'New-Item', 'Get-ItemProperty', 'Set-Service', 'Stop-Service', 'Get-Service', 'Disable-ScheduledTask', 'Unregister-ScheduledTask',
     'Get-ScheduledTask', 'Get-AppxPackage', 'Get-AppxProvisionedPackage', 'Remove-AppxPackage', 'Remove-AppxProvisionedPackage', 'Get-CimInstance', 'Set-CimInstance',
-    'Get-NetAdapter', 'Get-NetAdapterAdvancedProperty', 'Set-NetAdapterAdvancedProperty', 'Get-Printer', 'Test-Path', 'powercfg', 'Get-Process', 'Stop-Process', 'Start-Process', 'Remove-ItemProperty'
+    'Get-NetAdapter', 'Get-NetAdapterAdvancedProperty', 'Set-NetAdapterAdvancedProperty', 'Get-Printer', 'Test-Path', 'powercfg', 'Get-Process', 'Stop-Process', 'Start-Process', 'Remove-ItemProperty', 'winget', 'Get-PhysicalDisk', 'Get-Partition'
 if (-not (Test-Tripwire "$Work\tweaks.ps1" $mocked)) { Finish }
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
 
@@ -45,6 +45,10 @@ function Set-CimInstance { param($InputObject, $Property) if ($Property.Contains
 function Get-NetAdapter { param([switch]$Physical) [pscustomobject]@{ Name = 'Ethernet'; MediaType = '802.3'; PnPDeviceID = 'PCI\VEN_10EC&DEV_8125\X' } }
 function Get-NetAdapterAdvancedProperty { param($Name, $DisplayName) if ($global:TW.Nic.ContainsKey($DisplayName)) { [pscustomobject]@{ DisplayName = $DisplayName; DisplayValue = $global:TW.Nic[$DisplayName]; ValidDisplayValues = @('Disabled', 'Enabled') } } }
 function Set-NetAdapterAdvancedProperty { param($Name, $DisplayName, $DisplayValue, [switch]$NoRestart) $global:TW.Nic[$DisplayName] = $DisplayValue; $global:TWlog.Add("nic $DisplayName=$DisplayValue") }
+$env:PCKIT_TWEAK_OPTIONS = "$Work\kit-options.txt"   # the owner's choices: this test's own file, never the real one
+function winget { $global:TWlog.Add("winget $args") }
+function Get-Partition { [pscustomobject]@{ DiskNumber = 0 } }
+function Get-PhysicalDisk { [pscustomobject]@{ DeviceId = '0'; MediaType = $(if ($global:TW.Hdd) { 'HDD' } else { 'SSD' }) } }
 function Get-Printer { $global:TW.Printers }
 function powercfg {
     $a = "$args"; if ($a -notmatch '^/(getactivescheme|list|q) ' -and $a -notmatch '^/(getactivescheme|list)$') { $global:TWlog.Add("powercfg $a") }
@@ -53,7 +57,7 @@ function powercfg {
         '^/list' { $TW.Plans | ForEach-Object { "Power Scheme GUID: $_  (plan)" } }
         '^/duplicatescheme \S+ (\S+)' { $TW.Plans += $Matches[1] }
         '^/setactive (\S+)' { if ($Matches[1] -ne 'SCHEME_CURRENT') { $TW.Plan = $Matches[1] } }
-        '^/q SCHEME_CURRENT (\S+) (\S+)' { $v = $TW.Ac["$($Matches[1])|$($Matches[2])"]; if ($null -eq $v) { $v = 1 }; "    Current AC Power Setting Index: 0x{0:x8}" -f $v }
+        '^/q SCHEME_CURRENT (\S+) (\S+)' { $v = $TW.Ac["$($Matches[1])|$($Matches[2])"]; if ($null -eq $v) { $v = 1 }; ("    Current AC Power Setting Index: 0x{0:x8}" -f $v), '    Current DC Power Setting Index: 0x00000001' }
         '^/setacvalueindex SCHEME_CURRENT (\S+) (\S+) (\d+)' { $TW.Ac["$($Matches[1])|$($Matches[2])"] = [int]$Matches[3] }
         '^/hibernate off' { $TW.Reg['HKLM:\SYSTEM\CurrentControlSet\Control\Power|HibernateEnabled'] = 0 }
     }
@@ -61,7 +65,7 @@ function powercfg {
 function Get-Process { param($Name) }
 function Stop-Process { $global:TWlog.Add('stop-process') }
 function Start-Process { param($FilePath, $ArgumentList, [switch]$Wait) $global:TWlog.Add("run $(Split-Path $FilePath -Leaf) $ArgumentList"); $TW.OneDrive = $false }
-function Remove-ItemProperty { $global:TWlog.Add("remove $($args[1]) $($args[2])") }
+function Remove-ItemProperty { param($Path, $Name) if ($Name -and $global:TW.Reg.ContainsKey("$Path|$Name")) { $global:TW.Reg.Remove("$Path|$Name") }; $global:TWlog.Add("remove $Path $Name") }
 function Get-Item { if ("$args" -match '^HKCU:.+CurrentVersion\\Run$') { return [pscustomobject]@{ Property = $global:TW.Run } }; if ("$args" -match '^HK.+CurrentVersion\\Run$') { return $null }; Microsoft.PowerShell.Management\Get-Item @args }
 if (-not (Assert-Mocks $mocked)) { Finish }
 function Run { @(& "$Work\tweaks.ps1") }
@@ -138,4 +142,40 @@ Check 'a laptop: Balanced (not Ultimate - the battery), full speed and no USB sl
 Check '... "Best performance" power mode when plugged in' ($TW.Reg['HKLM:\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes|ActiveOverlayAcPowerScheme'] -eq 'ded574b5-45a0-4f42-8737-46345c09c238') ''
 Fresh; $TW.OneDrive = $true; Clear-Path $bk; $o = Run
 Check 'OneDrive back after a feature update: uninstalled again, its start-up entry removed' (($o -contains 'OneDrive removed') -and ($TWlog -match '^run OneDriveSetup\.exe /uninstall') -and ($TWlog -match '^remove .*OneDrive')) (($o + $TWlog) -join ' / ')
+Section "the owner's choices (the app: What the kit changes)"
+$opt = "$Work\kit-options.txt"; $vbs = 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard|EnableVirtualizationBasedSecurity'
+Fresh; [IO.File]::Delete($opt); Clear-Path $bk; $TW.Reg[$vbs] = 1; [void](Run)
+Check 'by default: memory integrity off like everything else' ($TW.Reg[$vbs] -eq 0) ''
+'tweak.memory-integrity=off' | Set-Content $opt; $o = Run
+Check 'memory integrity turned back on by the owner: the original value restored, said' ($TW.Reg[$vbs] -eq 1 -and ($o -contains 'setting EnableVirtualizationBasedSecurity back (your choice)')) ($o -join ' / ')
+$TWlog.Clear(); $o = Run
+Check '... and it stays that way at every guard run (nothing done again)' (-not ($TWlog -match 'EnableVirtualizationBasedSecurity') -and -not $o) ($o -join ' / ')
+Check '... everything else still applied' ($TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection|AllowTelemetry'] -eq 0) ''
+[IO.File]::Delete($opt); $o = Run
+Check 'turned on again: applied again' ($TW.Reg[$vbs] -eq 0 -and ($o -contains 'setting EnableVirtualizationBasedSecurity')) ($o -join ' / ')
+Fresh; Clear-Path $bk; $TW.Apps += 'Microsoft.XboxGamingOverlay'; [void](Run)
+'tweak.game-bar=off' | Set-Content $opt; $o = Run
+Check 'Xbox Game Bar wanted after the kit removed it: reinstalled from the Store once' (($o -contains 'Xbox Game Bar reinstalled (your choice)') -and @($TWlog -match '^winget install --id 9NZKPSTSNW4P').Count -eq 1) ($o -join ' / ')
+$TWlog.Clear(); [void](Run)
+Check '... once (not at every run)' (-not ($TWlog -match '^winget')) ($TWlog -join ' / ')
+Fresh; Clear-Path $bk; 'tweak.bloat-apps=off' | Set-Content $opt; [void](Run)
+Check 'keep the preinstalled apps: none removed' ($TW.Apps -contains 'Microsoft.BingNews' -and $TW.Apps -contains 'MSTeams') ($TW.Apps -join ', ')
+Fresh; Clear-Path $bk; [IO.File]::Delete($opt); [void](Run); $TW.Plan | Out-Null
+'tweak.power-plan=off' | Set-Content $opt; $o = Run
+Check 'their own power plan: the one from before the kit, once' ($TW.Plan -eq '381b4222-f694-41f0-9685-ff5bb260df2e' -and ($o -contains 'power plan back to the one from before (your choice)')) ($o -join ' / ')
+$TW.Plan = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'; $TWlog.Clear(); [void](Run)
+Check '... a plan they pick later is left alone' ($TW.Plan -eq '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c' -and -not ($TWlog -match 'setactive')) ($TWlog -join ' / ')
+'tweak.hibernation=off' | Set-Content $opt; $o = Run
+Check 'hibernation wanted on a desktop: turned back on once' ([bool]($TWlog -match '^powercfg /hibernate on$') -and ($o -contains 'hibernation back on (your choice)')) ($o -join ' / ')
+Fresh; Clear-Path $bk; [IO.File]::Delete($opt); $TW.OneDrive = $true; [void](Run)
+'tweak.onedrive=off' | Set-Content $opt; $o = Run
+Check 'OneDrive wanted after the kit removed it: reinstalled once, its sync allowed again' (($o -contains 'OneDrive reinstalled (your choice)') -and ($TWlog -match '^winget install --id Microsoft\.OneDrive') -and -not $TW.Reg.ContainsKey('HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive|DisableFileSyncNGSC')) ($o -join ' / ')
+[IO.File]::Delete($opt)
+Section 'more devices and keyboard prompts'
+Fresh; $TW.Power += @{ I = 'USB\VID_054C&PID_0CE6\DS_0'; E = $true }; Clear-Path $bk; [void](Run)
+Check 'a PlayStation controller: power-saving off too (not only Xbox)' (-not ($TW.Power | Where-Object { $_.I -match 'VID_054C' -and $_.E })) ''
+Check 'the Sticky Keys / Filter Keys / Toggle Keys shortcut prompts off' ($TW.Reg['HKCU:\Control Panel\Accessibility\StickyKeys|Flags'] -eq '506' -and $TW.Reg['HKCU:\Control Panel\Accessibility\Keyboard Response|Flags'] -eq '122' -and $TW.Reg['HKCU:\Control Panel\Accessibility\ToggleKeys|Flags'] -eq '58') ''
+Check 'Windows on an SSD: SysMain off' ($TW.Services['SysMain'] -eq 'Disabled') ''
+Fresh; $TW.Hdd = $true; Clear-Path $bk; [void](Run)
+Check 'Windows on a hard drive: SysMain kept (prefetch is what makes apps start quicker there)' ($TW.Services['SysMain'] -eq 'Automatic') $TW.Services['SysMain']
 Finish

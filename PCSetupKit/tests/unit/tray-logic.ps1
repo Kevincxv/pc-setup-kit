@@ -11,7 +11,7 @@ function Get-AhkFunction([string]$Name) {
     if (-not $m.Success) { $m = [regex]::Match($traySrc, "(?m)^$Name\([^)\r\n]*\)\s*=>.*$") }
     $m.Value
 }
-$funcs = foreach ($n in 'MaintRunning', 'TodoTip', 'Notify', 'RehearsalPids', 'TrayError', 'AiEnabled', 'StatusAtLogin', 'LogNote') { $f = Get-AhkFunction $n; Check "tray function $n found" ([bool]$f) ''; $f }
+$funcs = foreach ($n in 'MaintRunning', 'TodoTip', 'Notify', 'RehearsalPids', 'TrayError', 'AiEnabled', 'StatusAtLogin', 'LogNote', 'SetPause') { $f = Get-AhkFunction $n; Check "tray function $n found" ([bool]$f) ''; $f }
 @"
 #Requires AutoHotkey v2.0
 #NoTrayIcon
@@ -47,6 +47,10 @@ switch A_Args[1] {
     case "log250":
         Loop 250
             LogNote("note " A_Index " " StrReplace(Format("{:300}", ""), " ", "x"))
+    case "pause":
+        SetPause(Integer(A_Args[2]))
+        for s in Shown
+            FileAppend(s "``n", "*", "UTF-8")
     case "pids":
         for k in RehearsalPids()
             FileAppend(k ",", "*")
@@ -130,4 +134,19 @@ try {
     Check '... once per start-up (a tray restart doesn''t reopen it)' ((T login) -eq '') ''
 } finally { $env:PCKIT_IN_TESTS = $saved; [IO.File]::Delete("$C\tray-notified.ini"); [IO.File]::Delete("$C\kit-options.txt") }
 
+Section "what's new / the weekly summary (tray-news.txt), pausing, the app's commands"
+Clear-Path "$C\maint-todo.txt"; Clear-Path "$C\restart-ledger.json"; [void](T notify)
+'Updated to v2026.10.01 - new: faster monitor fix. Details: the app > Maintenance.' | Set-Content "$C\tray-news.txt" -Encoding UTF8
+$o = T notify; Check 'a message from the maintenance (what''s new, the weekly summary): shown as a note' ($o -match '^Updated to v2026\.10\.01 - new: faster monitor fix') $o
+Check '... once' ((T notify) -eq '') ''
+'claude=on' | Set-Content "$C\kit-options.txt"
+$o = T pause 2
+$opts = @(Get-Content "$C\kit-options.txt")
+$pu = [datetime]::MinValue; $okDate = ($opts -match '^pause-until=') -and [datetime]::TryParse(((@($opts -match '^pause-until=')[0]) -split '=', 2)[1], [ref]$pu)
+Check 'Pause maintenance > For 2 hours: recorded (about 2 hours from now), other options kept, said' ($okDate -and [Math]::Abs(($pu - (Get-Date).AddHours(2)).TotalMinutes) -lt 3 -and ($opts -contains 'claude=on') -and $o -match '^Maintenance paused until') ($opts -join ' | ')
+$o = T pause 0
+Check '... Resume now: the pause is gone, said' (-not (@(Get-Content "$C\kit-options.txt") -match '^pause-until') -and (@(Get-Content "$C\kit-options.txt") -contains 'claude=on') -and $o -match 'runs again') ((Get-Content "$C\kit-options.txt") -join ' | ')
+Check "the menu has Pause maintenance (2 hours / until tomorrow / resume)" ($traySrc -match 'tray\.Add\("Pause maintenance", pauseMenu\)' -and $traySrc -match 'SetPause\(2\)' -and $traySrc -match 'SetPause\(24\)' -and $traySrc -match 'SetPause\(0\)') ''
+Check 'a hotkey opens the app (Ctrl+Alt+M / Ctrl+Alt+P)' ($traySrc -match 'Hotkey\(AI \? "\^!m" : "\^!p", \(\*\) => ShowApp\(\)\)') ''
+Check "the app's admin commands: apply the tweak choices now (7), repair (8), undo the last update (9)" ($traySrc -match "7, \(\*\) => Run\(.+after-update\.ps1`" -Now" -and $traySrc -match "8, \(\*\) => Run\(.+kit-update\.ps1`" -Reinstall" -and $traySrc -match "9, \(\*\) => Run\(.+kit-update\.ps1`" -Rollback") ''
 Finish

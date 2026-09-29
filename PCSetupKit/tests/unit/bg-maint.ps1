@@ -53,6 +53,17 @@ Check 'self-test with nothing to say (not due): no section' (-not ((Get-Content 
 New-Case; Run @('-Force'); $t1 = (Get-Item "$C\maint-report.txt").LastWriteTime; Start-Sleep 1; Run @()
 Check 'without -Force it skips when the last run was < 30 min ago' ((Get-Item "$C\maint-report.txt").LastWriteTime -eq $t1) ''
 
+Section 'paused by the owner (tray > Pause maintenance)'
+New-Case -Short -Jobs @{ 'health-check' = '"checked"' }; Copy-Item "$Src\paused.ps1" $C -Force
+Add-Content "$C\kit-options.txt" "pause-until=$((Get-Date).AddHours(2).ToString('s'))"
+Run
+Check 'paused: the login/daily run does nothing (no report)' (-not (Test-Path "$C\maint-report.txt")) ''
+Run @('-Force', '-Unattended', '-Now')
+Check '... "Run maintenance now" (-Now) still runs' ((Test-Path "$C\maint-report.txt") -and ((Get-Content "$C\maint-report.txt") -match 'checked')) ''
+Clear-Path "$C\maint-report.txt"; (Get-Content "$C\kit-options.txt") -replace '^pause-until=.*$', "pause-until=$((Get-Date).AddHours(-1).ToString('s'))" | Set-Content "$C\kit-options.txt"
+Run
+Check '... the pause over: runs as usual' (Test-Path "$C\maint-report.txt") ''
+Clear-Path "$C\paused.ps1"
 Section 'two runs at the same time never mix their results'
 # (seen for real: a test run's stand-in output "driver-check ran" ended up in the owner's real report - same TEMP files)
 $H2 = "$Work\home2"; $C2 = "$H2\.claude"; New-Item $C2 -ItemType Directory -Force | Out-Null

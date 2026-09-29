@@ -2,7 +2,7 @@
 # Started by the launcher (fire-and-forget) and by the "Claude Background Maintenance" task at logon.
 # Runs the driver check, Claude Code maintenance and PC health check in parallel and writes a report
 # that the launcher shows at the next start.
-param([switch]$Force, [switch]$Unattended)   # -Unattended: run at login by the scheduled task; also lets Claude do /maintain headless
+param([switch]$Force, [switch]$Unattended, [switch]$Now)   # -Now: the owner started it (tray / app "Run maintenance now", optimize): runs even while paused   # -Unattended: run at login by the scheduled task; also lets Claude do /maintain headless
 $ErrorActionPreference = 'Continue'
 $dir = "$env:USERPROFILE\.claude"
 $report = "$dir\maint-report.txt"
@@ -12,6 +12,8 @@ $ai = if (Test-Path "$dir\ai-enabled.ps1") { & "$dir\ai-enabled.ps1" } else { $t
 # One run at a time; skip if the last run was recent (launching Claude twice in a row shouldn't redo everything)
 $mutex = New-Object Threading.Mutex($false, 'Global\ClaudeBgMaint')
 if (-not $mutex.WaitOne(0)) { exit }
+# paused by the owner (tray > Pause maintenance): nothing runs until then - "Run maintenance now" (-Now) still does
+if (-not $Now -and (Test-Path "$dir\paused.ps1") -and (& "$dir\paused.ps1")) { exit }
 if (-not $Force -and (Test-Path $report) -and ((Get-Date) - (Get-Item $report).LastWriteTime).TotalMinutes -lt 30) { exit }
 
 # Game-aware: never start maintenance under a running game (driver installs black the screen, updates stutter it).
@@ -154,6 +156,8 @@ if ($Unattended -and $ai) {
     [IO.File]::Delete($busy)
     Get-ChildItem $logDir -Filter '*.md' | Sort-Object Name -Descending | Select-Object -Skip 30 | ForEach-Object { [IO.File]::Delete($_.FullName) }
 }
+# once a week: what the maintenance did, as one short note in the corner (weekly-summary.ps1; not from the test suite)
+if (-not $env:PCKIT_IN_TESTS -and (Test-Path "$dir\weekly-summary.ps1")) { [void](& "$dir\weekly-summary.ps1") }
 # last (it changes the task this run belongs to): the daily run for PCs that stay on for days (ensure-schedule.ps1)
 if (Test-Path "$dir\ensure-schedule.ps1") { $es = @(& "$dir\ensure-schedule.ps1"); if ($es) { Add-Content $report $es -Encoding UTF8 } }
 $mutex.ReleaseMutex()
