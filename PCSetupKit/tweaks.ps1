@@ -145,6 +145,11 @@ Set-Reg "$WU\AU" NoAutoRebootWithLoggedOnUsers 1
 Set-Reg $WU SetActiveHours 1
 Set-Reg $WU ActiveHoursStart 8
 Set-Reg $WU ActiveHoursEnd 2
+# The big yearly Windows upgrade (a new version, e.g. 24H2 > 25H2) comes 45 days after its release, once the first
+# problems are fixed; security and monthly updates keep coming right away. (Windows Pro and up; Home ignores it.)
+$group = 'feature-delay'
+Set-Reg $WU DeferFeatureUpdates 1
+Set-Reg $WU DeferFeatureUpdatesPeriodInDays 45
 # The page file: some "debloat" guides turn it off, and games then crash when memory runs short - with none at all,
 # Windows manages it again (a size the owner chose is kept; takes effect after a restart)
 $group = $null
@@ -159,7 +164,7 @@ foreach ($log in 'Application', 'System', 'Windows PowerShell') { Set-Reg "HKLM:
 
 # --- Services ---
 # SysMain (prefetch) only goes where Windows is on an SSD: on a hard drive it's what makes apps start quicker
-$sysHdd = "$((Get-PhysicalDisk | Where-Object DeviceId -eq "$((Get-Partition -DriveLetter C).DiskNumber)").MediaType)" -eq 'HDD'
+$sysHdd = "$((Get-PhysicalDisk | Where-Object DeviceId -eq "$((Get-Partition -DriveLetter C -ErrorAction SilentlyContinue).DiskNumber)").MediaType)" -eq 'HDD'
 foreach ($n in @('DiagTrack', 'dmwappushservice', 'SysMain', 'MapsBroker', 'lfsvc', 'TrkWks', 'WSAIFabricSvc', 'PcaSvc', 'RetailDemo') | Where-Object { -not ($sysHdd -and $_ -eq 'SysMain') }) {
     $s = Get-Service $n
     if ($s -and $s.StartType -ne 'Disabled') { Save-Original "service|$n" @{ StartType = "$($s.StartType)" }; Stop-Service $n -Force; Set-Service $n -StartupType Disabled; $changes.Add("service $n off") }

@@ -2,11 +2,16 @@
 # without AI (the default: everything by script, including the optimization) and with the optional Claude part - then
 # checks the result and runs the new install's own self-test. GitHub's machines are Windows Server, not Windows 11
 # Home/Pro, so it proves the setup flow end to end rather than every Windows 11 detail.
+# Daily (schedule): the same for the release everyone gets (the latest) - a change outside the kit (winget, Microsoft's
+# downloads, the Claude Code installer, a Windows image update) that breaks a new install shows the next morning, as an
+# issue on the repository (GitHub also emails the owner).
 name: fresh install
 on:
   release:
     types: [published]
   workflow_dispatch:
+  schedule:
+    - cron: '23 7 * * *'   # every day, 07:23 UTC
 jobs:
   setup:
     name: setup (${{ matrix.claude && 'with Claude' || 'no AI' }})
@@ -20,6 +25,15 @@ jobs:
       FRESH_WITH_CLAUDE: ${{ matrix.claude && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Daily check - the latest release, not the newest commit
+        if: github.event_name == 'schedule'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          git fetch --depth 1 origin tag "$tag" && git checkout -q "$tag"
+          echo "testing the latest release: $tag"
       - name: Test this version, not the published one (the kit updater stays off here; it has its own tests)
         shell: powershell
         run: Remove-Item .\PCSetupKit\kit-source.txt
@@ -89,3 +103,21 @@ jobs:
             gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --prerelease=false --latest=false
             echo "$TAG passed, but $newest is newer - $TAG is released without becoming the latest"
           fi
+
+  # The daily check failed: an issue on the repository (one at a time - a later failure adds a comment)
+  alert:
+    name: report the daily check
+    needs: setup
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          tag=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          open=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "Daily install check failed in:title" --json number --jq '.[0].number')
+          if [ -n "$open" ]; then gh issue comment "$open" -R "$GITHUB_REPOSITORY" --body "Failed again on $(date -u +%F) ($tag): $RUN"
+          else gh issue create -R "$GITHUB_REPOSITORY" --title "Daily install check failed ($tag)" --body "A fresh install of the latest release ($tag) failed today: $RUN - something outside the kit may have changed (winget, a download, the Claude Code installer). New installs may be affected until it's fixed."; fi

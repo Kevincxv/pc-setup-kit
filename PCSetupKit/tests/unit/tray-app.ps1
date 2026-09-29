@@ -91,14 +91,23 @@ Check '... a desktop entry the owner deleted is not brought back' (-not (Test-Pa
 Section 'without Claude'
 'claude=off' | Set-Content "$C\kit-options.txt"; $global:task = $null
 $o = Run-App $ahk2
-$exe = "$TD\PC Setup Kit.exe"
-Check 'runs as "PC Setup Kit.exe"' ((Test-Path $exe) -and $global:reg.Actions[0].Execute -eq $exe) "$o"
-$sc = if (Test-Path "$startMenu\PC Setup Kit.lnk") { (New-Object -ComObject WScript.Shell).CreateShortcut("$startMenu\PC Setup Kit.lnk") }
-Check '... Start menu "PC Setup Kit" opens the app, with the app''s icon' ($sc -and $sc.Arguments -match 'dashboard\.ps1' -and $sc.IconLocation -match '\\Documents\\Messiah Tray\\app\.ico,0$') "$($sc.IconLocation)"
+$exe = "$TD\Messiah.exe"
+Check 'still "Messiah.exe" (one app)' ((Test-Path $exe) -and $global:reg.Actions[0].Execute -eq $exe) "$o"
+$sc = if (Test-Path "$startMenu\Messiah.lnk") { (New-Object -ComObject WScript.Shell).CreateShortcut("$startMenu\Messiah.lnk") }
+Check '... Start menu "Messiah" opens the app, with the app''s icon' ($sc -and $sc.Arguments -match 'dashboard\.ps1' -and $sc.IconLocation -match '\\Documents\\Messiah Tray\\app\.ico,0$') "$($sc.IconLocation)"
+
+Section 'an older install without the AI assistant: "PC Setup Kit" becomes "Messiah"'
+New-Item "$H\Desktop" -ItemType Directory -Force | Out-Null
+[IO.File]::Delete("$startMenu\Messiah.lnk"); [IO.File]::Delete("$H\Desktop\Messiah.lnk")
+'x' | Set-Content "$startMenu\PC Setup Kit.lnk"; 'x' | Set-Content "$H\Desktop\PC Setup Kit.lnk"; 'x' | Set-Content "$TD\PC Setup Kit.exe"
+$global:task = $null; $global:procs = @()
+$o = Run-App $ahk2 -NoRestart
+Check 'the Start menu and desktop "PC Setup Kit" become "Messiah" (a desktop one stays on the desktop)' (-not (Test-Path "$startMenu\PC Setup Kit.lnk") -and -not (Test-Path "$H\Desktop\PC Setup Kit.lnk") -and (Test-Path "$startMenu\Messiah.lnk") -and (Test-Path "$H\Desktop\Messiah.lnk")) "$o"
+Check '... the old PC Setup Kit.exe goes (nothing runs it)' (-not (Test-Path "$TD\PC Setup Kit.exe") -and "$o" -match 'removed the old PC Setup Kit\.exe') "$o"
 
 Section 'nothing to run it with'
-$global:task = $null; [IO.File]::Delete("$startMenu\PC Setup Kit.lnk")
+$global:task = $null; [IO.File]::Delete("$startMenu\Messiah.lnk")
 $o = Run-App "$Work\none\AutoHotkey64.exe"
 Check 'AutoHotkey missing: no tray program, no task, nothing restarted' (-not $global:calls -and -not $global:reg) "$o"
-Check '... the app is still there (Start menu entry)' (Test-Path "$startMenu\PC Setup Kit.lnk") "$o"
+Check '... the app is still there (Start menu entry)' (Test-Path "$startMenu\Messiah.lnk") "$o"
 Finish

@@ -28,14 +28,10 @@ if ($healthRan) {
     } else { Done 'ram-expo' }
     if (($l = Line '^Reminder: BIOS (.+) is from (.+) \(over a year old\)') -and $l -match '^Reminder: BIOS (.+) is from (.+) \(over a year old\)') {
         $ver = $Matches[1]; $date = $Matches[2]
-        if (-not $Board) { $b = Get-CimInstance Win32_BaseBoard -ErrorAction SilentlyContinue; $Board = "$($b.Manufacturer)|$($b.Product)" }
-        $maker, $model = $Board -split '\|', 2
-        $url = switch -Regex ($maker) {
-            'ASUS' { 'https://www.asus.com/support/download-center/' } 'ASRock' { 'https://www.asrock.com/support/index.asp' }
-            'Micro-Star|MSI' { 'https://www.msi.com/support/download' } 'Gigabyte' { 'https://www.gigabyte.com/Support' }
-            default { "your motherboard maker's website (search for `"$model BIOS`")" } }
-        Todo 'bios' "Your motherboard's BIOS ($ver, from $date) is over a year old; newer versions fix stability and security problems. Get the newest BIOS for your $($maker.Trim()) $($model.Trim()) from $url and follow the maker's steps (usually: copy it to a USB stick, then use the update tool inside the BIOS). Never turn the PC off while it updates."
-    } else { Done 'bios' }
+        # the exact page and the maker's own steps (bios-info.ps1); an older copy without it: the maker's download centre
+        $bi = if (Test-Path "$Dir\bios-info.ps1") { & "$Dir\bios-info.ps1" -Board $Board -Bios "$ver|$date" }
+        if ($bi) { Todo 'bios' "Your motherboard's BIOS ($ver, from $date) is over a year old - newer ones fix stability and security problems. $($bi.Steps)" }
+        else { Todo 'bios' "Your motherboard's BIOS ($ver, from $date) is over a year old; get the newest one from your motherboard maker's website and follow their steps. Never turn the PC off while it updates." }    } else { Done 'bios' }
     if ($l = Line '^Reminder: .+ runs at \d+Hz but supports \d+Hz') {
         # the fix is safe and instant: set the monitor to its best refresh rate
         $fix = @(& "$Dir\display-refresh.ps1")
@@ -48,7 +44,7 @@ if ($healthRan) {
     # gaming-check.ps1's reminders: things only the owner can do (BIOS, a driver, moving games) - the reminder's own words
     foreach ($r in @(@('rebar', '^Reminder: Resizable BAR is off'), @('x3d-chipset', "^Reminder: the .+ needs AMD's chipset driver"),
             @('x3d-gamebar', '^Reminder: the .+ needs the Xbox Game Bar'), @('games-hdd', '^Reminder: \d+ Steam game\(s\) are on a hard drive'),
-            @('hypervisor', '^Reminder: the Windows hypervisor is running'))) {
+            @('hypervisor', '^Reminder: the Windows hypervisor is running'), @('activation', '^Reminder: Windows isn''t activated'))) {
         if ($l = Line $r[1]) { Todo $r[0] ($l -replace '^Reminder: ', '') } else { Done $r[0] }
     }
     if (($l = Line '^Reminder: (.+) network link is only (.+?) \(') -and $l -match '^Reminder: (.+) network link is only (.+?) \(') {

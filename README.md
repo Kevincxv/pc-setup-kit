@@ -26,10 +26,11 @@ irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps
 ```
 
 It shows what it will do and asks you to type `YES`. Setup takes 15-30 minutes: tweaks, apps, then it optimizes the
-PC (monitors, drivers, app updates, checks, benchmark) and opens a report (`Documents\PC Setup Kit report.txt`) that
-says what was done and anything that needs you.
+PC (monitors, drivers, app updates, checks, benchmark), then the app - **Messiah** - opens on a welcome page with what
+was done (the full report: `Documents\PC Setup Kit report.txt`).
 
-With the optional Messiah (Claude):
+It's one app with or without AI: the AI assistant (Claude, your own account) is a switch in its Settings. To have it on
+from the start:
 
 ```powershell
 & ([scriptblock]::Create((irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1))) -WithClaude
@@ -72,7 +73,10 @@ Microsoft's Media Creation Tool USB plus `autounattend.xml` and the `PCSetupKit`
 - **Easy to live with**: a note after each kit update saying what's new, a weekly one-line summary, Pause maintenance (tray menu) for a stream or a tournament, "Remind me in a week" and a direct "fix it" button on to-do items, Repair / Undo the last update, back up or restore your settings by hand, and Ctrl+Alt+P (Ctrl+Alt+M with Messiah) to open the app from anywhere.- **Settings stay optimized**: 2 minutes after every Windows Update or driver install, everything an update can undo (settings, services, removed apps, the power plan, OneDrive, monitors, NVIDIA settings) is put back.
 - **Self-testing**: weekly and after every update, the kit's test suite checks the maintenance scripts on the PC
   itself (in a sandbox - nothing changes).
-- **With Messiah** (optional): a Claude Code session always ready in the tray, hidden Claude runs that handle the
+- **One-click fixes**: go back to the previous graphics driver (Maintenance page; the newer one is held back), uninstall
+  from Settings, big Windows upgrades wait 45 days (security updates don't), and on laptops with two graphics chips
+  every game is set to the fast one.
+- **AI assistant** (optional, a switch in Settings): a Claude Code session always ready in the tray, hidden Claude runs that handle the
   maintenance with judgment, and a daily self-improvement pass.
 
 ## Remove it

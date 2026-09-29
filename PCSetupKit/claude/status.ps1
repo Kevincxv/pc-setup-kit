@@ -2,7 +2,7 @@
 param([switch]$NoWait)
 $cl = "$env:USERPROFILE\.claude"
 $ai = if (Test-Path "$cl\ai-enabled.ps1") { & "$cl\ai-enabled.ps1" } else { $true }
-$Host.UI.RawUI.WindowTitle = "$(if ($ai) { 'Messiah' } else { 'PC Setup Kit' }) - status"
+$Host.UI.RawUI.WindowTitle = 'Messiah - status'
 . "$cl\status-lib.ps1"
 $colors = @{ ok = 'Green'; info = 'Gray'; warn = 'Yellow'; dim = 'DarkGray' }
 foreach ($s in Get-KitStatus) {

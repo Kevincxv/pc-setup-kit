@@ -1,17 +1,17 @@
 ﻿# The kit's own install/uninstall pieces: setup.ps1's settings merge and tray task, uninstall.ps1 end to end
 # (sandbox profile), kit-update.ps1 and install.ps1 against the real GitHub release (skipped offline).
 . "$PSScriptRoot\..\lib.ps1"
-Section 'setup.ps1: the no-shutdown hook merged into Claude settings'
-$lines = Get-Content "$Kit\setup.ps1"; $i = [array]::IndexOf($lines, ($lines | Where-Object { $_ -match '^\s*# Claude never shuts down' } | Select-Object -First 1))
-Check 'the settings-merge part is found in setup.ps1' ($i -ge 0) ''
-$snippet = ($lines[$i..($i + 8)]) -join "`n"
+Section 'ai-toggle.ps1 (the AI assistant switch; setup -WithClaude): the no-shutdown hook merged into Claude settings'
+$lines = Get-Content "$Src\ai-toggle.ps1"; $i = [array]::IndexOf($lines, ($lines | Where-Object { $_ -match '^\s*# Claude never shuts down' } | Select-Object -First 1))
+Check 'the settings-merge part is found in ai-toggle.ps1' ($i -ge 0) ''
+$snippet = ($lines[$i..($i + 7)]) -join "`n"
 New-Item "$Work\kitsrc\claude\hooks" -ItemType Directory -Force | Out-Null; Copy-Item $Hook "$Work\kitsrc\claude\hooks\"
 foreach ($case in 'none', 'existing', 'corrupt') {
     $cl = "$Work\home-$case"; New-Item $cl -ItemType Directory -Force | Out-Null
     if ($case -eq 'existing') { '{"theme":"dark","hooks":{"Stop":[{"hooks":[{"type":"command","command":"x.cmd"}]}]}}' | Set-Content "$cl\settings.json" }
     if ($case -eq 'corrupt') { '{"theme":' | Set-Content "$cl\settings.json" }
     # own scope: the snippet's $kit would otherwise overwrite the test's $Kit (PowerShell names ignore case)
-    & { param($cl, $kit) . ([scriptblock]::Create($snippet)) } $cl "$Work\kitsrc"
+    & { param($cl, $KitDir) . ([scriptblock]::Create($snippet)) } $cl "$Work\kitsrc"
     $j = Get-Content "$cl\settings.json" -Raw | ConvertFrom-Json; $b = [IO.File]::ReadAllBytes("$cl\settings.json")
     Check "settings $case`: hook added, valid JSON, no BOM" (($j.hooks.PreToolUse[0].hooks[0].command -match 'no-power-off') -and $b[0] -ne 0xEF) (Get-Content "$cl\settings.json" -Raw)
     if ($case -eq 'existing') { Check '... existing settings kept' ($j.theme -eq 'dark') '' }

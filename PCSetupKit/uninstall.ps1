@@ -39,6 +39,7 @@ if (-not $Yes -and -not $WhatIf) {
 # the DNS network-check.ps1 switched to, if it did (read now: its history is moved away with the scripts below)
 # the game folders gaming-check.ps1 asked Defender to skip (read now, before its state moves away)
 $gameEx = try { @((Get-Content "$env:USERPROFILE\.claude\gaming-state.json" -Raw -ErrorAction Stop | ConvertFrom-Json).excluded) } catch { @() }
+$gpuPref = try { @((Get-Content "$env:USERPROFILE\.claude\gaming-state.json" -Raw -ErrorAction Stop | ConvertFrom-Json).gpuPref) } catch { @() }   # the games gaming-check.ps1 set to the fast graphics chip
 $dnsSet = try { @(Get-Content "$env:USERPROFILE\.claude\net-history.json" -Raw -ErrorAction Stop | ConvertFrom-Json | ForEach-Object { $_ } | Where-Object { $_.dnsSet }) | Select-Object -Last 1 } catch { $null }
 if (-not $RevertOnly) {
     Write-Host "`n=== Stopping Messiah" -ForegroundColor Cyan
@@ -79,7 +80,7 @@ if (-not $RevertOnly) {
         'health-check.ps1', 'maint-due.ps1', 'maint-watch.ps1', 'periodic-maint.ps1', 'resume-after-restart.ps1', 'restart-check.ps1', 'session-lib.ps1',
         'refresh-session.ps1', 'status.ps1', 'status-lib.ps1', 'dashboard.ps1', 'tray-app.ps1', 'app-icon.ps1', 'driver-guard.ps1', 'driver-blocklist.txt', 'trends.ps1', 'health-history.json', 'Messiah Session.lnk', 'app-window.txt', 'tray-hwnd.txt', 'rehearse-login.ps1', 'game-check.ps1', 'kit-update.ps1', 'migrate-names.ps1', 'self-test.ps1', 'self-test.json', 'self-test.log', 'ai-enabled.ps1', 'kit-options.txt', 'optimize.ps1', 'maint-actions.ps1', 'ensure-schedule.ps1', 'todo.ps1', 'display-refresh.ps1', 'todo-scripted.json', 'actions-state.json', 'tweaks-local.ps1',
         'game-perf.ps1', 'perf-history.json', 'tools', 'gpu-watch.ps1', 'gpu-state.json', 'network-check.ps1', 'net-history.json', 'settings-backup.ps1',
-        'settings-restored.txt', 'display-state.json', 'notifications.log', 'gaming-check.ps1', 'gaming-state.json', 'make-usb.ps1', 'after-update.ps1', 'update-check.ps1', 'update-state.json', 'paused.ps1', 'weekly-summary.ps1', 'weekly-summary.last', 'tray-news.txt', 'self-test-retry.log', 'nvidia-settings.ps1', 'nvidia-settings.txt',
+        'settings-restored.txt', 'display-state.json', 'notifications.log', 'gaming-check.ps1', 'gaming-state.json', 'make-usb.ps1', 'after-update.ps1', 'update-check.ps1', 'update-state.json', 'paused.ps1', 'weekly-summary.ps1', 'bios-info.ps1', 'activation-check.ps1', 'activation-state.txt', 'ai-toggle.ps1', 'ai-toggle.log', 'gpu-rollback.ps1', 'gpu-hold.txt', 'weekly-summary.last', 'tray-news.txt', 'self-test-retry.log', 'nvidia-settings.ps1', 'nvidia-settings.txt',
         'maint-report.txt', 'maint-state.json', 'maint-todo.txt', 'maint-todo.shown', 'maint-requests.txt', 'maint-claude-running', 'maint-claude-session',
         'maint-history', 'maint-claude-log', 'restart-ledger.json', 'restart-canary.txt', 'admin-sessions.txt', 'resume-after-login.txt', 'rehearsal.txt',
         'games.txt', 'tray-notified.ini', 'tray-errors.log', 'selfimprove-last', 'selfimprove-journal.md', 'selfimprove-backup', 'session-refresh.log', 'benchmarks.json',
@@ -123,6 +124,7 @@ if ($RevertTweaks) {
 
 # Defender scans the game folders again (always: a leftover exclusion would be a security gap nobody knows about)
 foreach ($p in $gameEx | Where-Object { $_ }) { Do-It "Defender scans $p again" { Remove-MpPreference -ExclusionPath $p } }
+foreach ($e in $gpuPref | Where-Object { $_ }) { Do-It "graphics chip choice for $e back to Windows' own" { Remove-ItemProperty 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences' -Name $e -ErrorAction Stop } }
 
 if ($RemoveClaudeCode -and -not $RevertOnly) {
     Write-Host "`n=== Claude Code" -ForegroundColor Cyan

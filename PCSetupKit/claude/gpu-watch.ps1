@@ -39,7 +39,7 @@ if ($new) {
     # began with the current driver: none in the 14 days before it came, and it came in the last 30 days
     $ds = if ($s.driverSince) { [datetime]$s.driverSince }
     if ($prev -ne $null -and $ds -and $ds -gt $Now.AddDays(-30) -and -not ($all | Where-Object { [datetime]$_ -lt $ds -and [datetime]$_ -gt $ds.AddDays(-14) })) {
-        $msg += "; it began after driver $drv was installed on $($ds.ToString('d')) - if it keeps happening, go back to the previous driver (Device Manager > Display adapters > Properties > Driver > Roll Back Driver)"
+        $msg += "; it began after driver $drv was installed on $($ds.ToString('d')) - if it keeps happening, go back to the previous graphics driver (one click in the app: Maintenance > Graphics driver)"
     }
     else { $msg += "; driver $drv - common causes: a graphics card overclock or undervolt, the power cables to the card, an overheating card" }
     $msg

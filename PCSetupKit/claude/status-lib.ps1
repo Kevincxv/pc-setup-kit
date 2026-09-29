@@ -31,7 +31,8 @@ function Get-KitStatus([string]$ClaudeVersion) {
 
     Sec 'Last background check'
     $m = $null   # claude-bg-maint.ps1 holds this while it runs
-    if ([Threading.Mutex]::TryOpenExisting('Global\ClaudeBgMaint', [ref]$m)) { $m.Dispose(); Ln 'Background maintenance is running right now - the result shows here when it finishes' 'ok' }
+    # (not under tests: the self-test runs inside the maintenance, which would change what the pages show)
+    if (-not $env:PCKIT_IN_TESTS -and [Threading.Mutex]::TryOpenExisting('Global\ClaudeBgMaint', [ref]$m)) { $m.Dispose(); Ln 'Background maintenance is running right now - the result shows here when it finishes' 'ok' }
     $r = @(Get-Content "$cl\maint-report.txt" -Encoding UTF8 -ErrorAction SilentlyContinue)
     if ($r) {
         Ln $r[0]

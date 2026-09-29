@@ -42,6 +42,8 @@ if (Get-CimInstance Win32_VideoController | Where-Object Name -match 'NVIDIA') {
             "NVIDIA: $installed (no Game Ready recommendation found)"
         } elseif ([version]$latest.version -le [version]$installed) {
             "NVIDIA: $installed is up to date" + $(if ($age -gt 3) { " (NVIDIA app last checked $age days ago)" })
+        } elseif (($held = "$(Get-Content "$PSScriptRoot\gpu-hold.txt" -TotalCount 1 -ErrorAction SilentlyContinue)".Trim()) -and [version]$latest.version -le [version]$held) {
+            "NVIDIA: $installed kept - you went back from $held (the app's graphics driver rollback); a version newer than $held installs"   # (gpu-rollback.ps1)
         } else {
             if ($g = & "$PSScriptRoot\game-check.ps1") { "NVIDIA: $($latest.version) is available - install held while $g is running (next check)"; throw 'held' }
             "NVIDIA: updating $installed -> $($latest.version)..."

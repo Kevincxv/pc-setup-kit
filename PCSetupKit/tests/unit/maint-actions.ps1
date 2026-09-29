@@ -2,7 +2,7 @@
 # plain to-do items out, items gone once fixed, the crash ladder, leftovers, Windows end of support, scheduled checks.
 . "$PSScriptRoot\..\lib.ps1"
 $D = "$Work\cl"; New-Item $D -ItemType Directory -Force | Out-Null
-Copy-Item "$Src\maint-actions.ps1", "$Src\todo.ps1" $D
+Copy-Item "$Src\maint-actions.ps1", "$Src\todo.ps1", "$Src\bios-info.ps1" $D
 $mocked = 'bcdedit', 'Enable-ComputerRestore', 'Disable-ScheduledTask', 'Set-Service', 'Set-ItemProperty', 'New-Item', 'Invoke-WebRequest', 'Get-WinEvent', 'Get-CimInstance', 'Get-ItemProperty'
 if (-not (Test-Tripwire "$D\maint-actions.ps1" $mocked)) { Finish }
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
@@ -40,7 +40,7 @@ $rep = 'Checked X', '[PC health]', 'Reminder: NVIDIA GeForce RTX 9090 runs at PC
 $o = Act $rep
 Check 'one item each: GPU slot, RAM profile, BIOS, network, backup, Defender, disk space, failing drive' ((((Ids) | Sort-Object) -join ',') -eq 'backup,bios,defender,disk-space,drive-health,gpu-link,network-link,ram-expo') ((Ids) -join ',')
 $t = (Todos) -join "`n"
-Check 'plain steps, with the facts in them (x8/x16, 4800 MT/s + kit, board maker''s download page)' ($t -match 'PCIe x8 but supports x16' -and $t -match '4800 MT/s' -and $t -match 'KIT-6000-TEST' -and $t -match 'EXPO \(AMD\) or XMP \(Intel\)' -and $t -match 'asus\.com/support' -and $t -match 'TEST X650-A') $t
+Check 'plain steps, with the facts in them (x8/x16, 4800 MT/s + kit, board''s own BIOS page and the maker''s update tool)' ($t -match 'PCIe x8 but supports x16' -and $t -match '4800 MT/s' -and $t -match 'KIT-6000-TEST' -and $t -match 'EXPO \(AMD\) or XMP \(Intel\)' -and $t -match 'asus\.com/supportonly/TEST%20X650-A/helpdesk_bios/' -and $t -match 'EZ Flash' -and $t -match 'newer than 1\.10') $t
 Check '... and how to keep things as they are (delete the line)' ($t -match 'delete this line') ''
 $o = Act 'Checked Y', '[PC health]', 'Reminder: BIOS 1.10 is from 1/2/2024 (over a year old)'
 Check 'fixed ones are removed by the next check, the rest stays' (((Ids) -join ',') -eq 'bios') ((Ids) -join ',')

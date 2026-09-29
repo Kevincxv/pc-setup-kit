@@ -14,7 +14,7 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     exit
 }
 
-$Host.UI.RawUI.WindowTitle = 'PC Setup Kit - setting up this PC (do not close)'
+$Host.UI.RawUI.WindowTitle = 'Messiah - setting up this PC (do not close)'
 $src = Split-Path -Parent $PSCommandPath
 $kit = 'C:\PCSetupKit'
 if ($src -ne $kit) { New-Item $kit -ItemType Directory -Force | Out-Null; Copy-Item "$src\*" $kit -Recurse -Force }
@@ -116,7 +116,13 @@ Step 'Setting up the maintenance (scripts, login task, tray)'
 $cl = "$env:USERPROFILE\.claude"
 New-Item $cl -ItemType Directory -Force | Out-Null
 Copy-Item "$kit\claude\*.ps1" $cl -Force
-"claude=$(if ($WithClaude) { 'on' } else { 'off' })" | Set-Content "$cl\kit-options.txt" -Encoding ASCII   # ai-enabled.ps1 reads it
+# the AI assistant starts off (ai-enabled.ps1 reads it; -WithClaude switches it on below); running setup again keeps
+# the owner's choices in kit-options.txt (the switches in the app)
+$opts = "$cl\kit-options.txt"
+$have = @(Get-Content $opts -ErrorAction SilentlyContinue)
+if (-not ($have -match '^\s*claude\s*=')) { Add-Content $opts 'claude=off' -Encoding ASCII }
+# the app's welcome page opens once the setup is done (the tray opens it; nobody to see it on GitHub's machines)
+if (-not $NoLaunch -and -not ($have -match '^\s*welcome\s*=')) { Add-Content $opts 'welcome=pending' -Encoding ASCII }
 # Windows reinstalled on this same PC: its settings come back from the weekly backup (the look, game settings, the
 # kit's memory; only a backup made on this PC - settings-backup.ps1). Once: running setup again keeps later changes.
 if (-not (Test-Path "$cl\settings-restored.txt") -and -not $env:PCKIT_IN_TESTS) {   # (never under tests: the registry is the real one)
@@ -125,20 +131,10 @@ if (-not (Test-Path "$cl\settings-restored.txt") -and -not $env:PCKIT_IN_TESTS) 
 }
 
 if ($WithClaude) {
-    Step 'Installing Claude Code and Messiah (the optional Claude part)'
-    try { & ([scriptblock]::Create((Invoke-RestMethod 'https://claude.ai/install.ps1'))) } catch { "  Claude Code install failed: $($_.Exception.Message)" }
-    New-Item "$cl\skills" -ItemType Directory -Force | Out-Null
-    Copy-Item "$kit\claude\skills\*" "$cl\skills" -Recurse -Force
-    # Claude never shuts down or restarts the PC (hook); restart-only work finishes whenever the owner turns it off
-    New-Item "$cl\hooks" -ItemType Directory -Force | Out-Null
-    Copy-Item "$kit\claude\hooks\*" "$cl\hooks" -Force
-    $sf = "$cl\settings.json"
-    $s = $null; if (Test-Path $sf) { try { $s = Get-Content $sf -Raw | ConvertFrom-Json -ErrorAction Stop } catch {} }
-    if (-not $s) { $s = [pscustomobject]@{} }
-    $s | Add-Member hooks ([pscustomobject]@{ PreToolUse = @([pscustomobject]@{ matcher = 'Bash|PowerShell'; hooks = @([pscustomobject]@{
-                        type = 'command'; command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$cl\hooks\no-power-off.ps1`""; timeout = 15 }) }) }) -Force
-    [IO.File]::WriteAllText($sf, ($s | ConvertTo-Json -Depth 10), (New-Object Text.UTF8Encoding $false))   # no BOM
+    Step 'Installing Claude Code and Messiah (the AI assistant)'
+    # the same as the app's switch (Settings > AI assistant): Claude Code, the skills, the no-power-off hook, "claude=on";
     # the Start menu / desktop "Messiah" (the app) and the session shortcut come from tray-app.ps1 below
+    & "$cl\ai-toggle.ps1" -Setup -KitDir $kit | ForEach-Object { "  $_" }
 }
 
 # At every login, fully windowless (conhost --headless): background maintenance (with Claude also headless /maintain when
@@ -165,13 +161,13 @@ if (-not $WithClaude) {
     # Without Claude the optimization is a script too: monitors, benchmark baseline, drivers, app updates, checks,
     # cleanup, self-test, fixes and to-do items - and a readable report (Documents\PC Setup Kit report.txt)
     Step 'Optimizing this PC (drivers, updates, checks, benchmark - takes a few minutes)'
-    & "$cl\optimize.ps1" -NoOpen:$NoLaunch | ForEach-Object { "  $_" }
+    & "$cl\optimize.ps1" -NoOpen | ForEach-Object { "  $_" }   # (the app's welcome page shows what was done; the report stays in Documents)
     Step 'Done'
     Write-Host @'
 
   Setup finished. From now on the PC maintains itself at every login (updates, drivers, cleanup, crash checks).
   The report (Documents\PC Setup Kit report.txt) shows what was done and anything that needs you; the tray
-  icon in the hidden tray and the "PC Setup Kit" app (Start menu and desktop) show the status.
+  icon in the hidden tray and the "Messiah" app (Start menu and desktop) show the status.
   You can unplug the USB drive now. Log: C:\PCSetupKit\setup.log
 '@ -ForegroundColor Green
     Stop-Transcript | Out-Null

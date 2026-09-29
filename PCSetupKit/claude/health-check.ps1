@@ -152,6 +152,8 @@ Set-Content $base -Value $auto   # also when empty (a clean PC): no baseline fil
 # --- Wired network link speed (a gigabit+ adapter stuck at 100 Mbps / 10 Mbps usually means a bad cable or port) ---
 Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' -and $_.MediaType -eq '802.3' -and $_.ReceiveLinkSpeed -lt 1e9 -and $_.InterfaceDescription -match 'Gigabit|GbE|2\.5G|5G|10G|Gaming|I2[0-9]{2}' } |
     ForEach-Object { "Reminder: $($_.Name) network link is only $($_.LinkSpeed) (adapter supports 1 Gbps or more) - check the cable (Cat5e or better) and router port" }
+# Windows activation: only with this PC's own license (firmware key / digital license); otherwise a Reminder
+if (Test-Path "$PSScriptRoot\activation-check.ps1") { & "$PSScriptRoot\activation-check.ps1" }
 # gaming: dual-CCD X3D needs (Game Bar, V-Cache service), Resizable BAR, games on a hard drive, the hypervisor,
 # optional Defender exclusions for the game folders
 if (Test-Path "$PSScriptRoot\gaming-check.ps1") { & "$PSScriptRoot\gaming-check.ps1" }

@@ -35,7 +35,7 @@ Check 'every maintenance script installed in .claude' (-not $missing) ($missing 
 Check "the optional Claude part recorded as $(if ($withClaude) { 'on' } else { 'off' })" ((Get-Content "$cl\kit-options.txt" -ErrorAction SilentlyContinue) -eq "claude=$(if ($withClaude) { 'on' } else { 'off' })" -and (& "$cl\ai-enabled.ps1") -eq $withClaude) "$(Get-Content "$cl\kit-options.txt" -ErrorAction SilentlyContinue)"
 $claude = "$env:USERPROFILE\.local\bin\claude.exe"
 if (-not $withClaude) {
-    Check 'no Claude Code, no skills, no hook, no Messiah shortcut' (-not (Test-Path $claude) -and -not (Test-Path "$cl\skills") -and -not (Test-Path "$cl\hooks") -and -not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Messiah.lnk")) ''
+    Check 'no Claude Code, no skills, no hook, no session shortcut (the app is Messiah either way)' (-not (Test-Path $claude) -and -not (Test-Path "$cl\skills") -and -not (Test-Path "$cl\hooks") -and -not (Test-Path "$cl\Messiah Session.lnk")) ''
     $rep = Get-Content "$env:USERPROFILE\Documents\PC Setup Kit report.txt" -Raw -ErrorAction SilentlyContinue
     Check 'the PC was optimized by script: report in Documents (this PC, what was done incl. the maintenance, what needs you)' ($rep -match 'THIS PC' -and $rep -match 'WHAT WAS DONE' -and $rep -match 'Maintenance: running everything now' -and $rep -match 'WHAT NEEDS YOU') "$rep"
     Check '... the maintenance ran and wrote its report' ((Get-Content "$cl\maint-report.txt" -TotalCount 1 -ErrorAction SilentlyContinue) -match '^Checked ') ''
@@ -61,7 +61,7 @@ Check 'background maintenance at every login and once a day: 2 min delay, window
 $tt = Get-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue
 Check 'tray at every login: elevated, no time limit, restarts on failure' ($tt -and $tt.Actions[0].Arguments -match 'Messiah Tray\\Messiah Tray\.ahk' -and $tt.Principal.RunLevel -eq 'Highest' -and $tt.Settings.ExecutionTimeLimit -eq 'PT0S' -and $tt.Settings.RestartCount -eq 3) ''
 Check 'tray script in Documents\Messiah Tray' (Test-Path "$env:USERPROFILE\Documents\Messiah Tray\Messiah Tray.ahk") ''
-$app = if ($withClaude) { 'Messiah' } else { 'PC Setup Kit' }
+$app = 'Messiah'   # one app, with or without the AI assistant
 Check "the tray runs as its own program ($app.exe: its own tray entry next to the clock)" ($tt -and $tt.Actions[0].Execute -eq "$env:USERPROFILE\Documents\Messiah Tray\$app.exe" -and (Test-Path $tt.Actions[0].Execute)) "$($tt.Actions[0].Execute)"
 $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$app.lnk"
 $sc = if (Test-Path $lnk) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk) }

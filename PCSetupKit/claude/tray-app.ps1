@@ -1,5 +1,5 @@
-# The tray as its own app: AutoHotkey runs the tray script under the app's name (Messiah.exe, or PC Setup Kit.exe
-# without Claude). Windows keeps one tray entry per program, and every AutoHotkey script otherwise shares AutoHotkey's
+# The tray as its own app: AutoHotkey runs the tray script under the app's name (Messiah.exe; PC Setup Kit.exe on
+# older installs without the AI assistant - replaced). Windows keeps one tray entry per program, and every AutoHotkey script otherwise shares AutoHotkey's
 # (in the hidden ^ area) - with its own name the app has its own entry there, with its own icon. Also: the login task that starts it, the app's icon, and its Start menu entry (the app window, dashboard.ps1).
 # Safe to run again (setup, background maintenance): changes only what's missing or outdated, one line per change.
 param([string]$TrayDir = "$env:USERPROFILE\Documents\Messiah Tray", [string]$ClaudeDir = $PSScriptRoot,
@@ -8,7 +8,7 @@ $script = "$TrayDir\Messiah Tray.ahk"
 if (-not (Test-Path "$ClaudeDir\dashboard.ps1")) { return }
 $hasAhk = (Test-Path $Ahk) -and (Test-Path $script)   # without AutoHotkey: the app (window, icon, Start menu) but no tray icon
 $ai = if (Test-Path "$ClaudeDir\ai-enabled.ps1") { & "$ClaudeDir\ai-enabled.ps1" } else { $true }
-$name = if ($ai) { 'Messiah' } else { 'PC Setup Kit' }
+$name = 'Messiah'   # one app, with or without the AI assistant (before: "PC Setup Kit" without it - moved over below)
 $exe = "$TrayDir\$name.exe"
 $changed = $false
 
@@ -56,6 +56,9 @@ function Set-AppShortcut($lnk) {
 }
 if (Set-AppShortcut "$sm\$name.lnk") { "App: Start menu entry '$name' opens the app" }
 $desk = "$env:USERPROFILE\Desktop\$name.lnk"   # only where there is one (setup: -Desktop); never brought back once deleted
+# the app was "PC Setup Kit" without the AI assistant: its entries become "Messiah" (a desktop one stays a desktop one)
+if (Test-Path -LiteralPath "$env:USERPROFILE\Desktop\PC Setup Kit.lnk") { Remove-Item -LiteralPath "$env:USERPROFILE\Desktop\PC Setup Kit.lnk" -Force; $Desktop = $true; "App: the desktop 'PC Setup Kit' is now 'Messiah'" }
+if (Test-Path -LiteralPath "$sm\PC Setup Kit.lnk") { Remove-Item -LiteralPath "$sm\PC Setup Kit.lnk" -Force; "App: the Start menu 'PC Setup Kit' is now 'Messiah'" }
 if (($Desktop -or (Test-Path -LiteralPath $desk)) -and (Set-AppShortcut $desk)) { "App: desktop '$name' opens the app" }
 foreach ($old in "$sm\Messiah Status.lnk", "$sm\PC Setup Kit Status.lnk") {
     if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Force; "App: removed the old Start menu entry '$([IO.Path]::GetFileNameWithoutExtension($old))'" }
@@ -96,4 +99,9 @@ if ($hasAhk -and $changed -and -not $NoRestart) {
     Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe' OR Name='Messiah.exe' OR Name='PC Setup Kit.exe'" -ErrorAction SilentlyContinue |
         Where-Object CommandLine -match 'Messiah Tray\.ahk' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue
+}
+# the old "PC Setup Kit.exe" copy, once nothing runs it any more
+$oldExe = "$TrayDir\PC Setup Kit.exe"
+if ($hasAhk -and (Test-Path -LiteralPath $oldExe) -and -not (Get-CimInstance Win32_Process -Filter "Name='PC Setup Kit.exe'" -ErrorAction SilentlyContinue)) {
+    try { [IO.File]::Delete($oldExe); "Tray: removed the old PC Setup Kit.exe" } catch {}
 }

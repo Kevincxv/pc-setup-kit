@@ -13,7 +13,7 @@ $dark = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Theme
 $c = if ($dark) { @{ Bg = '#202020'; Card = '#2B2B2B'; Text = '#FFFFFF'; Sub = '#A8A8A8'; Accent = '#8F7DFF'; Done = '#6CCB5F'; Bad = '#FF99A4' } }
 else { @{ Bg = '#F3F3F3'; Card = '#FFFFFF'; Text = '#1B1B1B'; Sub = '#5F5F5F'; Accent = '#6D5AE6'; Done = '#0F7B0F'; Bad = '#C42B1C' } }
 $xaml = @"
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="PC Setup Kit" Width="460" SizeToContent="Height"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="Messiah" Width="460" SizeToContent="Height"
         WindowStartupLocation="CenterScreen" ResizeMode="CanMinimize" Background="$($c.Bg)" FontFamily="Segoe UI Variable Text, Segoe UI">
   <StackPanel Margin="24">
     <TextBlock Text="Setting up this PC" FontSize="22" FontWeight="SemiBold" Foreground="$($c.Text)"/>

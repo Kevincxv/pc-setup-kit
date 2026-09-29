@@ -60,7 +60,7 @@ try {
     }
     Save-Screen '1-desktop'
     $n = 2
-    foreach ($pg in 'Home', 'History', 'Maintenance') {
+    foreach ($pg in 'Welcome', 'Home', 'Maintenance', 'Settings', 'History') {
         $p = Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "$env:USERPROFILE\.claude\dashboard.ps1", '-Page', $pg -PassThru
         Start-Sleep 15; Save-Screen "$n-app-$($pg.ToLower())"; $n++
         Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; Start-Sleep 2

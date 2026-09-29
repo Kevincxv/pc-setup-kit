@@ -22,7 +22,7 @@ AI := EnvGet("TEST_AI") != "0"
 FS := A_Args.Length > 1 && A_Args[2] = "fs"
 Shown := []
 IsFullscreen() => FS
-ShowApp() => FileAppend("OPENED", "*")
+ShowApp(page := "") => FileAppend("OPENED" (page != "" ? " " page : ""), "*")
 ShowNote(text, *) {
     global Shown
     Shown.Push(StrReplace(text, "``n", " \n "))
@@ -147,6 +147,8 @@ Check 'Pause maintenance > For 2 hours: recorded (about 2 hours from now), other
 $o = T pause 0
 Check '... Resume now: the pause is gone, said' (-not (@(Get-Content "$C\kit-options.txt") -match '^pause-until') -and (@(Get-Content "$C\kit-options.txt") -contains 'claude=on') -and $o -match 'runs again') ((Get-Content "$C\kit-options.txt") -join ' | ')
 Check "the menu has Pause maintenance (2 hours / until tomorrow / resume)" ($traySrc -match 'tray\.Add\("Pause maintenance", pauseMenu\)' -and $traySrc -match 'SetPause\(2\)' -and $traySrc -match 'SetPause\(24\)' -and $traySrc -match 'SetPause\(0\)') ''
-Check 'a hotkey opens the app (Ctrl+Alt+M / Ctrl+Alt+P)' ($traySrc -match 'Hotkey\(AI \? "\^!m" : "\^!p", \(\*\) => ShowApp\(\)\)') ''
+Check 'a hotkey opens the app (Ctrl+Alt+M), and the tray is Messiah with or without the AI assistant' ($traySrc -match 'Hotkey\("\^!m", \(\*\) => ShowApp\(\)\)' -and $traySrc -match '(?m)^NAME := "Messiah"') ''
+Check "the AI assistant switch (10 on, 11 off) and the graphics driver rollback (12) from the app" ($traySrc -match "10, \(\*\) => Run\(.+ai-toggle\.ps1`" -On" -and $traySrc -match "11, \(\*\) => Run\(.+ai-toggle\.ps1`" -Off" -and $traySrc -match "12, \(\*\) => Run\(.+gpu-rollback\.ps1") ''
+Check 'right after a new install (welcome=pending): the welcome page, once' ($traySrc -match 'welcome\\s\*=\\s\*pending' -and $traySrc -match 'ShowApp\("Welcome"\)' -and $traySrc -match 'IniWrite 1, CL "\\tray-notified\.ini", "shown", "welcome"') ''
 Check "the app's admin commands: apply the tweak choices now (7), repair (8), undo the last update (9)" ($traySrc -match "7, \(\*\) => Run\(.+after-update\.ps1`" -Now" -and $traySrc -match "8, \(\*\) => Run\(.+kit-update\.ps1`" -Reinstall" -and $traySrc -match "9, \(\*\) => Run\(.+kit-update\.ps1`" -Rollback") ''
 Finish

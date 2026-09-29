@@ -77,7 +77,7 @@ if (-not $ok) { Finish }
 Import-MockTargets $mocked   # load their modules BEFORE defining the mocks (see lib.ps1)
 function Register-ScheduledTask { param($TaskName, $Action, $Trigger, $Principal, $Settings, [switch]$Force) $global:tasks[$TaskName] = [pscustomobject]@{ Action = $Action; Settings = $Settings; Principal = $Principal; Trigger = @($Trigger) }; [pscustomobject]@{ TaskName = $TaskName } }
 function Step($m) { }
-function Invoke-RestMethod { param($Uri) $global:downloads += "$Uri"; '' }   # the Claude Code installer is never really downloaded here
+function Invoke-RestMethod { param($Uri) $global:downloads += "$Uri"; 'New-Item -ItemType File -Force "$env:USERPROFILE\.local\bin\claude.exe" | Out-Null' }   # the Claude Code installer is never really downloaded here: a stand-in claude.exe
 if (-not (Assert-Mocks $mocked)) { Finish }
 function Install-Part([bool]$Claude) {
     $global:tasks = @{}; $global:downloads = @()
@@ -96,10 +96,10 @@ Check 'the real registry and desktop untouched (no settings restore, Explorer no
 Check 'no Claude: all maintenance scripts installed' (@(Get-ChildItem "$cl\*.ps1").Count -eq @(Get-ChildItem "$Kit\claude\*.ps1").Count) ''
 Check '... Claude recorded as off (ai-enabled.ps1 says False)' ((Get-Content "$cl\kit-options.txt") -eq 'claude=off' -and -not (& "$cl\ai-enabled.ps1")) ''
 Check '... Claude Code not downloaded, no skills, no hook, no Claude settings' (-not $global:downloads -and -not (Test-Path "$cl\skills") -and -not (Test-Path "$cl\hooks") -and -not (Test-Path "$cl\settings.json")) ($global:downloads -join ', ')
-Check '... no Messiah shortcut, no session shortcut' (-not (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk") -and -not (Test-Path "$H\Desktop\Messiah.lnk") -and -not (Test-Path "$cl\Messiah Session.lnk")) ''
+Check '... no session shortcut' (-not (Test-Path "$cl\Messiah Session.lnk")) ''
 $ws = New-Object -ComObject WScript.Shell
-$app = "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\PC Setup Kit.lnk"
-Check '... Start menu and desktop "PC Setup Kit" open the app window, with its own icon' ((Test-Path $app) -and (Test-Path "$H\Desktop\PC Setup Kit.lnk") -and $ws.CreateShortcut($app).Arguments -match 'dashboard\.ps1"$' -and $ws.CreateShortcut($app).IconLocation -match 'Messiah Tray\\app\.ico,0$' -and (Test-Path "$H\Documents\Messiah Tray\app.ico")) "$(if (Test-Path $app) { $ws.CreateShortcut($app).IconLocation })"
+$app = "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk"
+Check '... Start menu and desktop "Messiah" (the one app) open the app window, with its own icon' ((Test-Path $app) -and (Test-Path "$H\Desktop\Messiah.lnk") -and $ws.CreateShortcut($app).Arguments -match 'dashboard\.ps1"$' -and $ws.CreateShortcut($app).IconLocation -match 'Messiah Tray\\app\.ico,0$' -and (Test-Path "$H\Documents\Messiah Tray\app.ico")) "$(if (Test-Path $app) { $ws.CreateShortcut($app).IconLocation })"
 $bg = $global:tasks['Claude Background Maintenance']
 Check '... login maintenance task: hidden (conhost --headless), unattended, elevated, 2 min delay, 4 h limit' ($bg -and $bg.Action.Arguments -match '^--headless powershell\.exe .*claude-bg-maint\.ps1" -Force -Unattended$' -and $bg.Principal.RunLevel -eq 'Highest' -and $bg.Settings.ExecutionTimeLimit -eq 'PT4H') ''
 Check '... and once a day at 12:00, catching up after a missed start (PCs that stay on for days)' ($bg.Trigger.Count -eq 2 -and ($bg.Trigger | Where-Object { $_.DaysInterval -eq 1 -and $_.StartBoundary -match 'T12:00:00$' }) -and $bg.Settings.StartWhenAvailable) ''
@@ -107,7 +107,7 @@ if (Test-Path "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe") {
     $tr = $global:tasks['Messiah Tray']
     Check '... tray task: runs the tray script at login, elevated, no time limit' ($tr -and $tr.Action.Arguments -match [regex]::Escape("$H\Documents\Messiah Tray\Messiah Tray.ahk") -and $tr.Settings.ExecutionTimeLimit -eq 'PT0S') ''
     Check '... tray script copied to Documents' (Test-Path "$H\Documents\Messiah Tray\Messiah Tray.ahk") ''
-    Check '... the tray runs as its own program "PC Setup Kit.exe" (own tray entry next to the clock)' ($tr.Action.Execute -eq "$H\Documents\Messiah Tray\PC Setup Kit.exe" -and (Test-Path $tr.Action.Execute)) "$($tr.Action.Execute)"
+    Check '... the tray runs as its own program "Messiah.exe" (own tray entry next to the clock)' ($tr.Action.Execute -eq "$H\Documents\Messiah Tray\Messiah.exe" -and (Test-Path $tr.Action.Execute)) "$($tr.Action.Execute)"
     Check '... no separate "Status" entry (one app)' (-not (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\PC Setup Kit Status.lnk")) ''
 } else { Skip 'tray task' 'AutoHotkey not installed here (setup installs it first)' }
 

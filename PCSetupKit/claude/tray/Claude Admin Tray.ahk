@@ -1,16 +1,16 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 Persistent
-; The PC Setup Kit app's tray side: it starts at login in the hidden tray (the ^ area) and runs the PC's maintenance on its own; small alerts when something needs the owner, and the
+; The Messiah app's tray side: it starts at login in the hidden tray (the ^ area) and runs the PC's maintenance on its own; small alerts when something needs the owner, and the
 ; parts of the app window (dashboard.ps1) that need admin rights. Clicking the icon opens the app window.
-; With the optional Claude part (Messiah, setup.ps1 -WithClaude) it also holds the Messiah sessions (Claude Code with
+; With the AI assistant switched on (the app's Settings, or setup.ps1 -WithClaude) it also holds the Messiah sessions (Claude Code with
 ; admin rights): minimizing one sends it to the tray, and at login it opens one hidden (continuing a conversation a
 ; restart cut off). Runs elevated (scheduled task) so it can hide admin windows and start maintenance without a prompt.
 
 CL := EnvGet("USERPROFILE") "\.claude"
 LNK := SessionShortcut()
 AI := AiEnabled()
-NAME := AI ? "Messiah" : "PC Setup Kit"
+NAME := "Messiah"   ; one app; the AI assistant (Claude) is a switch in its Settings
 DetectHiddenWindows true
 OnError TrayError
 
@@ -57,7 +57,7 @@ note := 0       ; the corner note currently shown
 SetTimer Notify, 30000
 SetTimer GamePerf, 300000   ; in-game frame rate and temperatures (game-perf.ps1)
 OnMessage(0x219, DeviceChange)   ; WM_DEVICECHANGE: a kit USB plugged in gets a fresh settings backup
-try Hotkey(AI ? "^!m" : "^!p", (*) => ShowApp())   ; Ctrl+Alt+M (Messiah) / Ctrl+Alt+P (PC Setup Kit) opens the app from anywhere
+try Hotkey("^!m", (*) => ShowApp())   ; Ctrl+Alt+M opens the app from anywhere
 if AI {
     SetTimer Watch, 500
     SetTimer AutoStart, -3000
@@ -109,7 +109,10 @@ AppCommand(wParam, *) {
         6, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\maint-watch.ps1"'),
         7, (*) => Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' CL '\after-update.ps1" -Now', , "Hide"),   ; the owner's tweak choices, now (even while paused)
         8, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\kit-update.ps1" -Reinstall'),               ; repair: the current release again
-        9, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\kit-update.ps1" -Rollback'))                ; undo the last update
+        9, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\kit-update.ps1" -Rollback'),                ; undo the last update
+        10, (*) => Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\ai-toggle.ps1" -On'),                               ; the AI assistant on: installs Claude Code, then its sign-in
+        11, (*) => Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' CL '\ai-toggle.ps1" -Off', , "Hide"),
+        12, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\gpu-rollback.ps1"'))                       ; back to the graphics driver before this one
     if work.Has(wParam)
         SetTimer work[wParam], -10
     return 1
@@ -117,9 +120,9 @@ AppCommand(wParam, *) {
 
 ; The app window (dashboard.ps1; one window - starting it again brings it to the front; it falls back to the text
 ; status.ps1 by itself). Installs from before it: text.
-ShowApp() {
+ShowApp(page := "") {
     if FileExist(CL "\dashboard.ps1")
-        Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\dashboard.ps1"', , "Hide"
+        Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\dashboard.ps1"' (page != "" ? " -Page " page : ""), , "Hide"
     else
         Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\status.ps1"'
 }
@@ -132,6 +135,13 @@ StatusAtLogin() {
         return
     opts := ""
     try opts := FileRead(CL "\kit-options.txt")
+    ; right after a new install (setup.ps1: "welcome=pending"): the welcome page, once (a game first: later)
+    if RegExMatch(opts, "im)^\s*welcome\s*=\s*pending\s*$") && IniRead(CL "\tray-notified.ini", "shown", "welcome", "") = "" {
+        if IsFullscreen()
+            return SetTimer(StatusAtLogin, -60000)
+        IniWrite 1, CL "\tray-notified.ini", "shown", "welcome"
+        return ShowApp("Welcome")
+    }
     if !RegExMatch(opts, "im)^\s*openatlogin\s*=\s*on\s*$")
         return
     ini := CL "\tray-notified.ini"

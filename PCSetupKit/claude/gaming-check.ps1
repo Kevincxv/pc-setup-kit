@@ -3,6 +3,7 @@
 #   Performance Optimizer service must be there, or games land on the wrong cores (much lower frame rate).
 #   Game Bar comes back by itself; the service is started; a missing AMD chipset driver is a Reminder.
 # - Resizable BAR off (NVIDIA: a 256 MB BAR1 window) - a BIOS setting worth a few % in many games: Reminder
+# - Two graphics chips (gaming laptops): every game set to the fast one ("High performance"), never over the owner's choice
 # - Steam games on a hard drive while the SSD has room: Reminder (slow loading, stutter)
 # - The hypervisor running (WSL, virtual machines, Windows Sandbox): costs some gaming performance - Reminder naming
 #   what turned it on (not while it's already set to be off at the next restart)
@@ -10,7 +11,7 @@
 #   folders - less stutter while games load and compile shaders; a small security trade-off, so off by default.
 #   Turned off again: the exclusions it added are removed. State: gaming-state.json.
 # Test overrides: -Test (a hashtable of what would be read: Cpu, GameBar, VCacheSvc, Bar1MiB, Libraries, Hypervisor,
-# HvOffNext, HvFeatures, Option, Excluded) with -Do (a scriptblock getting the actions instead of doing them), -State.
+# HvOffNext, HvFeatures, Option, Excluded, Gpus, GameExes, GpuPrefs) with -Do (a scriptblock getting the actions instead of doing them), -State.
 param([hashtable]$Test, [scriptblock]$Do, [string]$State = "$PSScriptRoot\gaming-state.json", [string]$Options = "$PSScriptRoot\kit-options.txt")
 $ErrorActionPreference = 'SilentlyContinue'
 $T = $Test
@@ -56,6 +57,31 @@ $libs = if ($T) { $T.Libraries } else {
 }
 foreach ($l in @($libs) | Where-Object { $_.Hdd -and $_.SsdFreeGB -ge 100 }) {
     "Reminder: $($l.Games) Steam game(s) are on a hard drive ($($l.Path)) while the SSD has $($l.SsdFreeGB) GB free - on the SSD they load much faster and stutter less: Steam > Settings > Storage, pick the games, Move"
+}
+
+# --- two graphics chips (most gaming laptops: the built-in one and the fast one): every game on the fast one ---
+# Windows picks the chip per program and sometimes picks the built-in one (much lower frame rate). The same setting as
+# Settings > System > Display > Graphics > "High performance" (GpuPreference=2), for each game in the Steam libraries
+# and the usual game folders; a choice the owner made there for a program is never changed. State: gaming-state.json
+# "gpuPref" (the uninstaller takes them out again).
+$gpus = @(if ($T) { $T.Gpus } else { Get-CimInstance Win32_VideoController | Where-Object { $_.PNPDeviceID -match '^PCI\\' -and $_.Name -notmatch 'Microsoft|Remote|Virtual|Parsec' } | ForEach-Object Name })
+$fast = $gpus | Where-Object { $_ -match 'NVIDIA|Radeon RX|Radeon Pro|Arc A|Arc B' } | Select-Object -First 1
+if ($gpus.Count -ge 2 -and $fast) {
+    if (-not ($st.PSObject.Properties.Name -contains 'gpuPref')) { $st | Add-Member gpuPref @() }
+    $exes = @(if ($T) { $T.GameExes } else {
+            $roots = @(foreach ($l in @($libs)) { "$($l.Path)\steamapps\common" }) + @(foreach ($d in (Get-Volume | Where-Object { $_.DriveType -eq 'Fixed' -and $_.DriveLetter }).DriveLetter) { "$d`:\Program Files\Epic Games", "$d`:\Epic Games", "$d`:\XboxGames", "$d`:\Games" })
+            foreach ($r in $roots | Where-Object { Test-Path $_ }) {
+                Get-ChildItem $r -Filter *.exe -Recurse -Depth 3 -File | Where-Object { $_.Name -notmatch 'crash|setup|unins|redist|prereq|report|helper|install|dotnet|vcredist|dxwebsetup|easyanticheat_setup|launcherpatcher' } | ForEach-Object FullName
+            }
+        })
+    $pref = 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences'
+    $have = if ($T) { $T.GpuPrefs } else { $k = Get-ItemProperty $pref; $h = @{}; if ($k) { foreach ($p in $k.PSObject.Properties | Where-Object Name -notlike 'PS*') { $h[$p.Name] = "$($p.Value)" } }; $h }
+    $new = @($exes | Where-Object { -not $have.ContainsKey($_) })
+    foreach ($e in $new) { Act "gpu $e" { if (-not (Test-Path $pref)) { New-Item $pref -Force | Out-Null }; New-ItemProperty $pref -Name $e -Value 'GpuPreference=2;' -PropertyType String -Force | Out-Null } }
+    if ($new) {
+        $st.gpuPref = @(@($st.gpuPref) + $new | Select-Object -Unique); try { $st | ConvertTo-Json -Depth 3 | Set-Content $State -Encoding UTF8 } catch { }
+        "Gaming: $($new.Count) game(s) set to run on the $fast (the fast graphics chip), not the built-in one"
+    }
 }
 
 # --- the hypervisor (WSL, virtual machines, Sandbox): a few % of gaming performance ---

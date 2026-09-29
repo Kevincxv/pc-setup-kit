@@ -41,14 +41,14 @@ INSTALL ON THE NEW PC
      - sets up the maintenance (runs hidden at every login) and the tray icon
      - optimizes the PC: monitors at their highest refresh rate, drivers and app updates, hardware checks
        (BIOS age, RAM EXPO/XMP, graphics card slot, monitors, drives), crash check, benchmark
-6. A report opens (Documents\PC Setup Kit report.txt): what was done, and anything that needs your friend
-   (for example a BIOS setting), explained step by step.
-   With Messiah: instead, Messiah opens, your friend logs in with THEIR Claude account, and Claude runs /pc-optimize.
+6. The Messiah app opens on a welcome page: what was done, and anything that needs your friend (for example a
+   BIOS setting), explained step by step (the full report: Documents\PC Setup Kit report.txt).
+   The AI assistant is optional: Settings > AI assistant (Claude), signing in with THEIR OWN Claude account.
 
 ON AN EXISTING WINDOWS 11 PC (no reinstall)
 Easiest: open PowerShell and run
     irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1 | iex
-With Messiah:
+With the AI assistant on from the start:
     & ([scriptblock]::Create((irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1))) -WithClaude
 Or copy the PCSetupKit folder anywhere, right-click PCSetupKit\setup.ps1 > "Run with PowerShell", approve the admin prompt.
 
@@ -74,18 +74,18 @@ NOTES
   the owner's apps or BIOS steps). Only add it for friends who are OK with that; its hidden maintenance uses their
   Claude account's usage.
 
-THE TRAY ICON (next to the clock) AND THE STATUS WINDOW
-- The tray icon pins itself next to the clock once (hide it again in Settings > Personalization > Taskbar if you
-  like; it stays hidden then).
-- Click it (or right-click > Status), or open "PC Setup Kit Status" ("Messiah Status" with Messiah) in the Start
-  menu: a window with what needs you, what waits for the next restart, the last check and when the next checks
+THE MESSIAH APP (one app, with or without the AI assistant)
+- It starts in the hidden tray (^ next to the clock) at every login and works on its own.
+- Click the tray icon, open "Messiah" in the Start menu or on the desktop, or press Ctrl+Alt+M: a window with what needs you, what waits for the next restart, the last check and when the next checks
   are. It updates by itself and has buttons to run maintenance, optimize the PC and open the full report.
 - Small alerts appear in the corner when something needs the owner (never over a fullscreen game; they wait).
 - Right-click menu: Status, maintenance to-do list, last maintenance report, run maintenance now,
   Optimize this PC now.
 - To-do items explain exactly what to do and disappear once it's done. To dismiss one (for example if you keep
   something as it is on purpose), open the to-do list and delete its line.
-- With Messiah: a Messiah session is always open hidden in the tray (click to show or hide it), and the menu also
+- Settings: every change the kit makes has its own switch; the AI assistant switch; uninstall.
+- Maintenance page: repair, undo the last update, and go back to the previous graphics driver in one click.
+- With the AI assistant on: a Messiah session is always open hidden in the tray (click to show or hide it), and the menu also
   has Watch maintenance live and the self-improvement journal.
 
 ZERO-MAINTENANCE (built in, no AI needed)

@@ -38,5 +38,5 @@ Check 'no new reset: nothing' (-not $o) ($o -join ' / ')
 Clear-Path $st
 [void](GW '3.0' -at $now.AddDays(-30)); [void](GW '4.0' -at $now.AddDays(-3))
 $o = GW '4.0' @(Ev $now.AddHours(-3))
-Check 'resets that began right after a driver update: that driver named, with how to go back' ("$o" -match 'it began after driver 4\.0 was installed on .+Roll Back Driver') ($o -join ' / ')
+Check 'resets that began right after a driver update: that driver named, with how to go back' ("$o" -match 'it began after driver 4\.0 was installed on .+go back to the previous graphics driver \(one click in the app') ($o -join ' / ')
 Finish

@@ -50,4 +50,16 @@ $o = Invoke-Gaming (Pc @{ Option = 'on' })
 Check '... next check: nothing more' (-not $o -and -not $acts) ($o -join ' / ')
 $o = Invoke-Gaming (Pc @{ Option = $null })
 Check 'turned off again: exactly the exclusions it added are removed' (($acts -join ',') -eq 'unexclude C:\Steam\steamapps' -and "$o" -match 'scans the game folders again') (($o + $acts) -join ' / ')
+
+Section 'two graphics chips (gaming laptops): every game on the fast one'
+Clear-Path $st
+$g2 = @{ Gpus = @('Intel(R) Iris(R) Xe Graphics', 'NVIDIA GeForce RTX 4060 Laptop GPU'); GameExes = @('C:\Steam\steamapps\common\A\a.exe', 'C:\Steam\steamapps\common\B\b.exe'); GpuPrefs = @{ 'C:\Steam\steamapps\common\B\b.exe' = 'GpuPreference=1;' } }
+$o = Invoke-Gaming (Pc $g2)
+Check 'a game without a choice: set to High performance, said with the fast chip''s name' (($acts -join ',') -eq 'gpu C:\Steam\steamapps\common\A\a.exe' -and "$o" -match '1 game\(s\) set to run on the NVIDIA GeForce RTX 4060 Laptop GPU') (($o + $acts) -join ' / ')
+Check '... a choice the owner made for a game is kept' (-not ($acts -match 'b\.exe')) ($acts -join ',')
+Check '... recorded for the uninstaller' (@((Get-Content $st -Raw | ConvertFrom-Json).gpuPref) -contains 'C:\Steam\steamapps\common\A\a.exe') (Get-Content $st -Raw)
+$o = Invoke-Gaming (Pc @{ Gpus = @('NVIDIA GeForce RTX 4080'); GameExes = @('C:\x.exe'); GpuPrefs = @{} })
+Check 'one graphics card (a desktop): nothing set' (-not $acts -and -not $o) (($o + $acts) -join ' / ')
+$o = Invoke-Gaming (Pc @{ Gpus = @('Intel(R) UHD Graphics', 'AMD Radeon(TM) Graphics'); GameExes = @('C:\x.exe'); GpuPrefs = @{} })
+Check 'two built-in chips, no fast one: nothing set' (-not $acts -and -not $o) (($o + $acts) -join ' / ')
 Finish
