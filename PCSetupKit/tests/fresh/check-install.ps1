@@ -28,6 +28,10 @@ Check 'no step reported a failure' ($log -notmatch 'Claude Code install failed|N
 
 Section 'Windows tweaks'
 Check 'tweaks applied and their originals recorded (for the uninstaller)' (Test-Path "$kit\tweaks-backup.json") ''
+# setup leaves the guard's slow part (the old Windows parts, via DISM) to its first maintenance, which runs in the background
+# right after: the guard runs again only once that's done (9/30 on GitHub it ran before, and did that part itself)
+$maintRan = Test-Path "$cl\setup-maint-running.txt"
+for ($w = 0; (Test-Path "$cl\setup-maint-running.txt") -and $w -lt 240; $w++) { Start-Sleep 15 }
 $again = @(& "$kit\tweaks.ps1")
 Check 'running the tweak guard again changes nothing (it all stuck)' ($again.Count -eq 0) ($again -join ' / ')
 if ((Get-CimInstance Win32_Battery) -or $env:PCKIT_TEST_BATTERY -eq '1') { Check 'a laptop: the Balanced power plan kept (Ultimate would drain the battery)' ((powercfg /getactivescheme) -match '381b4222-f694-41f0-9685-ff5bb260df2e') "$(powercfg /getactivescheme)" }
@@ -52,7 +56,7 @@ if (-not $withClaude) {
     Check 'no Claude Code, no skills, no hook, no session shortcut (the app is Messiah either way)' (-not (Test-Path $claude) -and -not (Test-Path "$cl\skills") -and -not (Test-Path "$cl\hooks") -and -not (Test-Path "$cl\Messiah Session.lnk")) ''
     # setup was done before its first full maintenance: that one runs in the background (optimize.ps1 -Background) -
     # wait for it, then check it all the same (up to an hour)
-    $ran = Test-Path "$cl\setup-maint-running.txt"
+    $ran = $maintRan   # (seen before the tweaks section waited for it)
     for ($w = 0; (Test-Path "$cl\setup-maint-running.txt") -and $w -lt 240; $w++) { Start-Sleep 15 }
     Check 'setup finished before the long maintenance, which ran in the background right after' ($ran -or ((Get-Content "$env:USERPROFILE\Documents\PC Setup Kit report.txt" -Raw -ErrorAction SilentlyContinue) -match 'in the background, right after setup')) ''
     Check '... and finished (within the hour)' (-not (Test-Path "$cl\setup-maint-running.txt")) ''
