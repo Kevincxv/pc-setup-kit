@@ -13,7 +13,11 @@
 # -ToUsb: the tray runs it when a drive is plugged in - a kit USB (PCSetupKit\setup.ps1 on it) gets a fresh backup, once a day, so
 # it's there for a full reinstall even on a one-drive PC.
 # -Restore [-From zip] [-AnyPc: a backup of another PC too - the app asks first]; -Force (back up even if one is recent); tests: -RegRoot -HomeDir -Dest -NoApply -MachineId
-param([switch]$Restore, [string]$From, [switch]$Force, [switch]$ToUsb, [switch]$AnyPc, [string]$RegRoot = 'HKCU:', [string]$HomeDir = $env:USERPROFILE, [string[]]$Dest,
+# -ExportLook <zip>: only the look (dark mode, colours, taskbar, mouse, cursors, the wallpaper image - re-saved without
+#   its hidden metadata: camera, GPS), for no PC in particular: the kit's look on every fresh install (publish-kit.ps1
+#   makes it on the owner's PC; setup.ps1 restores it with -AnyPc when there's no backup of that PC). Never the kit's
+#   memory, game settings, Steam, Start pins, or the PC's name or id.
+param([string]$ExportLook, [switch]$Restore, [string]$From, [switch]$Force, [switch]$ToUsb, [switch]$AnyPc, [string]$RegRoot = 'HKCU:', [string]$HomeDir = $env:USERPROFILE, [string[]]$Dest,
     [switch]$NoApply, [string]$MachineId, [string]$ClaudeDir = $PSScriptRoot)
 $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -28,7 +32,7 @@ $la = if ($real) { [Environment]::GetFolderPath('LocalApplicationData') } else {
 $ad = if ($real) { [Environment]::GetFolderPath('ApplicationData') } else { "$HomeDir\AppData\Roaming" }
 $docs = if ($real) { [Environment]::GetFolderPath('MyDocuments') } else { "$HomeDir\Documents" }
 # under tests: never the real registry or the real backup folders
-if ($env:PCKIT_IN_TESTS -and ($RegRoot -eq 'HKCU:' -or $real -or -not ($Dest -or $From))) { return }
+if ($env:PCKIT_IN_TESTS -and ($RegRoot -eq 'HKCU:' -or $real -or -not ($Dest -or $From -or $ExportLook))) { return }
 # registry values that make up the look (key under HKCU -> value names)
 $reg = [ordered]@{
     'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' = 'AppsUseLightTheme', 'SystemUsesLightTheme', 'EnableTransparency', 'ColorPrevalence'
@@ -69,7 +73,7 @@ if (-not $Restore) {
         $Force = $true
     }
     $newest = $dests | ForEach-Object { Get-ChildItem "$_\*.zip" } | Sort-Object LastWriteTime | Select-Object -Last 1
-    if (-not $Force -and $newest -and $newest.LastWriteTime -gt (Get-Date).AddDays(-6)) { return }
+    if (-not $ExportLook -and -not $Force -and $newest -and $newest.LastWriteTime -gt (Get-Date).AddDays(-6)) { return }
     $st = Join-Path $env:TEMP "pckit-backup-$PID"; New-Item $st -ItemType Directory -Force | Out-Null
     # the look
     $look = [ordered]@{}
@@ -85,6 +89,23 @@ if (-not $Restore) {
     }
     $wp = "$(Get-RegValue "$RegRoot\Control Panel\Desktop" WallPaper)"
     if (-not (Test-Path $wp)) { $wp = "$ad\Microsoft\Windows\Themes\TranscodedWallpaper" }   # Windows' own copy (the original may be gone)
+    if ($ExportLook) {   # the look only, for any PC
+        if ($wp -and (Test-Path $wp)) {
+            # re-saved as a new JPEG: the pixels only - the original's metadata (camera, date, GPS location) stays behind
+            try {   # (a file that isn't a readable picture: left out - never copied as it is, metadata and all)
+                Add-Type -AssemblyName System.Drawing
+                $img = [Drawing.Image]::FromFile($wp); $bmp = New-Object Drawing.Bitmap $img; $img.Dispose()
+                $jpg = [Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object MimeType -eq 'image/jpeg'
+                $ep = New-Object Drawing.Imaging.EncoderParameters 1; $ep.Param[0] = New-Object Drawing.Imaging.EncoderParameter ([Drawing.Imaging.Encoder]::Quality), 92L
+                $bmp.Save("$st\wallpaper.jpg", $jpg, $ep); $bmp.Dispose()
+            } catch { $wp = $null }
+        }
+        [ordered]@{ machine = 'any'; computer = 'Messiah look'; date = (Get-Date).ToString('o'); look = $look } | ConvertTo-Json -Depth 5 | Set-Content "$st\backup.json" -Encoding UTF8
+        New-Item (Split-Path $ExportLook) -ItemType Directory -Force | Out-Null
+        if (Test-Path $ExportLook) { [IO.File]::Delete($ExportLook) }
+        [IO.Compression.ZipFile]::CreateFromDirectory($st, $ExportLook); [IO.Directory]::Delete($st, $true)
+        return "Look exported: $(@($look.Keys).Count) settings groups$(if ($wp -and (Test-Path $wp)) { ' and the wallpaper' }) to $ExportLook"
+    }
     if ($wp -and (Test-Path $wp)) { Copy-Item $wp "$st\wallpaper$(if ([IO.Path]::GetExtension($wp)) { [IO.Path]::GetExtension($wp) } else { '.jpg' })" }
     if (Test-Path $startBin) { Copy-Item $startBin "$st\start2.bin" }
     [ordered]@{ machine = $MachineId; computer = $env:COMPUTERNAME; date = (Get-Date).ToString('o'); look = $look } | ConvertTo-Json -Depth 5 | Set-Content "$st\backup.json" -Encoding UTF8
@@ -201,4 +222,5 @@ if (-not $NoApply -and $done) {
     $r = [IntPtr]::Zero; [void][KitBk.W]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [IntPtr]::Zero, 'ImmersiveColorSet', 2, 2000, [ref]$r)
     Get-Process explorer, StartMenuExperienceHost | Stop-Process -Force
 }
-if ($done) { "Restore: brought back from the backup of $(([datetime]$meta.date).ToString('d')) - $($done -join ', ')" }
+if ($done -and $meta.machine -eq 'any') { "Look: Messiah's look put on this new Windows - $($done -join ', ')" }
+elseif ($done) { "Restore: brought back from the backup of $(([datetime]$meta.date).ToString('d')) - $($done -join ', ')" }

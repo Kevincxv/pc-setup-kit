@@ -6,6 +6,20 @@ $kit = 'C:\PCSetupKit'; $cl = "$env:USERPROFILE\.claude"; $src = Split-Path (Spl
 $withClaude = $env:FRESH_WITH_CLAUDE -eq '1'   # which way setup ran (setup.ps1 -WithClaude or not)
 Write-Host "  (setup ran $(if ($withClaude) { 'WITH the optional Claude part' } else { 'without AI (the default)' }))"
 
+Section "the kit's look (a fresh Windows without a backup of its own)"
+$osNew = try { ((Get-Date) - (Get-CimInstance Win32_OperatingSystem).InstallDate).TotalDays -lt 2 } catch { $false }
+$ownBackup = (Get-Content "$kit\setup.log" -Raw -ErrorAction SilentlyContinue) -match 'Restore: brought back'
+if (-not (Test-Path "$kit\look\look.zip")) { Skip 'the look' 'this kit has no look\look.zip' }
+elseif (-not $osNew -or $ownBackup) { Skip 'the look' $(if ($ownBackup) { 'this PC''s own backup was restored instead' } else { 'Windows here is not a new install (the look is only for new ones)' }) }
+else {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $lz = [IO.Compression.ZipFile]::OpenRead("$kit\look\look.zip"); $lj = (New-Object IO.StreamReader ($lz.GetEntry('backup.json').Open())).ReadToEnd() | ConvertFrom-Json; $lz.Dispose()
+    $want = $lj.look.'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'.AppsUseLightTheme.value
+    $have = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -ErrorAction SilentlyContinue).AppsUseLightTheme
+    $wpNow = (Get-ItemProperty 'HKCU:\Control Panel\Desktop').WallPaper
+    Check "the owner's look is on this new Windows: dark/light mode as in the kit, its wallpaper" ("$have" -eq "$want" -and $wpNow -match 'PC Setup Kit wallpaper' -and (Test-Path $wpNow)) "mode $have (kit: $want), wallpaper $wpNow"
+}
+
 Section 'the kit and its log'
 Check 'kit copied to C:\PCSetupKit (scripts, maintenance, tests)' ((Test-Path "$kit\setup.ps1") -and (Test-Path "$kit\tweaks.ps1") -and (Test-Path "$kit\uninstall.ps1") -and (Test-Path "$kit\claude\claude-bg-maint.ps1") -and (Test-Path "$kit\tests\run-tests.ps1")) ''
 $log = Get-Content "$kit\setup.log" -Raw -ErrorAction SilentlyContinue

@@ -2,7 +2,7 @@
 # Tracks what ran when in .claude\maint-state.json and only does tasks that are due. Prints one line per action.
 # Tasks that need judgment (BIOS, firmware, Windows version upgrades, re-benchmarks) are marked due here and done
 # by Claude itself: the launcher opens Claude with /maintain when anything in "claude" is due.
-param([string]$TestDisplayVersion, [string]$TestEdition, [string]$TestInstallType, [string]$TestToday, [ValidateSet('', 'yes', 'no')][string]$TestRebootPending, [int]$TestOsAgeDays = -1)   # -Test*: tests (-TestRebootPending: this PC may really have a restart pending)
+param([string]$TestDisplayVersion, [string]$TestEdition, [string]$TestInstallType, [string]$TestToday, [ValidateSet('', 'yes', 'no')][string]$TestRebootPending, [int]$TestOsAgeDays = -1, [string]$TestWindowsOld)   # -Test*: tests (-TestRebootPending: this PC may really have a restart pending)
 $ErrorActionPreference = 'SilentlyContinue'
 $stateFile = "$PSScriptRoot\maint-state.json"
 function Read-State { $h = @{}; try { $j = Get-Content $stateFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $j = $null }
@@ -18,7 +18,8 @@ if ($TestRebootPending) { $rebootPending = $TestRebootPending -eq 'yes' }
 $game = & "$PSScriptRoot\game-check.ps1"   # heavy work waits for the game to close (not marked done, so it runs next time)
 if ($game -and ((Due 'weekly-apps' 7) -or (Due 'monthly-cleanup' 30))) { "App updates / cleanup held while $game is running (next run)" }
 if (-not $game -and (Due 'weekly-apps' 7)) {
-    $skip = 'Valve.Steam', 'Discord.Discord', 'Google.Chrome', 'Nvidia.', 'Microsoft.Edge'   # (Edge and WebView2 update themselves)
+    $skip = 'Valve.Steam', 'Discord.Discord', 'Google.Chrome', 'Nvidia.', 'Microsoft.Edge', 'Microsoft.OneDrive'   # (Edge and WebView2 update themselves; OneDrive
+    # too - and updating it reinstalls the OneDrive the kit removed: the boot-from-USB VM test, 9/30)
     try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}   # winget writes UTF-8 (a shortened name ends in "...")
     # A table of updates, or "No installed package found" = winget answered. Anything else (no answer, "No packages
     # were found", a source error) = its package list is missing or broken: fetched again, then asked once more.
@@ -74,9 +75,9 @@ if (-not $game -and (Due 'monthly-cleanup' 30)) {
         'RetailDemo Offline Content', 'Windows Reset Log Files', 'Windows Defender'
     # The previous Windows (Windows.old, often 20+ GB) once going back is no longer possible anyway: Windows' own
     # rollback window (10 days unless changed - DISM says) has passed
-    $wo = Get-Item 'C:\Windows.old' -Force
+    $wo = Get-Item $(if ($TestWindowsOld) { $TestWindowsOld } else { 'C:\Windows.old' }) -Force -ErrorAction SilentlyContinue
     if ($wo) {
-        $days = if ("$(DISM /Online /Get-OSUninstallWindow 2>$null)" -match 'Uninstall Window\s*:\s*(\d+)') { [int]$Matches[1] } else { 10 }
+        $days = if (-not $rebootPending -and "$(DISM /Online /Get-OSUninstallWindow 2>$null)" -match 'Uninstall Window\s*:\s*(\d+)') { [int]$Matches[1] } else { 10 }
         if ($wo.CreationTime -lt (Get-Date).AddDays(-$days)) { $safe += 'Previous Installations'; $woDays = $days }
     }
     $vc = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches'

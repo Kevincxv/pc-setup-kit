@@ -6,6 +6,19 @@ $inRepo = Test-Path "$repoRoot\.git"
 $all = @(Get-ChildItem $Src -Filter *.ps1 -File) + @(Get-ChildItem $Kit -Recurse -Filter *.ps1 -File) + @(if ($inRepo) { Get-ChildItem $repoRoot -Filter *.ps1 -File })
 $bad = @($all | Where-Object { $e = $null; [void][Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$e); $e } | ForEach-Object FullName)
 Check "all $($all.Count) PowerShell scripts parse" (-not $bad) ($bad -join ', ')
+# every fixed regex compiles: a broken one only fails when its line runs - 9/30 the Welcome page, only on a new PC with
+# a setup report ("Maintenance (": not enough )'s), found by the boot-from-USB VM test
+$rx = @(foreach ($f in $all) {
+    $ast = [Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$null)
+    $ast.FindAll({ param($n) $n -is [Management.Automation.Language.BinaryExpressionAst] -and "$($n.Operator)" -match '^[IC]?(Match|NotMatch|Replace|Split)$' }, $true) | ForEach-Object {
+        $r = if ($_.Right -is [Management.Automation.Language.ArrayLiteralAst]) { $_.Right.Elements[0] } else { $_.Right }
+        if ($r -is [Management.Automation.Language.StringConstantExpressionAst]) { try { [void][regex]::new($r.Value) } catch { "$($f.Name):$($r.Extent.StartLineNumber)" } }
+    }
+    $ast.FindAll({ param($n) $n -is [Management.Automation.Language.InvokeMemberExpressionAst] -and "$($n.Expression)" -match '^\[(System\.Text\.RegularExpressions\.)?regex\]$' -and $n.Arguments.Count -ge 2 }, $true) | ForEach-Object {
+        $r = $_.Arguments[1]; if ($r -is [Management.Automation.Language.StringConstantExpressionAst]) { try { [void][regex]::new($r.Value) } catch { "$($f.Name):$($r.Extent.StartLineNumber)" } }
+    }
+})
+Check 'every fixed regex (-match, -notmatch, -replace, -split, [regex]::...) compiles' (-not $rx) ($rx -join ', ')
 # PowerShell 5.1 reads BOM-less files as ANSI: any non-ASCII character needs a UTF-8 BOM
 $enc = @($all | Where-Object { $b = [IO.File]::ReadAllBytes($_.FullName); ($b | Where-Object { $_ -gt 127 } | Select-Object -First 1) -and -not ($b.Length -ge 3 -and $b[0] -eq 0xEF) } | ForEach-Object Name)
 Check 'scripts with non-ASCII characters have a UTF-8 BOM' (-not $enc) ($enc -join ', ')
@@ -71,7 +84,7 @@ if ($inRepo) {
             Where-Object { (Get-Content $_.FullName -Raw) -match 'raw\.githubusercontent\.com/[^\s"'']*/main/install\.ps1' } | ForEach-Object Name)
     Check 'the installer is always fetched from the latest tested release (releases/latest/download), never from main' (-not $raw) ($raw -join ', ')} else { Skip 'nothing personal in the kit' 'checked where the kit is published from' }
 # scratch files belong in $Work: anything else in the tests folder's root gets published with the kit (9/27: '-report.txt' was)
-$stray = @(Get-ChildItem -LiteralPath (Split-Path $PSScriptRoot) -File | Where-Object { $_.Name -notin 'lib.ps1', 'run-tests.ps1', 'last-run.txt' } | ForEach-Object Name)
+$stray = @(Get-ChildItem -LiteralPath (Split-Path $PSScriptRoot) -File | Where-Object { $_.Name -notin 'lib.ps1', 'run-tests.ps1', 'last-run.txt', 'tests-version.txt' } | ForEach-Object Name)   # (tests-version.txt: setup/kit-update stamp it)
 Check 'no stray files in the tests folder' (-not $stray) ($stray -join ', ')
 # every script the kit installs is known to the uninstaller, so nothing is left behind
 $un = Get-Content "$Kit\uninstall.ps1" -Raw

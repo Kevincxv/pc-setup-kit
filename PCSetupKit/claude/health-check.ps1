@@ -50,6 +50,11 @@ if ($mp -and $mp.QuickScanAge -gt 7 -and -not (& "$PSScriptRoot\game-check.ps1")
     Start-Process "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -ArgumentList '-Scan', '-ScanType', '1' -WindowStyle Hidden
     "Security: started a quick virus scan (last one $(if ($mp.QuickScanAge -ge 10000) { 'never' } else { "$($mp.QuickScanAge) days ago" }))"
 }
+# virus definitions normally update several times a day; 3+ days old = Windows Update stuck or offline for a while (a small download, fine under a game)
+if ($mp -and $mp.AntivirusSignatureAge -gt 3) {
+    Start-Process "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -ArgumentList '-SignatureUpdate' -WindowStyle Hidden
+    "Security: virus definitions were $(if ($mp.AntivirusSignatureAge -ge 10000) { 'never updated' } else { "$($mp.AntivirusSignatureAge) days old" }) - started an update"
+}
 # the clock: synced in the last 8 days? (the Time Service's own "synchronized" events 35/37 - w32tm's text is translated
 # on non-English Windows)
 $synced = Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Time-Service'; Id = 35, 37; StartTime = (Get-Date).AddDays(-8) } -MaxEvents 1
@@ -142,7 +147,7 @@ foreach ($k in 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run', 'HKLM:\Sof
 }
 $auto += (Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\*", "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\*" -Exclude desktop.ini).BaseName
 # (the kit's own tasks aren't news: the tray, the maintenance, the one-shot resume task, test runs' throwaway tasks)
-$own = '^(Messiah Tray|Claude Admin Tray|Claude Background Maintenance|Claude Resume After Restart)$|^PCSetupKit|^PC Setup Kit |KITTEST'
+$own = '^Messiah |^(Claude Admin Tray|Claude Background Maintenance|Claude Resume After Restart)$|^PCSetupKit|^PC Setup Kit |KITTEST'
 $auto += Get-ScheduledTask | Where-Object { $_.TaskPath -notlike '\Microsoft\*' -and $_.TaskPath -notlike '\PCSetupKit*' -and $_.State -ne 'Disabled' -and $_.TaskName -notmatch $own } | ForEach-Object { "task: $($_.TaskName -replace '_?\{[0-9A-Fa-f-]+\}$' -replace '\d+(\.\d+)+$')" }
 $auto = @($auto | Where-Object { $_ } | Sort-Object -Unique)
 $base = "$env:USERPROFILE\.claude\startup-baseline.txt"

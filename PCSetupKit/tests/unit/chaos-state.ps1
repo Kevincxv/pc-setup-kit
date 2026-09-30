@@ -29,7 +29,7 @@ foreach ($k in $kinds.Keys) {
     $pages = @([regex]::Matches("$($r.Out)", '(?m)^PAGE: ') ).Count
     $pe = @([regex]::Matches("$($r.Out)", '(?m)^PAGE ERROR: .*$') | ForEach-Object Value) -join ' / '
     Check "the app window builds every page, no error ($k)" (-not "$($r.Err)".Trim() -and $pages -ge 6 -and "$($r.Out)" -match 'NAV: ' -and -not $pe) ("$pe $($r.Err)".Substring(0, [Math]::Min(600, "$pe $($r.Err)".Length)))
-    $r = Invoke-As $H "$C\dashboard.ps1" @('-Test', '-Page', 'Welcome')
+    $r = Invoke-As $H "$C\dashboard.ps1" @('-Test', '-Page', 'Welcome')   # (no setup report here: see below for one)
     Check "... the welcome page too ($k)" (-not "$($r.Err)".Trim() -and "$($r.Out)" -match 'PAGE: Welcome' -and "$($r.Out)" -notmatch 'PAGE ERROR') ("$($r.Err)".Substring(0, [Math]::Min(600, "$($r.Err)".Length)))
     # the history keeps working: after one check on the damaged file it is valid again, with today's entry
     if (Test-Path "$Src\trends.ps1") {
@@ -43,4 +43,17 @@ foreach ($k in $kinds.Keys) {
         Check "$($s[0]) runs without an error ($k)" (-not "$($r.Err)".Trim()) ("$($r.Err)".Substring(0, [Math]::Min(400, "$($r.Err)".Length)))
     }
 }
+Section 'the Welcome page with the setup report a new PC has (9/30: its filter regex broke the whole page)'
+foreach ($f in $states) { [IO.File]::Delete("$C\$f") }
+New-Item "$H\Documents" -ItemType Directory -Force | Out-Null
+# (the shape of a real report: the boot-from-USB VM test's, shortened)
+@('PC Setup Kit - optimization report', '', 'THIS PC', '  Windows: Windows 11 Pro 25H2', '', 'WHAT WAS DONE', '  Benchmark: could not run (WinSAT gave no scores)',
+  '  Maintenance (in the background, right after setup):', '    [Drivers]', '    Other drivers: all up to date (Windows Update)', '    [PC health]', '    Crashes: none since last check',
+  '    Tweaks: Windows had reverted 2 - re-applied: task X off', '    Security: started a quick virus scan (last one never)', '    SSD TRIM run (Windows had not done it in 2+ weeks)',
+  '    Restore point FAILED (is System Protection on for C:?)', '    Next: App updates Oct 7, cleanup Oct 30', '    [Actions]', '    Night restart: pending updates now finish with a restart at night', '',
+  'WHAT NEEDS YOU', '  - Windows isn''t activated', '') | Set-Content "$H\Documents\PC Setup Kit report.txt" -Encoding UTF8
+$r = Invoke-As $H "$C\dashboard.ps1" @('-Test', '-Page', 'Welcome')
+$pe = (@([regex]::Matches("$($r.Out)", '(?m)^PAGE ERROR: .*$') | ForEach-Object Value) -join ' / ') + " $($r.Err)"
+Check 'the Welcome page builds from a real setup report' (-not "$($r.Err)".Trim() -and "$($r.Out)" -match 'PAGE: Welcome' -and "$($r.Out)" -notmatch 'PAGE ERROR') $pe.Substring(0, [Math]::Min(600, $pe.Length))
+[IO.File]::Delete("$H\Documents\PC Setup Kit report.txt")
 Finish

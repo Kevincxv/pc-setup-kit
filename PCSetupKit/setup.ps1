@@ -78,8 +78,13 @@ function Install-App([string]$Id) {
         # (winget's words are translated on non-English Windows: its exit code says "not found", and whether the app is
         # really there afterwards is asked with winget list)
         if ($code -ne -1978335212 -and -not ($out -match 'No package(s were)? found')) {   # 0x8A150014: no package found
-            $null = winget list --id $Id -e --source winget --accept-source-agreements --disable-interactivity 2>&1
-            if ($LASTEXITCODE -eq 0) { return "  $Id installed" }
+            # (a Squirrel installer - Discord - exits before the app is registered: winget list is asked again for a
+            # minute before it counts as not installed - the boot-from-USB VM test, 9/30)
+            for ($ask = 1; $ask -le 6; $ask++) {
+                $null = winget list --id $Id -e --source winget --accept-source-agreements --disable-interactivity 2>&1
+                if ($LASTEXITCODE -eq 0) { return "  $Id installed" }
+                if ($ask -lt 6) { Start-Sleep 10 }
+            }
             return "  $Id`: NOT installed - winget said: $(($out | Select-Object -Last 4) -join ' / ') (exit $code)"
         }
         if ($try -lt 3) {
@@ -95,6 +100,9 @@ foreach ($id in 'Git.Git', 'Valve.Steam', 'Discord.Discord', 'Google.Chrome', 'M
     if (-not $hasWinget) { break }
     Write-Host "  $id"
     Install-App $id
+    # Discord's installer starts Discord, whose first screen opens a browser tab asking to access other apps - not
+    # what a new PC should greet anyone with (the VM test, 9/30): closed as soon as it appears; it starts normally later
+    if ($id -eq 'Discord.Discord') { for ($s = 0; $s -lt 45 -and -not (Get-Process Discord -ErrorAction SilentlyContinue); $s++) { Start-Sleep 2 }; Get-Process Discord -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
 }
 $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
 
@@ -126,7 +134,13 @@ if (-not $NoLaunch -and -not ($have -match '^\s*welcome\s*=')) { Add-Content $op
 # Windows reinstalled on this same PC: its settings come back from the weekly backup (the look, game settings, the
 # kit's memory; only a backup made on this PC - settings-backup.ps1). Once: running setup again keeps later changes.
 if (-not (Test-Path "$cl\settings-restored.txt") -and -not $env:PCKIT_IN_TESTS) {   # (never under tests: the registry is the real one)
-    & "$cl\settings-backup.ps1" -Restore | ForEach-Object { "  $_" }
+    $back = @(& "$cl\settings-backup.ps1" -Restore); $back | ForEach-Object { "  $_" }
+    # no backup of this PC, and Windows is new (a fresh install - not someone's PC that already has its look): the kit's
+    # look - the owner's dark mode, colours, taskbar, mouse and wallpaper (look\look.zip, made by publish-kit.ps1)
+    $osNew = try { ((Get-Date) - (Get-CimInstance Win32_OperatingSystem).InstallDate).TotalDays -lt 2 } catch { $false }
+    if (-not ($back -match '^Restore: brought back') -and $osNew -and (Test-Path "$kit\look\look.zip")) {
+        & "$cl\settings-backup.ps1" -Restore -From "$kit\look\look.zip" -AnyPc | ForEach-Object { "  $_" }
+    }
     (Get-Date).ToString('o') | Set-Content "$cl\settings-restored.txt"
 }
 

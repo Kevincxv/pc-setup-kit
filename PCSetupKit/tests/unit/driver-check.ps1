@@ -13,7 +13,7 @@ function Reset-D {
 }
 function Rec($updates, [int]$ageDays = 0) { @{ checkTime = (Get-Date).ToUniversalTime().AddDays(-$ageDays).ToString('o'); updates = $updates } | ConvertTo-Json -Depth 4 | Set-Content "$rec\DriverRecommendations.dat" }
 function Drv($v, [switch]$Beta, $type = 0) { @{ version = $v; isBeta = [bool]$Beta; driverType = $type; downloadURL = "https://example.invalid/$v-desktop-win11-64bit-international-dch-whql.exe" } }
-function Get-CimInstance { if ("$args" -match 'Win32_VideoController') { return [pscustomobject]@{ Name = $DC.Gpu } }; if ("$args" -match 'Win32_Processor') { return [pscustomobject]@{ Name = $DC.Cpu } }; CimCmdlets\Get-CimInstance @args }
+function Get-CimInstance { if ("$args" -match 'Win32_PnPEntity') { if ($DC.NoAmdChipset) { return } else { return [pscustomobject]@{ PNPDeviceID = 'PCI\VEN_1022&DEV_14D8' } } }; if ("$args" -match 'Win32_VideoController') { return [pscustomobject]@{ Name = $DC.Gpu } }; if ("$args" -match 'Win32_Processor') { return [pscustomobject]@{ Name = $DC.Cpu } }; CimCmdlets\Get-CimInstance @args }
 function nvidia-smi { if ($DC.Installed) { $DC.Installed } }
 function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing, $UserAgent, $Headers, $TimeoutSec) if (-not $OutFile) { return [pscustomobject]@{ Content = $DC.AmdPage } }; $global:DCcalls.Add("download $Uri"); 'fake installer' | Set-Content $OutFile }
 function Get-AuthenticodeSignature { param($FilePath) [pscustomobject]@{ Status = $DC.Sig; SignerCertificate = [pscustomobject]@{ Subject = $DC.Signer } } }
@@ -126,6 +126,10 @@ Reset-D; $DC.Gpu = 'AMD Radeon RX TEST'; $DC.Cpu = 'AMD Ryzen 5 TEST'; $DC.AmdPa
 Check "... a download without AMD's signature: never run" (-not ($DCcalls -match '^run AMD') -and ($o -match "did not carry AMD's signature")) (($DCcalls + $o) -join ' / ')
 Reset-D; $DC.Gpu = 'AMD Radeon RX TEST'; $DC.Cpu = 'AMD Ryzen 5 TEST'; $DC.AmdPage = 'a changed page'; $o = DC
 Check "... AMD's page changed (no link found): nothing done, no error" (-not ($o -match 'AMD chipset') -and -not ($DCcalls -match 'AMD_Chipset')) ($o -join ' / ')
+
+Section 'AMD chipset: only with an AMD chipset really there'
+Reset-D; $DC.Gpu = 'Microsoft Hyper-V Video'; $DC.Cpu = 'AMD Ryzen 7 TEST'; $DC.AmdPage = $amd; $DC.AmdHave = '7.01.08.129'; $DC.NoAmdChipset = $true; $o = DC
+Check 'a virtual machine on a Ryzen host (no AMD chipset): AMD''s installer never started (it would show an error box)' (-not ($DCcalls -match 'AMD_Chipset')) (($DCcalls + $o) -join ' / ')
 
 Section 'AMD Radeon: the newest WHQL Adrenalin driver from AMD'
 $rp = '<a href="https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.8.1-win11-b.exe">x</a> <a href="https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.9.2-win11-c.exe">y</a> <a href="https://drivers.amd.com/drivers/installer/26.10/whql/amd-software-adrenalin-edition-26.8.1-minimalsetup-260818_web.exe">z</a>'

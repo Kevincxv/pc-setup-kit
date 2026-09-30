@@ -97,6 +97,10 @@ Healthy; $M.Mp.QuickScanAge = 9; 'x' | Set-Content "$d\gaming.flag"
 $o = HC
 Check 'no virus scan while a game runs' (-not ($global:HCcalls -match 'MpCmdRun')) ($global:HCcalls -join ', ')
 Clear-Path "$d\gaming.flag"
+Healthy; $M.Mp = [pscustomobject]@{ RealTimeProtectionEnabled = $true; QuickScanAge = 1; AntivirusSignatureAge = 5 }; $o = HC
+Check 'virus definitions 5 days old -> update started' (($global:HCcalls -match 'SignatureUpdate') -and ($o -match 'virus definitions were 5 days old - started an update')) (($global:HCcalls -join ', ') + ' / ' + ($o -join ' / '))
+Healthy; $M.Mp = [pscustomobject]@{ RealTimeProtectionEnabled = $true; QuickScanAge = 1; AntivirusSignatureAge = 1 }; $o = HC
+Check '... fresh definitions: no update, no line' (-not ($global:HCcalls -match 'SignatureUpdate') -and -not ($o -match 'virus definitions')) ($o -join ' / ')
 Healthy; $M.Events = @()   # the time service never synced (not started)
 [void](HC); Check 'time service not answering -> resync (no error)' ([bool]($global:HCcalls -contains 'w32tm resync')) ''
 
@@ -141,7 +145,7 @@ Check 'a new startup task is mentioned once (GUID suffix stripped)' ([bool]($o -
 $o = HC; Check '... and not again' (-not ($o -match 'SneakyUpdater')) ''
 $M.Tasks += [pscustomobject]@{ TaskName = 'SneakyUpdater_{99999999-2222-3333-4444-555555555555}'; TaskPath = '\'; State = 'Ready' }; $o = HC
 Check 'an updater renaming its task (new GUID) stays quiet' (-not ($o -match 'SneakyUpdater')) ''
-$M.Tasks += [pscustomobject]@{ TaskName = 'Claude Resume After Restart'; TaskPath = '\'; State = 'Ready' }, [pscustomobject]@{ TaskName = 'PCSetupKit Tray TEST'; TaskPath = '\'; State = 'Ready' }, [pscustomobject]@{ TaskName = 'PCSetupKitRevertTest'; TaskPath = '\PCSetupKitTest\'; State = 'Ready' }; $o = HC
+$M.Tasks += [pscustomobject]@{ TaskName = 'Claude Resume After Restart'; TaskPath = '\'; State = 'Ready' }, [pscustomobject]@{ TaskName = 'PCSetupKit Tray TEST'; TaskPath = '\'; State = 'Ready' }, [pscustomobject]@{ TaskName = 'PCSetupKitRevertTest'; TaskPath = '\PCSetupKitTest\'; State = 'Ready' }, [pscustomobject]@{ TaskName = 'Messiah Night Restart'; TaskPath = '\'; State = 'Ready' }; $o = HC
 Check 'the kit''s own tasks (one-shot resume task, test runs'' throwaway tasks) are not reported as new' (-not ($o -match 'auto-start')) ($o -join ' / ')
 Healthy; $M.Nics = @([pscustomobject]@{ Name = 'Ethernet'; Status = 'Up'; MediaType = '802.3'; ReceiveLinkSpeed = 100e6; LinkSpeed = '100 Mbps'; InterfaceDescription = 'Intel(R) Ethernet Controller I225-V' }); $o = HC
 Check 'gigabit adapter stuck at 100 Mbps -> cable reminder' ([bool]($o -match 'Reminder: Ethernet network link is only 100 Mbps')) ($o -join ' / ')

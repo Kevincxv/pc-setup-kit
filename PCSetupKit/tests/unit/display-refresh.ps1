@@ -12,6 +12,7 @@ Add-Type -AssemblyName System.Windows.Forms
 $screens = [Windows.Forms.Screen]::AllScreens.Count
 $found = @(& $dr -ShowMonitors)
 if ($screens -lt 1) { Skip 'finds every monitor' 'no screen on this machine' }
+elseif ((Get-Process -Id $PID).SessionId -eq 0) { Skip 'finds every monitor' 'no desktop in this session (a service or PowerShell Direct)' }
 else { Check "finds every monitor Windows reports ($screens), with its current mode" ($found.Count -eq $screens -and -not ($found | Where-Object { -not $_.Width -or -not $_.Hz })) "found $($found.Count): $(($found | ForEach-Object { "$($_.Name) $($_.Width)x$($_.Height) $($_.Hz)Hz" }) -join ', ')" }
 
 Section 'what it sets'

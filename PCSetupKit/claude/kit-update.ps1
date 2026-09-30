@@ -40,7 +40,8 @@ function Restore-Saved {
     $script:held = @()
     function Copy-Back($from, $to) {
         if (-not (Test-Path $from)) { return }
-        foreach ($f in Get-ChildItem $from -Recurse -File -Force) {
+        $from = (Get-Item -LiteralPath $from -Force).FullName   # the long form: a short 8.3 path (RUNNER~1 on GitHub) would shift every relative path
+        foreach ($f in Get-ChildItem -LiteralPath $from -Recurse -File -Force) {
             $dest = Join-Path $to $f.FullName.Substring($from.Length).TrimStart('\')
             try { New-Item (Split-Path $dest) -ItemType Directory -Force -ErrorAction Stop | Out-Null; Copy-Item -LiteralPath $f.FullName $dest -Force -ErrorAction Stop } catch { $script:held += (Split-Path $dest -Leaf) }
         }

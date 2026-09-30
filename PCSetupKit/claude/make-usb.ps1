@@ -11,9 +11,11 @@
 # Run from the app (Maintenance > Make an install USB) or by hand; asks for admin. Takes 20-40 minutes (a 7 GB download).
 # -Disk N -Yes -WithClaude -NoBackup: no questions. -Iso <file>: a Windows 11 ISO already downloaded.
 # -Plan: say what it would do, change nothing (tests); -Disks <json>: made-up disks for -Plan (tests); -AllowVirtual: a
-# virtual disk (VHD) counts as a stick too (the end-to-end test).
+# virtual disk (VHD) counts as a stick too (the end-to-end test). -KitFrom <folder>: this kit folder (the repo root,
+# holding autounattend.xml and PCSetupKit\) instead of the newest release; -AnswerFile <xml>: another answer file -
+# both only for the boot-from-USB VM test (tests\vm), whose answer file also picks the VM's empty disk and an account.
 param([int]$Disk = -1, [switch]$Yes, [switch]$WithClaude, [switch]$NoBackup, [string]$Iso, [switch]$Plan, [string]$Disks, [switch]$AllowVirtual,
-    [string]$Cache = "$env:ProgramData\PCSetupKit\windows-image")
+    [string]$Cache = "$env:ProgramData\PCSetupKit\windows-image", [string]$KitFrom, [string]$AnswerFile)
 $ErrorActionPreference = 'Stop'
 $repo = 'Kevincxv/pc-setup-kit'
 $fidoUrl = 'https://raw.githubusercontent.com/pbatard/Fido/v1.70/Fido.ps1'
@@ -156,6 +158,9 @@ try {
     }
 
     # --- the kit's newest tested release (downloaded before anything is erased too) ---
+    if ($KitFrom) { $kroot = (Resolve-Path $KitFrom).Path; $tag = 'local (test)'; $kd = $null
+        if (-not (Test-Path "$kroot\PCSetupKit\setup.ps1") -or -not (Test-Path "$kroot\autounattend.xml")) { throw "$KitFrom has no PCSetupKit\setup.ps1 / autounattend.xml. Nothing was changed." } }
+    else {
     Say 'PC Setup Kit: downloading the newest tested release...'
     $tag = try { (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{ 'User-Agent' = 'pc-setup-kit' } -TimeoutSec 30).tag_name } catch { $null }
     if (-not $tag) { try { $r = Invoke-WebRequest "https://github.com/$repo/releases/latest" -Method Head -UseBasicParsing -TimeoutSec 30; if ("$($r.BaseResponse.ResponseUri)" -match '/releases/tag/([^/?#]+)$') { $tag = $Matches[1] } } catch { } }
@@ -166,6 +171,7 @@ try {
     $kroot = (Get-ChildItem "$kd\x" -Directory | Select-Object -First 1).FullName
     if (-not (Test-Path "$kroot\PCSetupKit\setup.ps1") -or -not (Test-Path "$kroot\autounattend.xml")) { throw 'The kit download is incomplete - try again later. Nothing was changed.' }
     $tag | Set-Content "$kroot\PCSetupKit\kit-version.txt"
+    }
 
     # --- 3. the stick: erased, one FAT32 partition (32 GB at most - the FAT32 limit in Windows), active ---
     Say "USB: erasing disk $Disk and formatting it..."
@@ -213,12 +219,19 @@ try {
 
     # --- 4. the kit, Messiah, the settings backup ---
     Say 'USB: adding the PC Setup Kit...'
-    Copy-Item "$kroot\autounattend.xml" "$dst\"
-    Copy-Item "$kroot\PCSetupKit" "$dst\" -Recurse
+    Copy-Item $(if ($AnswerFile) { $AnswerFile } else { "$kroot\autounattend.xml" }) "$dst\autounattend.xml"
+    if ($KitFrom) {   # a working folder: its own files only, not what tests left there (git ignores those; a release has none)
+        & robocopy "$kroot\PCSetupKit" "$dst\PCSetupKit" /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /XD "$kroot\PCSetupKit\Microsoft" /XF *.log *.tmp last-run.txt | Out-Null
+        if ($LASTEXITCODE -ge 8) { throw "Copying the kit onto the stick failed (robocopy $LASTEXITCODE)" }
+    } else { Copy-Item "$kroot\PCSetupKit" "$dst\" -Recurse }
+    if ($KitFrom) {   # (never written into the kit folder itself)
+        'local-test' | Set-Content "$dst\PCSetupKit\kit-version.txt"
+        if (Test-Path "$dst\PCSetupKit\kit-source.txt") { [IO.File]::Delete("$dst\PCSetupKit\kit-source.txt") }   # a test build never updates itself to the release
+    }
     Copy-Item "$kroot\README.txt" "$dst\PC Setup Kit README.txt" -ErrorAction SilentlyContinue
     if ($WithClaude) { '' | Set-Content "$dst\PCSetupKit\with-claude.txt" }
     if ($withBackup) { New-Item "$dst\PC Setup Kit Backup" -ItemType Directory -Force | Out-Null; Copy-Item $bk.FullName "$dst\PC Setup Kit Backup\" }
-    [IO.Directory]::Delete($kd, $true)
+    if ($kd) { [IO.Directory]::Delete($kd, $true) }
     $ok = (Test-Path "$dst\setup.exe") -and (Test-Path "$dst\efi\boot\bootx64.efi") -and (Test-Path "$dst\sources\boot.wim") -and (Test-Path "$dst\autounattend.xml") -and (Test-Path "$dst\PCSetupKit\setup.ps1") -and
         ((Test-Path "$dst\sources\install.swm") -or (Test-Path "$dst\sources\install.wim") -or (Test-Path "$dst\sources\install.esd"))
     if (-not $ok) { throw 'The stick is missing files after copying - run this again.' }

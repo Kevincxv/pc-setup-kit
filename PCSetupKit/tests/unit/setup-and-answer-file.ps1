@@ -46,7 +46,7 @@ Check 'setup.ps1 installs each app through Install-App' ($fn -and $setup -match 
 if ($fn) {
     . ([scriptblock]::Create($fn.Extent.Text))
     function Start-Sleep { }
-    function winget { $global:wg += , ($args -join ' '); $global:LASTEXITCODE = 0; if ($args[0] -eq 'install') { if ($global:wgEmpty-- -gt 0) { $global:LASTEXITCODE = -1978335212; 'No packages were found among the working sources.' } else { 'Successfully installed' } } elseif ($args[0] -eq 'list') { $global:LASTEXITCODE = if ($global:wgMissing) { -1978335212 } else { 0 } } }
+    function winget { $global:wg += , ($args -join ' '); $global:LASTEXITCODE = 0; if ($args[0] -eq 'install') { if ($global:wgEmpty-- -gt 0) { $global:LASTEXITCODE = -1978335212; 'No packages were found among the working sources.' } else { 'Successfully installed' } } elseif ($args[0] -eq 'list') { $global:LASTEXITCODE = if ($global:wgMissing -or $global:wgLate-- -gt 0) { -1978335212 } else { 0 } } }
     $global:wg = @(); $global:wgEmpty = 1
     $o = Install-App 'Valve.Steam'
     Check 'nothing found at first: the package list is reset and fetched again, then the install works' ("$o" -eq '  Valve.Steam installed' -and ($global:wg -match '^source reset').Count -eq 1 -and ($global:wg -match '^source update').Count -eq 1 -and ($global:wg -match '^install').Count -eq 2) ($global:wg -join ' / ')
@@ -59,7 +59,10 @@ if ($fn) {
     $global:wg = @(); $global:wgEmpty = 0; $global:wgMissing = $true
     $o = Install-App 'Git.Git'
     Check '... winget says done but the app isn''t there (winget list): NOT installed, said' ("$o" -match 'Git\.Git: NOT installed') "$o"
-    $global:wgMissing = $false
+    $global:wgMissing = $false; $global:wg = @(); $global:wgLate = 3
+    $o = Install-App 'Discord.Discord'
+    Check '... an installer that finishes after winget returns (Discord): winget list asked again - installed' ("$o" -eq '  Discord.Discord installed' -and @($global:wg -match '^list').Count -eq 4) ($global:wg -join ' / ')
+    $global:wgLate = 0
     Remove-Item Function:\winget, Function:\Start-Sleep, Function:\Install-App
 }
 
@@ -71,12 +74,13 @@ Check 'the maintenance part is found in setup.ps1' ($a -ge 0 -and $b -gt $a) "st
 if ($a -lt 0 -or $b -le $a) { Finish }
 $part = $setup.Substring($a, $b - $a)
 Set-Content "$Work\setup-part.ps1" $part
-$mocked = 'Register-ScheduledTask', 'Step', 'Invoke-RestMethod'
+$mocked = 'Register-ScheduledTask', 'Step', 'Invoke-RestMethod', 'Get-CimInstance'
 $ok = Test-Tripwire "$Work\setup-part.ps1" $mocked -Guarded 'New-ScheduledTaskAction', 'New-ScheduledTaskTrigger', 'New-ScheduledTaskPrincipal', 'New-ScheduledTaskSettingsSet'
 if (-not $ok) { Finish }
 Import-MockTargets $mocked   # load their modules BEFORE defining the mocks (see lib.ps1)
 function Register-ScheduledTask { param($TaskName, $Action, $Trigger, $Principal, $Settings, [switch]$Force) $global:tasks[$TaskName] = [pscustomobject]@{ Action = $Action; Settings = $Settings; Principal = $Principal; Trigger = @($Trigger) }; [pscustomobject]@{ TaskName = $TaskName } }
 function Step($m) { }
+function Get-CimInstance { [pscustomobject]@{ InstallDate = (Get-Date).AddYears(-1) } }   # (the look step asks how new Windows is; under tests it doesn't run anyway)
 function Invoke-RestMethod { param($Uri) $global:downloads += "$Uri"; 'New-Item -ItemType File -Force "$env:USERPROFILE\.local\bin\claude.exe" | Out-Null' }   # the Claude Code installer is never really downloaded here: a stand-in claude.exe
 if (-not (Assert-Mocks $mocked)) { Finish }
 function Install-Part([bool]$Claude) {

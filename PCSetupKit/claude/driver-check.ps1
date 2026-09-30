@@ -103,7 +103,10 @@ if (Get-CimInstance Win32_VideoController | Where-Object Name -match 'Radeon (RX
 # --- AMD chipset (Ryzen): AMD's own package, one for every AM4/AM5 board - Windows Update seldom has the newest, and
 # dual-CCD X3D CPUs need its 3D V-Cache optimizer. Used only with AMD's valid signature; silent install (NSIS /S). ---
 $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
-if ("$($cpu.Name)" -match 'Ryzen') { try {
+# (an AMD chipset really there - PCI vendor 1022: a virtual machine on a Ryzen host reports the Ryzen but has no AMD
+# chipset, and AMD's installer then shows an error box even when silent - the Sandbox test, 9/29)
+$amdChipset = [bool](Get-CimInstance Win32_PnPEntity -Filter "PNPDeviceID LIKE 'PCI\VEN_1022%'" -ErrorAction SilentlyContinue | Select-Object -First 1)
+if ("$($cpu.Name)" -match 'Ryzen' -and $amdChipset) { try {
     $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
     $have = if ($TestAmdChipset) { $TestAmdChipset } else { (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
             Where-Object { $_.DisplayName -eq 'AMD Chipset Software' } | Select-Object -First 1).DisplayVersion }

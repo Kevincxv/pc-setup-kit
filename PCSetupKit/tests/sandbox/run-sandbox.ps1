@@ -63,7 +63,7 @@ foreach ($m in $(if ($Mode -eq 'both') { 'noai', 'ai' } else { $Mode })) {
   <Networking>Enable</Networking>
   <MappedFolders>
     <MappedFolder><HostFolder>$repo</HostFolder><SandboxFolder>C:\KitRO</SandboxFolder><ReadOnly>true</ReadOnly></MappedFolder>
-    <MappedFolder><HostFolder>$res</HostFolder><SandboxFolder>C:\Results</SandboxFolder><ReadOnly>false</ReadOnly></MappedFolder>$(if ($Backup) { "`n    <MappedFolder><HostFolder>$Backup</HostFolder><SandboxFolder>C:\Backup</SandboxFolder><ReadOnly>true</ReadOnly></MappedFolder>" })
+    <MappedFolder><HostFolder>$res</HostFolder><SandboxFolder>C:\Results</SandboxFolder><ReadOnly>false</ReadOnly></MappedFolder>$(if ($Backup -and $m -eq 'noai') { "`n    <MappedFolder><HostFolder>$Backup</HostFolder><SandboxFolder>C:\Backup</SandboxFolder><ReadOnly>true</ReadOnly></MappedFolder>" })
   </MappedFolders>
   <LogonCommand><Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -File C:\KitRO\PCSetupKit\tests\sandbox\inside.ps1 -Mode $m$(if ($Laptop) { ' -Laptop' })</Command></LogonCommand>
 </Configuration>

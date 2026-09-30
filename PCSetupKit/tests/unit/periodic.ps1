@@ -129,6 +129,12 @@ Check 'marked done for this month' ((St).'monthly-cleanup' -ne $old) ''
 Reset-M; State @{ 'monthly-cleanup' = $old }; $PM.Rps = @(RestorePt 0.5); $PM.Reboot = $true; $PM.CleanmgrHangs = $true; $o = PM
 Check 'a restore point from today already exists: no second one' (-not ($PMcalls -contains 'Checkpoint-Computer')) ''
 Check 'restart pending: DISM skipped (it would hang)' (-not ($PMcalls -match 'DISM')) ''
+Reset-M; State @{ 'monthly-cleanup' = $old }; $PM.Rps = @(RestorePt 0.5); $PM.Reboot = $true; $PM.CleanmgrHangs = $true; New-Item "$Work\Windows.old" -ItemType Directory -Force | Out-Null
+$o = @(& "$d\periodic-maint.ps1" -TestDisplayVersion 25H2 -TestEdition Professional -TestToday $now.ToString('s') -TestOsAgeDays 30 -TestWindowsOld "$Work\Windows.old")
+Check '... also with a previous Windows (Windows.old) there: its rollback window is not asked from DISM then (a new Windows from a USB has one)' (-not ($PMcalls -match 'DISM')) ($PMcalls -join ', ')
+Reset-M; State @{ 'monthly-cleanup' = $old }; $PM.Rps = @(RestorePt 0.5); $PM.CleanmgrHangs = $true
+$o = @(& "$d\periodic-maint.ps1" -TestDisplayVersion 25H2 -TestEdition Professional -TestToday $now.ToString('s') -TestOsAgeDays 30 -TestWindowsOld "$Work\Windows.old")
+Check '... without a pending restart it is asked (the check above really reached Windows.old)' ([bool]($PMcalls -match 'DISM.*Get-OSUninstallWindow')) ($PMcalls -join ', ')
 Check 'Disk Cleanup hanging: stopped after 15 min and said so' (($PMcalls -match 'Stop-Process') -and ($o -match 'Disk Cleanup: stopped after 15 min')) ($o -join ' / ')
 Reset-M; State @{ 'monthly-cleanup' = $old }; $o = PM -OsAge 0
 Check 'Windows installed today (the first maintenance after setup): no Disk Cleanup (nothing to clean, 15 minutes saved), said; the rest of the cleanup still runs' (-not ($PMcalls -match 'cleanmgr') -and ($o -match 'Disk Cleanup: skipped - Windows was installed 0 day') -and ($PMcalls -match 'DISM .*StartComponentCleanup')) ($o -join ' / ')
@@ -149,6 +155,8 @@ Check 'an abandoned download (untouched 14+ days): removed; a recent one kept' (
 Check "an uninstalled game's leftover folder: to the Recycle Bin, said with its size" (-not (Test-Path "$sl\steamapps\common\Uninstalled Game") -and (Test-Path "$rb\Uninstalled Game") -and ($o -match 'Recycle Bin: Uninstalled Game \(0\.3 GB\)')) ($o -join ' / ')
 Check '... an installed game and a tiny leftover: kept' ((Test-Path "$sl\steamapps\common\Installed Game\game.pak") -and (Test-Path "$sl\steamapps\common\Small Leftover")) ''
 if (Test-Path $rb) { Clear-Path $rb }
+Clear-Path $sl   # the 300 MB game file would otherwise stay in %TEMP% for 2 days after every run (17 GB after a busy test day)
+Check 'no 300 MB test files left behind' (-not (Test-Path $sl)) ''
 Section 'TRIM and the next-run line'
 Reset-M; State @{ 'trim' = $old }; $PM.DefragLast = $now.AddDays(-20); $o = PM
 Check 'Windows has not trimmed the SSD in 2+ weeks: TRIM is run' (($PMcalls -match 'Optimize-Volume.*ReTrim') -and ($o -match 'SSD TRIM run')) ($PMcalls -join ', ')

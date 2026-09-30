@@ -74,6 +74,21 @@ try {
     Check 'under tests, never the real registry (the default HKCU) - even with this PC''s own backup' (-not $o -and (Get-ItemProperty 'HKCU:\Control Panel\Desktop').WallPaper -eq $wp0) ($o -join ' / ')
     Check 'Steam installed but never started (its key without SteamPath): no error, even under -ErrorAction Stop' (-not $err) $err
 
+    Section 'the kit''s look for every fresh install (-ExportLook, restored with -AnyPc)'
+    $lzip = "$Work\kitlook\look.zip"
+    # a real picture this time (the one above is 4 bytes - it only has to be copied): re-saved on export
+    Add-Type -AssemblyName System.Drawing; $pic = New-Object Drawing.Bitmap 64, 40; $pic.Save("$oh\Pictures\real.png", [Drawing.Imaging.ImageFormat]::Png); $pic.Dispose()
+    Set-ItemProperty "$old\Control Panel\Desktop" WallPaper "$oh\Pictures\real.png" -Type String
+    $o = @(& $sb -ExportLook $lzip -RegRoot $old -HomeDir $oh -ClaudeDir "$oh\.claude")
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $lz = [IO.Compression.ZipFile]::OpenRead($lzip); $names = @($lz.Entries | ForEach-Object FullName); $lj = (New-Object IO.StreamReader ($lz.GetEntry('backup.json').Open())).ReadToEnd() | ConvertFrom-Json; $lz.Dispose()
+    Check 'exported: the look and the wallpaper only - no kit memory, game settings, Steam or Start pins' ((($names | Sort-Object) -join ',') -eq 'backup.json,wallpaper.jpg' -and "$o" -match '^Look exported') ($names -join ', ')
+    Check '... for no PC in particular: no PC name or id in it' ($lj.machine -eq 'any' -and $lj.computer -eq 'Messiah look') "$($lj.machine) / $($lj.computer)"
+    $lh = "$Work\friendpc"; New-Item "$lh\.claude" -ItemType Directory -Force | Out-Null
+    $o = @(& $sb -Restore -From $lzip -RegRoot "HKCU:\Software\$rk\friend" -HomeDir $lh -MachineId 'FRIEND-PC' -ClaudeDir "$lh\.claude" -NoApply -AnyPc)
+    Check 'a friend''s new PC: gets the look - dark mode, the accent colour, the wallpaper - said as the kit''s look' ((Get-ItemProperty "HKCU:\Software\$rk\friend\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize").AppsUseLightTheme -eq 0 -and [uint32](Get-ItemProperty "HKCU:\Software\$rk\friend\Software\Microsoft\Windows\DWM").AccentColor -eq [uint32]4286578688 -and (Test-Path (Get-ItemProperty "HKCU:\Software\$rk\friend\Control Panel\Desktop").WallPaper) -and "$o" -match "^Look: Messiah's look put on this new Windows") ($o -join ' / ')
+    Check '... and nothing else of the owner''s (games list, history)' (-not (Test-Path "$lh\.claude\games.txt")) ''
+
     Section 'a tampered backup (another PC''s, or changed by hand) only ever restores the look'
     $tw = "$Work\tampered"; [IO.Compression.ZipFile]::ExtractToDirectory($zip[0].FullName, $tw)
     $j = Get-Content "$tw\backup.json" -Raw | ConvertFrom-Json
