@@ -255,8 +255,15 @@ if (Want 'legacy') {
     Redo 'legacy'
     if (-not $Quick -and "$($bk['legacy|build'].Build)" -ne $build) {
         $all = $true
+        # (another servicing job - the first maintenance's own DISM cleanup runs alongside - holds Windows' servicing lock and
+        # a removal is refused: waited for and tried again, 8 minutes (16 x 30 s) at most in all; 9/30 on GitHub only 1 of 9 went at first)
+        $waits = 0
         foreach ($c in @(Get-WindowsCapability -Online | Where-Object { $_.State -eq 'Installed' -and ($_.Name -split '~')[0] -in $legacyCaps })) {
-            Remove-WindowsCapability -Online -Name $c.Name | Out-Null
+            for ($try = 0; ; $try++) {
+                Remove-WindowsCapability -Online -Name $c.Name | Out-Null
+                if ((Get-WindowsCapability -Online -Name $c.Name).State -ne 'Installed' -or $waits -ge 16) { break }
+                Start-Sleep 30; $waits++
+            }
             if ((Get-WindowsCapability -Online -Name $c.Name).State -ne 'Installed') { Save-Original "cap|$($c.Name)" @{ Installed = $true }; $changes.Add("old Windows part $(($c.Name -split '~')[0]) removed") } else { $all = $false }
         }
         foreach ($f in @(Get-WindowsOptionalFeature -Online | Where-Object { $_.State -eq 'Enabled' -and $_.FeatureName -in $legacyFeats })) {

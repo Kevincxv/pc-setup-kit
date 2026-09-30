@@ -71,11 +71,12 @@ function Start-Process { param($FilePath, $ArgumentList, [switch]$Wait) $global:
 function Remove-ItemProperty { param($Path, $Name) if ($Name -and $global:TW.Reg.ContainsKey("$Path|$Name")) { $global:TW.Reg.Remove("$Path|$Name") }; $global:TWlog.Add("remove $Path $Name") }
 function Get-Item { if ("$args" -match '^HKCU:.+CurrentVersion\\Run$') { return [pscustomobject]@{ Property = $global:TW.Run } }; if ("$args" -match '^HK.+CurrentVersion\\Run$') { return $null }; Microsoft.PowerShell.Management\Get-Item @args }
 function Get-WindowsCapability { param([switch]$Online, $Name) $global:TW.Caps.Keys | Where-Object { -not $Name -or $_ -eq $Name } | ForEach-Object { [pscustomobject]@{ Name = $_; State = $global:TW.Caps[$_] } } }
-function Remove-WindowsCapability { param([switch]$Online, $Name) if (-not $global:TW.CapStuck) { $global:TW.Caps[$Name] = 'NotPresent' }; $global:TWlog.Add("cap removed $Name") }
+function Remove-WindowsCapability { param([switch]$Online, $Name) if ($global:TW.CapBusy-- -gt 0) { $global:TWlog.Add("cap refused $Name"); return }; if (-not $global:TW.CapStuck) { $global:TW.Caps[$Name] = 'NotPresent' }; $global:TWlog.Add("cap removed $Name") }
 function Add-WindowsCapability { param([switch]$Online, $Name) $global:TW.Caps[$Name] = 'Installed'; $global:TWlog.Add("cap added $Name") }
 function Get-WindowsOptionalFeature { param([switch]$Online) $global:TW.Feats.Keys | ForEach-Object { [pscustomobject]@{ FeatureName = $_; State = $global:TW.Feats[$_] } } }
 function Disable-WindowsOptionalFeature { param([switch]$Online, $FeatureName, [switch]$NoRestart) $global:TW.Feats[$FeatureName] = 'Disabled'; $global:TWlog.Add("feature off $FeatureName") }
 function Enable-WindowsOptionalFeature { param([switch]$Online, $FeatureName, [switch]$NoRestart) $global:TW.Feats[$FeatureName] = 'Enabled'; $global:TWlog.Add("feature on $FeatureName") }
+function Start-Sleep { param($Seconds, $Milliseconds) if ($Seconds) { $global:TWlog.Add("sleep $Seconds") } }   # (the test helpers' own short waits: not logged)
 function Get-WindowsReservedStorageState { [pscustomobject]@{ ReservedStorageState = $global:TW.Reserved } }
 function Set-WindowsReservedStorageState { param($State) $global:TW.Reserved = $State; $global:TWlog.Add("reserved $State") }
 if (-not (Assert-Mocks $mocked)) { Finish }
@@ -200,6 +201,8 @@ Check 'PowerShell 2.0 off; media playback (games play videos with it) left on' (
 Check 'reserved storage off (about 7 GB), said' ($TW.Reserved -eq 'Disabled' -and ($o -contains 'reserved storage off (about 7 GB free again)')) ($o -join ' / ')
 $TWlog.Clear(); $o = Run
 Check '... after that it isn''t even looked at again on the same Windows build (DISM takes seconds every time)' (-not ($TWlog -match '^cap |^feature |^reserved ') -and -not ($o -match 'old Windows|reserved')) ($TWlog -join ', ')
+Fresh; Clear-Path $bk; $TW.CapBusy = 3; $o = Run
+Check 'Windows'' servicing lock held a while (DISM''s cleanup alongside): waited for, and removed in the same run' (($o -contains 'old Windows part Browser.InternetExplorer removed') -and @($TWlog -match '^sleep 30').Count -eq 3) ($TWlog -join ', ')
 Fresh; Clear-Path $bk; $TW.CapStuck = $true; [void](Run); $TWlog.Clear(); $TW.CapStuck = $false; $o = Run
 Check 'a removal Windows refused (an update being installed) is tried again at the next check' ($o -contains 'old Windows part Browser.InternetExplorer removed') ($o -join ' / ')
 'tweak.legacy=off' | Set-Content $opt; $o = Run
