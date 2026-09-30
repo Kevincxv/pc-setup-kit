@@ -139,14 +139,22 @@ $meta = Get-Content "$st\backup.json" -Raw | ConvertFrom-Json
 if ($meta.machine -ne $MachineId -and -not $AnyPc) { [IO.Directory]::Delete($st, $true); 'Restore: that backup was made on another PC - not used'; return }   # (-AnyPc: the owner picked it in the app and said yes)
 $done = @()
 # the look
+# only the keys and values a backup is made of ($reg above) - whatever else a backup file lists (one from another PC,
+# or changed by hand) is ignored: never a Run key or anything outside the look
+$skipped = 0
 foreach ($k in $meta.look.PSObject.Properties) {
+    if (-not $reg.Contains($k.Name)) { $skipped++; continue }
+    $allowed = @($reg[$k.Name])
     if (-not (Test-Path "$RegRoot\$($k.Name)")) { New-Item "$RegRoot\$($k.Name)" -Force | Out-Null }   # (never -Force on an existing key: that empties it)
     foreach ($v in $k.Value.PSObject.Properties) {
+        if ($allowed -notcontains '*' -and $allowed -notcontains $v.Name) { $skipped++; continue }
+        if ($v.Value.kind -notin 'String', 'ExpandString', 'DWord', 'QWord', 'Binary', 'MultiString') { $skipped++; continue }
         $val = if ($v.Value.kind -eq 'Binary') { [Convert]::FromBase64String($v.Value.value) } else { $v.Value.value }
         Set-ItemProperty "$RegRoot\$($k.Name)" -Name $v.Name -Value $val -Type $v.Value.kind
     }
 }
 if ($meta.look) { $done += 'colours and dark mode, taskbar, mouse' }
+if ($skipped) { $done += "($skipped setting(s) in the backup that aren't part of the look were ignored)" }
 $wpf = Get-ChildItem "$st\wallpaper*" | Select-Object -First 1
 if ($wpf) {
     $keep = "$ad\Microsoft\Windows\Themes\PC Setup Kit wallpaper$($wpf.Extension)"
@@ -156,7 +164,7 @@ if ($wpf) {
 }
 if ((Test-Path "$st\start2.bin") -and (Test-Path (Split-Path $startBin))) { Copy-Item "$st\start2.bin" $startBin -Force; $done += 'Start pins' }
 # the kit's memory: only what a new install doesn't have yet
-foreach ($f in Get-ChildItem "$st\kit" -File) { if (-not (Test-Path "$ClaudeDir\$($f.Name)")) { Copy-Item $f.FullName $ClaudeDir } }
+foreach ($f in Get-ChildItem "$st\kit" -File | Where-Object Name -in $kitFiles) { if (-not (Test-Path "$ClaudeDir\$($f.Name)")) { Copy-Item $f.FullName $ClaudeDir } }
 if (Get-ChildItem "$st\kit" -File) { $done += "the kit's memory (games, to-do, history)" }
 # game settings: never over a file that's already there
 $map = @{ MyGames = "$docs\My Games"; SavedGames = "$HomeDir\Saved Games" }

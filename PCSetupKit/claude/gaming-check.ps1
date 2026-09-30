@@ -17,6 +17,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 $T = $Test
 function Act([string]$What, [scriptblock]$Real) { if ($Do) { & $Do $What } else { & $Real } }
 $st = try { Get-Content $State -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { [pscustomobject]@{} }
+if ($st -isnot [Management.Automation.PSCustomObject]) { $st = [pscustomobject]@{} }   # (valid JSON of the wrong shape - a number, a list - counts as no state, never as an error)
 if (-not ($st.PSObject.Properties.Name -contains 'excluded')) { $st | Add-Member excluded @() }
 
 # --- AMD dual-CCD X3D ---
@@ -90,7 +91,8 @@ $offNext = if ($T) { $T.HvOffNext } else { "$(bcdedit /enum '{current}' 2>$null)
 # Turned off by itself when nothing on the PC uses it (no WSL distro, virtual machine, Android emulator, Docker or VM
 # app) - once: switched on again afterwards, it's the owner's choice and stays. Memory integrity alone (the owner's
 # switch in the app) is left alone. Takes effect at the next restart.
-if ($hv -and -not $offNext -and -not (Test-Path "$PSScriptRoot\sandbox-features-before.json")) {   # (not the kit's own Sandbox test)
+$ownSandboxTest = if ($T) { [bool]$T.OwnSandboxTest } else { (Test-Path "$PSScriptRoot\sandbox-features-before.json") -or (Test-Path "$PSScriptRoot\kit-vm-test.txt") }   # (the kit's own Sandbox / VM install test; tests: from -Test, never this PC's files)
+if ($hv -and -not $offNext -and -not $ownSandboxTest) {   # (not the kit's own Sandbox test)
     $names = @{ 'Microsoft-Hyper-V-All' = 'Hyper-V'; 'VirtualMachinePlatform' = 'WSL / Virtual Machine Platform'; 'HypervisorPlatform' = 'Windows Hypervisor Platform (emulators, VMs)'; 'Containers-DisposableClientVM' = 'Windows Sandbox' }
     $on = @(if ($T) { $T.HvFeatures } else { $names.Keys | Where-Object { (Get-WindowsOptionalFeature -Online -FeatureName $_).State -eq 'Enabled' } })
     $what = @($on | ForEach-Object { $names[$_] }) -join ', '

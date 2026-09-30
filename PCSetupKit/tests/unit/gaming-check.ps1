@@ -47,6 +47,8 @@ $o = Invoke-Gaming (Pc @{ Hypervisor = $true; HvFeatures = @('VirtualMachinePlat
 Check 'WSL (or a VM, an emulator, Docker) in use: left on, nothing said' (-not $acts -and -not $o) (($o + $acts) -join ' / ')
 $o = Invoke-Gaming (Pc @{ Hypervisor = $true; HvFeatures = @(); HvInUse = '' })
 Check 'only memory integrity (the owner''s switch) runs it: left alone' (-not $acts -and -not $o) (($o + $acts) -join ' / ')
+$o = Invoke-Gaming (Pc @{ Hypervisor = $true; HvFeatures = @('Containers-DisposableClientVM'); HvInUse = ''; OwnSandboxTest = $true })
+Check 'the kit''s own Sandbox test running (its marker file): left alone' (-not $acts -and -not $o) (($o + $acts) -join ' / ')
 $o = Invoke-Gaming (Pc @{ Hypervisor = $true; HvOffNext = $true })
 Check '... already set to be off at the next restart: not said' (-not $o) ($o -join ' / ')
 

@@ -11,7 +11,7 @@
 param([string]$History = "$PSScriptRoot\net-history.json", [datetime]$Now = (Get-Date), [hashtable]$Measured, [scriptblock]$SetDns)
 $ErrorActionPreference = 'SilentlyContinue'
 $j = try { Get-Content $History -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
-$h = @($j | ForEach-Object { $_ })   # PowerShell 5.1 hands a JSON array over as ONE item: unrolled here
+$h = @($j | ForEach-Object { $_ } | Where-Object { $_ -is [Management.Automation.PSCustomObject] -and $(try { [void][datetime]"$($_.date)"; $true } catch { $false }) })   # PowerShell 5.1 hands a JSON array over as ONE item: unrolled here (a damaged entry is dropped)
 function Median($v) { $s = @($v | Sort-Object); if (-not $s) { return $null }; $m = [int][Math]::Floor($s.Count / 2); if ($s.Count % 2) { $s[$m] } else { ($s[$m - 1] + $s[$m]) / 2 } }
 # pings: median, jitter (the average change between two pings) and loss %, 150 ms apart
 function Measure-Ping([string]$Target, [int]$Count = 30) {

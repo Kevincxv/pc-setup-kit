@@ -73,6 +73,20 @@ try {
     $o = @(& $sb -Restore -From $zip[0].FullName -MachineId 'PC-1' -NoApply)
     Check 'under tests, never the real registry (the default HKCU) - even with this PC''s own backup' (-not $o -and (Get-ItemProperty 'HKCU:\Control Panel\Desktop').WallPaper -eq $wp0) ($o -join ' / ')
     Check 'Steam installed but never started (its key without SteamPath): no error, even under -ErrorAction Stop' (-not $err) $err
+
+    Section 'a tampered backup (another PC''s, or changed by hand) only ever restores the look'
+    $tw = "$Work\tampered"; [IO.Compression.ZipFile]::ExtractToDirectory($zip[0].FullName, $tw)
+    $j = Get-Content "$tw\backup.json" -Raw | ConvertFrom-Json
+    $j.look | Add-Member 'Software\Microsoft\Windows\CurrentVersion\Run' ([pscustomobject]@{ Evil = [pscustomobject]@{ kind = 'String'; value = 'C:\evil.exe' } })
+    $j.look.'Control Panel\Mouse' | Add-Member 'NotALookValue' ([pscustomobject]@{ kind = 'String'; value = 'x' })
+    $j | ConvertTo-Json -Depth 6 | Set-Content "$tw\backup.json" -Encoding UTF8
+    'evil' | Set-Content "$tw\kit\evil.ps1"
+    $tz = "$Work\tampered.zip"; [IO.Compression.ZipFile]::CreateFromDirectory($tw, $tz)
+    $th = "$Work\tamperedpc"; New-Item "$th\.claude" -ItemType Directory -Force | Out-Null
+    $o = @(& $sb -Restore -From $tz -RegRoot "HKCU:\Software\$rk\tampered" -HomeDir $th -MachineId 'PC-1' -ClaudeDir "$th\.claude" -NoApply)
+    Check 'a Run key in the backup: never written (nothing starts at login from a backup)' (-not (Test-Path "HKCU:\Software\$rk\tampered\Software\Microsoft\Windows\CurrentVersion\Run")) ($o -join ' / ')
+    Check '... a value that is not part of the look: ignored, said; the look itself restored' ($null -eq (Get-ItemProperty "HKCU:\Software\$rk\tampered\Control Panel\Mouse").NotALookValue -and (Get-ItemProperty "HKCU:\Software\$rk\tampered\Control Panel\Mouse").MouseSensitivity -eq '14' -and "$o" -match "setting\(s\) in the backup that aren't part of the look were ignored") ($o -join ' / ')
+    Check '... an extra script in it: not copied (only the kit''s own memory files)' (-not (Test-Path "$th\.claude\evil.ps1") -and (Test-Path "$th\.claude\games.txt")) ''
 }
 finally { Remove-Item "HKCU:\Software\$rk" -Recurse -Force -ErrorAction SilentlyContinue }
 Finish

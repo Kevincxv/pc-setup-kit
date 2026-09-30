@@ -20,7 +20,7 @@ $parts = @(
     if ($fixed) { "settings an update undid put back $fixed time$(if ($fixed -gt 1) { 's' })" }
 )
 $pj = try { Get-Content "$Dir\perf-history.json" -Raw -ErrorAction Stop | ConvertFrom-Json } catch { $null }
-$games = @($pj | ForEach-Object { $_ } | Where-Object { $_.date -and [datetime]$_.date -gt $Now.AddDays(-7) } | ForEach-Object game | Select-Object -Unique)
+$games = @($pj | ForEach-Object { $_ } | Where-Object { $_ -is [Management.Automation.PSCustomObject] -and $(try { [void][datetime]"$($_.date)"; $true } catch { $false }) } | Where-Object { [datetime]$_.date -gt $Now.AddDays(-7) } | ForEach-Object game | Select-Object -Unique)
 if (-not $parts -and -not $crash -and -not $games) { return }   # a quiet week: nothing to say
 $msg = "This week: $(if ($parts) { $parts -join ', ' } else { 'nothing needed doing' }). $(if ($crash) { "$crash crash$(if ($crash -gt 1) { 'es' }) - see the app." } else { 'No crashes.' })"
 if ($games) { $msg += " $($games.Count) game$(if ($games.Count -gt 1) { 's' }) played$(if ($slow) { ' - one runs slower since an update (see the app)' } else { ', running as usual' })." }

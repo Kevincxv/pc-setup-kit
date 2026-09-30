@@ -9,7 +9,7 @@
 param([string]$History = "$PSScriptRoot\health-history.json", [datetime]$Now = (Get-Date), [string]$PerfHistory = "$PSScriptRoot\perf-history.json")
 $ErrorActionPreference = 'SilentlyContinue'
 $j = try { Get-Content $History -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
-$h = @($j | ForEach-Object { $_ })   # PowerShell 5.1 hands a JSON array over as ONE item: unrolled here
+$h = @($j | ForEach-Object { $_ } | Where-Object { $_ -is [Management.Automation.PSCustomObject] -and $(try { [void][datetime]"$($_.date)"; $true } catch { $false }) })   # PowerShell 5.1 hands a JSON array over as ONE item: unrolled here (a damaged entry is dropped)
 function Median($v) { $s = @($v | Sort-Object); if (-not $s) { return $null }; $m = [int][Math]::Floor($s.Count / 2); if ($s.Count % 2) { $s[$m] } else { ($s[$m - 1] + $s[$m]) / 2 } }
 
 # --- this check's numbers ---
@@ -64,7 +64,7 @@ if ($null -ne $e.ssdWear -and $w0 -and $e.ssdWear - [int]$w0.ssdWear -ge 5) { "R
 
 # --- games (perf-history.json, recorded by game-perf.ps1 while playing) ---
 $pj = try { Get-Content $PerfHistory -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
-$perf = @($pj | ForEach-Object { $_ } | Where-Object { $_.date -and $_.game } | Sort-Object { [datetime]$_.date })
+$perf = @($pj | ForEach-Object { $_ } | Where-Object { $_ -is [Management.Automation.PSCustomObject] -and $(try { [void][datetime]"$($_.date)"; $true } catch { $false }) } | Where-Object { $_.game } | Sort-Object { [datetime]$_.date })
 # slower since a driver / Windows update: the samples since the latest change vs the ones before it (same game)
 foreach ($g in $perf | Group-Object game) {
     $s = @($g.Group); $last = $s[-1]

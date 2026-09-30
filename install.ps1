@@ -47,7 +47,12 @@ if (-not $tag) {
 if (-not $tag) { throw "Couldn't reach GitHub to find the newest release - check the internet connection and try again in a few minutes. Nothing was changed." }
 $url = "https://github.com/$repo/archive/refs/tags/$tag.zip"
 $dest = if ($DownloadOnly) { $DownloadOnly } else { Join-Path $env:TEMP 'pc-setup-kit' }
-if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+if (Test-Path $dest) {
+    # only ever its own earlier download (kit.zip, x\) - a folder of someone's files is never emptied
+    $foreign = @(Get-ChildItem -LiteralPath $dest -Force | Where-Object Name -notin 'kit.zip', 'x')
+    if ($foreign) { throw "$dest already holds other files ($(($foreign | Select-Object -First 3).Name -join ', ')) - use an empty or new folder. Nothing was changed." }
+    Remove-Item $dest -Recurse -Force
+}
 New-Item $dest -ItemType Directory -Force | Out-Null
 Write-Host "Downloading the PC Setup Kit $(if ($tag) { $tag } else { '(latest)' })..." -ForegroundColor Cyan
 Invoke-WebRequest $url -OutFile "$dest\kit.zip" -UseBasicParsing

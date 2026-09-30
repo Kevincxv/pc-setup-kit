@@ -34,11 +34,30 @@ $all = if ($Disks) { @($Disks | ConvertFrom-Json | ForEach-Object { $_ }) } else
 $bus = @('USB') + @(if ($AllowVirtual) { 'File Backed Virtual' })
 $usb = @($all | Where-Object { "$($_.BusType)" -in $bus -and -not $_.IsBoot -and -not $_.IsSystem -and $_.Size -ge 7GB } | Sort-Object Number)
 if (-not $usb) { Say 'No USB stick of 8 GB or more found. Plug one in and run this again.' 'Yellow'; return 'NO USB' }
-foreach ($d in $usb) { Say ("  Disk {0}: {1} ({2:N0} GB)" -f $d.Number, "$($d.FriendlyName)".Trim(), ($d.Size / 1GB)) }
-if ($Disk -lt 0) { $Disk = if ($usb.Count -eq 1 -and $Yes) { $usb[0].Number } else { [int](Ask "`nWhich disk number is the USB stick") } }
+# what's on each one - so a USB hard drive with someone's files (the Messiah files backup drive, say) is never
+# mistaken for an empty stick. (-Disks: made-up disks carry UsedGB / Backup themselves.)
+function Get-Use($d) {
+    if ($Disks) { return [pscustomobject]@{ UsedGB = [double]"0$($d.UsedGB)"; Backup = [bool]$d.Backup } }
+    $vols = @(Get-Partition -DiskNumber $d.Number -ErrorAction SilentlyContinue | Get-Volume -ErrorAction SilentlyContinue | Where-Object { $_.Size })
+    $used = ($vols | ForEach-Object { $_.Size - $_.SizeRemaining } | Measure-Object -Sum).Sum
+    $bk = [bool]($vols | Where-Object { $_.DriveLetter -and ((Test-Path "$($_.DriveLetter):\Messiah Backup") -or (Test-Path "$($_.DriveLetter):\PC Setup Kit Backup")) })
+    [pscustomobject]@{ UsedGB = [Math]::Round([double]$used / 1GB, 1); Backup = $bk }
+}
+foreach ($d in $usb) {
+    $u = Get-Use $d; $d | Add-Member -NotePropertyName Use -NotePropertyValue $u -Force
+    Say ("  Disk {0}: {1} ({2:N0} GB){3}{4}" -f $d.Number, "$($d.FriendlyName)".Trim(), ($d.Size / 1GB), $(if ($u.UsedGB -ge 0.1) { " - $($u.UsedGB) GB of files on it" }), $(if ($u.Backup) { ' - YOUR BACKUP DRIVE' })) $(if ($u.Backup) { 'Red' } else { 'Gray' })
+}
+# picked by itself (-Yes) only when it's the one stick and holds nothing - never a disk with files on it
+if ($Disk -lt 0) {
+    $one = if ($usb.Count -eq 1 -and $usb[0].Use.UsedGB -lt 1 -and -not $usb[0].Use.Backup) { $usb[0] }
+    if ($Yes -and -not $one) { Say 'Not picking a disk by itself: it holds files, or there is more than one - run it again with -Disk <number>. Nothing was changed.' 'Yellow'; return 'CHOOSE A DISK' }
+    $Disk = if ($Yes) { $one.Number } else { [int](Ask "`nWhich disk number is the USB stick") }
+}
 $target = $usb | Where-Object { $_.Number -eq $Disk }
 if (-not $target) { Say "Disk $Disk is not one of the USB sticks above - nothing was changed." 'Red'; return 'NOT A USB' }
 Say ("`nEverything on disk {0} ({1}, {2:N0} GB) will be ERASED." -f $target.Number, "$($target.FriendlyName)".Trim(), ($target.Size / 1GB)) 'Yellow'
+if ($target.Use.UsedGB -ge 0.1) { Say "It has $($target.Use.UsedGB) GB of files on it right now - they will be gone." 'Red' }
+if ($target.Use.Backup) { Say 'It holds your backup (Messiah Backup / PC Setup Kit Backup) - choose a different stick unless you really mean it.' 'Red' }
 if (-not $Yes -and (Ask 'Type ERASE to continue') -ne 'ERASE') { Say 'Cancelled - nothing was changed.'; return 'CANCELLED' }
 if (-not $Yes -and -not $WithClaude) { $WithClaude = (Ask 'Include Messiah, the optional Claude part (needs a Claude account)? y/N') -match '^y' }
 $bk = Get-ChildItem "$([Environment]::GetFolderPath('MyDocuments'))\PC Setup Kit Backup\$env:COMPUTERNAME-*.zip" -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 1

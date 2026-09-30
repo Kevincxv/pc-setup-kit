@@ -390,7 +390,19 @@ try {
     # --- History: health over time (health-history.json, written by trends.ps1 at every check). One measure per chart,
     # each with its own scale (never two on one axis); one line, so the title names it (no legend); the current value as
     # the big number; the usual level as a faint dashed line; every point has a tooltip (date and value).
-    function Get-HealthHistory([string]$Name = 'health-history.json') { $j = try { Get-Content "$cl\$Name" -Raw -ErrorAction Stop | ConvertFrom-Json } catch { $null }; @($j | ForEach-Object { $_ }) }   # (also perf-history.json, net-history.json)
+    # (a damaged file - a power cut mid-write, an old format - must never stop the window from opening: rows that aren't
+    # objects or have no readable date are dropped, and a "number" that isn't one counts as missing)
+    function Test-When($v) { $d = [datetime]::MinValue; [bool]("$v" -and [datetime]::TryParse("$v", [ref]$d)) }
+    function Get-HealthHistory([string]$Name = 'health-history.json') {
+        $j = try { Get-Content "$cl\$Name" -Raw -ErrorAction Stop | ConvertFrom-Json } catch { $null }
+        @($j | ForEach-Object { $_ } | Where-Object { $_ -is [Management.Automation.PSCustomObject] -and (Test-When $_.date) } | ForEach-Object {
+                foreach ($pr in @($_.PSObject.Properties)) {
+                    if ($pr.Name -in 'date', 'game' -or $null -eq $pr.Value) { continue }
+                    if ($pr.Name -eq 'bootAt') { if (-not (Test-When $pr.Value)) { $pr.Value = $null }; continue }
+                    if ($pr.Value -isnot [ValueType] -or $pr.Value -is [bool]) { $n = 0.0; $pr.Value = if ($pr.Value -isnot [bool] -and [double]::TryParse("$($pr.Value)", [ref]$n)) { $n } else { $null } }
+                }
+                $_ })
+    }   # (also perf-history.json, net-history.json)
     function Median($v) { $s = @($v | Sort-Object); if (-not $s) { return $null }; $m = [int][Math]::Floor($s.Count / 2); if ($s.Count % 2) { $s[$m] } else { ($s[$m - 1] + $s[$m]) / 2 } }
     function New-Chart($title, $unit, $pts, [int]$decimals = 0, [double]$minSpan = 1) {   # minSpan: the smallest range shown (small wobbles stay small)
         $sp = New-Object Windows.Controls.StackPanel
@@ -451,8 +463,15 @@ try {
     function Get-Opt($k, $default) { $l = @(Get-Content "$cl\kit-options.txt" -ErrorAction SilentlyContinue) -match "^\s*$k\s*=" | Select-Object -First 1; if ($l) { ($l -split '=', 2)[1].Trim() } else { $default } }
     function Set-Opt($k, $v) {
         $f = "$cl\kit-options.txt"
-        $lines = @(Get-Content $f -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch "^\s*$k\s*=" }) + "$k=$v"
-        [IO.File]::WriteAllLines($f, [string[]]$lines)
+        # the tray (Pause) and the AI switch write this file too: a moment's clash is retried, never an error in a click
+        for ($i = 0; $i -lt 10; $i++) {
+            try {
+                $lines = @(Get-Content $f -ErrorAction Stop | Where-Object { $_ -notmatch "^\s*$k\s*=" }) + "$k=$v"
+                [IO.File]::WriteAllLines($f, [string[]]$lines); return
+            } catch [Management.Automation.ItemNotFoundException] { [IO.File]::WriteAllLines($f, [string[]]@("$k=$v")); return }
+            catch { Start-Sleep -Milliseconds 100 }
+        }
+        Say "Couldn't save that setting (the file is busy) - try again in a moment."
     }
 
     # --- pages
@@ -694,7 +713,7 @@ try {
         $out
     }
 
-    $script:page = if ($Page -and $pages.Contains($Page)) { $Page } else { 'Home' }
+    $script:onPage = if ($Page -and $pages.Contains($Page)) { $Page } else { 'Home' }
     $script:shown = $null; $script:claudeVer = $null; $navItems = @{}
     function Update-View([switch]$Force) {
         # the AI assistant switched on or off (ai-toggle.ps1, a minute after the switch): the pages change with it
@@ -709,14 +728,20 @@ try {
         $ui.AiPill.Content = "$([char]0x25CF)  AI assistant $(if ($ai) { 'on' } else { 'off' })"
         $ui.AiPill.Foreground = if ($ai) { $brush.Ok } else { $brush.Sub }
         # redraw only when something changed (no flicker; the scroll position stays while reading)
-        $sig = "$script:page`n" + (($secs | ForEach-Object { $_.Title; $_.Lines | ForEach-Object { "$($_.Level)|$($_.Text)" } }) -join "`n") +
+        $sig = "$script:onPage`n" + (($secs | ForEach-Object { $_.Title; $_.Lines | ForEach-Object { "$($_.Level)|$($_.Text)" } }) -join "`n") +
             "`n" + ((Get-Item "$cl\health-history.json", "$cl\notifications.log", "$cl\maint-history", "$cl\kit-options.txt" -ErrorAction SilentlyContinue | ForEach-Object { $_.LastWriteTime.Ticks }) -join ',')
         if (-not $Force -and $sig -eq $script:shown) { return }
         $script:shown = $sig
-        $ui.PageTitle.Text = switch ($script:page) { 'Home' { 'Overview' } 'Welcome' { 'Welcome to Messiah' } default { $script:page } }
-        $ui.PageSub.Text = $subs[$script:page]
+        $ui.PageTitle.Text = switch ($script:onPage) { 'Home' { 'Overview' } 'Welcome' { 'Welcome to Messiah' } default { $script:onPage } }
+        $ui.PageSub.Text = $subs[$script:onPage]
         $ui.Content.Children.Clear()
-        foreach ($el in (Build-Page $script:page $secs)) { [void]$ui.Content.Children.Add($el) }
+        # one page failing to build never takes the window down: it says so (the tests look for PAGE ERROR)
+        $script:pageError = $null
+        $els = try { @(Build-Page $script:onPage $secs) } catch {
+            $script:pageError = "$($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))"
+            @(New-Card "This page couldn't be shown" 'E783' @(@{ Text = 'Something in its data is damaged. The other pages work; the next maintenance usually repairs it.'; Level = 'warn' }, @{ Text = $script:pageError; Level = 'dim' }) $null)
+        }
+        foreach ($el in $els) { [void]$ui.Content.Children.Add($el) }
     }
 
     # the nav (built again when its pages change: the welcome page done, the AI assistant on or off)
@@ -734,11 +759,11 @@ try {
             [void]$row.Children.Add((New-Text $(if ($p -eq 'Home') { 'Overview' } else { $p }) $brush.Text 14 'Normal' '0'))
             $rb.Content = $row
             $navItems[$p] = [pscustomobject]@{ Button = $rb; Tag = $count.Child }
-            $rb.Add_Checked({ $script:page = $this.Tag; Say ''; $ui.Scroll.ScrollToTop(); Update-View -Force })
+            $rb.Add_Checked({ $script:onPage = $this.Tag; Say ''; $ui.Scroll.ScrollToTop(); Update-View -Force })
             [void]$ui.NavList.Children.Add($rb)
         }
-        if (-not $pages.Contains($script:page)) { $script:page = 'Home' }
-        if (-not $Test) { $navItems[$script:page].Button.IsChecked = $true }
+        if (-not $pages.Contains($script:onPage)) { $script:onPage = 'Home' }
+        if (-not $Test) { $navItems[$script:onPage].Button.IsChecked = $true }
     }
     $ui.AiPill.Style = $win.FindResource('Btn'); $ui.AiPill.Margin = '8,0,0,10'
     $ui.AiPill.Add_Click({ $navItems[$(if ($ai) { 'Sessions' } else { 'Settings' })].Button.IsChecked = $true })
@@ -748,8 +773,8 @@ try {
     if ($Test) {
         "WINDOW: $($win.Title)"
         foreach ($p in @($pages.Keys)) {
-            $script:page = $p; Update-View -Force
-            "PAGE: $($ui.PageTitle.Text)"
+            $script:onPage = $p; Update-View -Force
+            "PAGE: $($ui.PageTitle.Text)"; if ($script:pageError) { "PAGE ERROR: $script:pageError" }
             foreach ($card in @($ui.Content.Children | ForEach-Object { if ($_ -is [Windows.Controls.Primitives.UniformGrid] -or $_ -is [Windows.Controls.WrapPanel]) { $_.Children } else { $_ } })) {
                 if ($card -is [Windows.Controls.TextBlock]) { "SECTION: $($card.Text)"; continue }
                 $all = @($card.Child.Children)

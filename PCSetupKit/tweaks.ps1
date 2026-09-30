@@ -51,32 +51,32 @@ function Set-Reg($Path, $Name, $Value, $Type = 'DWord') {
 
 # --- Telemetry, ads, suggestions, AI features ---
 $group = 'telemetry'
-$P = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows'
-Set-Reg "$P\DataCollection" AllowTelemetry 0
-Set-Reg "$P\DataCollection" DoNotShowFeedbackNotifications 1
-Set-Reg "$P\CloudContent" DisableWindowsConsumerFeatures 1
-Set-Reg "$P\CloudContent" DisableSoftLanding 1
-Set-Reg "$P\CloudContent" DisableCloudOptimizedContent 1
-Set-Reg "$P\CloudContent" DisableTailoredExperiencesWithDiagnosticData 1
-Set-Reg "$P\System" EnableActivityFeed 0
-Set-Reg "$P\System" PublishUserActivities 0
-Set-Reg "$P\System" UploadUserActivities 0
-Set-Reg "$P\AdvertisingInfo" DisabledByGroupPolicy 1
-Set-Reg "$P\Windows Search" AllowCortana 0
-Set-Reg "$P\Windows Search" DisableWebSearch 1
-Set-Reg "$P\Windows Search" ConnectedSearchUseWeb 0
-Set-Reg "$P\WindowsCopilot" TurnOffWindowsCopilot 1
-Set-Reg "$P\WindowsAI" DisableAIDataAnalysis 1
-Set-Reg "$P\WindowsAI" DisableClickToDo 1
-Set-Reg "$P\WindowsAI" TurnOffSavingSnapshots 1
-$group = 'onedrive'; Set-Reg "$P\OneDrive" DisableFileSyncNGSC 1; $group = 'telemetry'
-Set-Reg "$P\DeliveryOptimization" DODownloadMode 1              # update sharing only with this home network
-$group = 'game-recording'; Set-Reg "$P\GameDVR" AllowGameDVR 0; $group = 'telemetry'
+$pol = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows'   # (not $P: a later $p is the same variable in PowerShell)
+Set-Reg "$pol\DataCollection" AllowTelemetry 0
+Set-Reg "$pol\DataCollection" DoNotShowFeedbackNotifications 1
+Set-Reg "$pol\CloudContent" DisableWindowsConsumerFeatures 1
+Set-Reg "$pol\CloudContent" DisableSoftLanding 1
+Set-Reg "$pol\CloudContent" DisableCloudOptimizedContent 1
+Set-Reg "$pol\CloudContent" DisableTailoredExperiencesWithDiagnosticData 1
+Set-Reg "$pol\System" EnableActivityFeed 0
+Set-Reg "$pol\System" PublishUserActivities 0
+Set-Reg "$pol\System" UploadUserActivities 0
+Set-Reg "$pol\AdvertisingInfo" DisabledByGroupPolicy 1
+Set-Reg "$pol\Windows Search" AllowCortana 0
+Set-Reg "$pol\Windows Search" DisableWebSearch 1
+Set-Reg "$pol\Windows Search" ConnectedSearchUseWeb 0
+Set-Reg "$pol\WindowsCopilot" TurnOffWindowsCopilot 1
+Set-Reg "$pol\WindowsAI" DisableAIDataAnalysis 1
+Set-Reg "$pol\WindowsAI" DisableClickToDo 1
+Set-Reg "$pol\WindowsAI" TurnOffSavingSnapshots 1
+$group = 'onedrive'; Set-Reg "$pol\OneDrive" DisableFileSyncNGSC 1; $group = 'telemetry'
+Set-Reg "$pol\DeliveryOptimization" DODownloadMode 1              # update sharing only with this home network
+$group = 'game-recording'; Set-Reg "$pol\GameDVR" AllowGameDVR 0; $group = 'telemetry'
 Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh' AllowNewsAndInterests 0   # Widgets
 Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' StartupBoostEnabled 0    # Edge stays (apps need WebView2) but stays out of the way
 Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' BackgroundModeEnabled 0
 Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' HubsSidebarEnabled 0
-Set-Reg "$P\Windows Error Reporting" DontSendAdditionalData 1   # crash reports stay local (kept on so blue screens can be diagnosed)
+Set-Reg "$pol\Windows Error Reporting" DontSendAdditionalData 1   # crash reports stay local (kept on so blue screens can be diagnosed)
 
 $U = 'HKCU:\Software\Policies\Microsoft\Windows'
 Set-Reg "$U\Explorer" DisableSearchBoxSuggestions 1

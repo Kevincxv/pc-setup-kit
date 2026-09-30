@@ -31,8 +31,11 @@ function Invoke-Cleanup {
         $r = Disable-WindowsOptionalFeature -Online -FeatureName $f -NoRestart -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
         Say "Cleanup: turned off the Windows feature $f$(if ($r.RestartNeeded) { ' (finishes at the next restart)' })"
     }
-    $o = bcdedit /set '{current}' hypervisorlaunchtype off 2>&1 | Out-String
-    Say "Cleanup: hypervisor set not to start ($("$o".Trim())) - it is fully off after the next restart"
+    if (Test-Path "$cl\kit-vm-test.txt") { Say 'Cleanup: hypervisor kept (the boot-from-USB VM test needs it - tests\vm turns it off afterwards)' }
+    else {
+        $o = bcdedit /set '{current}' hypervisorlaunchtype off 2>&1 | Out-String
+        Say "Cleanup: hypervisor set not to start ($("$o".Trim())) - it is fully off after the next restart"
+    }
     Unregister-ScheduledTask -TaskName 'PCSetupKit Sandbox Test' -Confirm:$false -ErrorAction SilentlyContinue
     [IO.File]::Delete("$cl\sandbox-features-before.json")
 }

@@ -23,6 +23,16 @@ $o = MU 4 -Virtual
 Check '... the virtual disk only with -AllowVirtual (the end-to-end test)' ($o[0] -match '^PLAN: erase disk 4') ($o -join ' / ')
 $o = MU 2 -d (ConvertTo-Json -InputObject @($disks[0], $disks[1]))
 Check 'no USB stick plugged in: says so, nothing else' ("$o" -eq 'NO USB') ($o -join ' / ')
+Section 'a USB hard drive with files on it is never mistaken for an empty stick'
+$one = { param($d) @(& $mu -Plan -Disks (ConvertTo-Json -InputObject @($disks[0], $d)) -Yes -NoBackup 6>$null) }
+$o = & $one @{ Number = 7; FriendlyName = 'WD Elements'; BusType = 'USB'; IsBoot = $false; IsSystem = $false; Size = 2000GB; UsedGB = 850; Backup = $true }
+Check 'the only USB disk holds files (the files-backup drive): not picked by itself, nothing planned' ("$o" -eq 'CHOOSE A DISK') ($o -join ' / ')
+$o = & $one @{ Number = 7; FriendlyName = 'Stick with photos'; BusType = 'USB'; IsBoot = $false; IsSystem = $false; Size = 64GB; UsedGB = 12 }
+Check '... any files on it: the same' ("$o" -eq 'CHOOSE A DISK') ($o -join ' / ')
+$o = & $one @{ Number = 7; FriendlyName = 'Empty stick'; BusType = 'USB'; IsBoot = $false; IsSystem = $false; Size = 64GB; UsedGB = 0 }
+Check '... an empty stick: picked by itself (-Yes)' ($o[0] -match '^PLAN: erase disk 7') ($o -join ' / ')
+$o = @(& $mu -Plan -Disks (ConvertTo-Json -InputObject @($disks[0], @{ Number = 7; FriendlyName = 'WD Elements'; BusType = 'USB'; IsBoot = $false; IsSystem = $false; Size = 2000GB; UsedGB = 850; Backup = $true })) -Disk 7 -Yes -NoBackup 6>&1 | ForEach-Object { "$_" })
+Check '... chosen by number anyway: the warning names the files and the backup before ERASE' ("$o" -match '850 GB of files on it' -and "$o" -match 'holds your backup') ($o -join ' / ')
 $muText = Get-Content $mu -Raw
 Check 'the disk is checked again right before erasing (disk numbers can change)' ($muText -match '\$d = Get-Disk -Number \$Disk\s*\r?\n\s*if \("\$\(\$d\.BusType\)" -notin \$bus -or \$d\.IsBoot -or \$d\.IsSystem\) \{ throw') ''
 Check 'Windows and the kit are downloaded and checked before the stick is erased' ($muText.IndexOf('Get-FileHash $p -Algorithm SHA1') -lt $muText.IndexOf('Clear-Disk') -and $muText.IndexOf('releases/latest') -lt $muText.IndexOf('Clear-Disk') -and $muText.IndexOf("Get-AuthenticodeSignature `"`$src\setup.exe`"") -lt $muText.IndexOf('Clear-Disk')) ''

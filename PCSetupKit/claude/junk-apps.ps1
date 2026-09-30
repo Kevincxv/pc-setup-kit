@@ -18,6 +18,7 @@ $uninst = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\
 $script:ran = @()   # (tests: the apps whose uninstaller ran - those in Gone are gone afterwards)
 function Get-Apps { if ($T) { @($T.Apps | Where-Object { -not ($_.DisplayName -in @($T.Gone) -and $_.DisplayName -in $script:ran) } | ForEach-Object { [pscustomobject]$_ }) } else { @(Get-ItemProperty $uninst | Where-Object { $_.DisplayName -and -not $_.SystemComponent -and -not $_.ParentKeyName }) } }
 $st = try { Get-Content $State -Raw -ErrorAction Stop | ConvertFrom-Json } catch { [pscustomobject]@{} }
+if ($st -isnot [Management.Automation.PSCustomObject]) { $st = [pscustomobject]@{} }   # (valid JSON of the wrong shape - a number, a list - counts as no state, never as an error)
 if (-not ($st.PSObject.Properties.Name -contains 'removed')) { $st | Add-Member removed @() }
 
 # one app's uninstaller: silent for junk (its quiet command, msiexec /x, or winget), visible for -Remove

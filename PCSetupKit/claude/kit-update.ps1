@@ -9,6 +9,8 @@ param([string]$KitDir = 'C:\PCSetupKit', [string]$ClaudeDir = $PSScriptRoot, [st
 $ErrorActionPreference = 'Stop'
 if ($env:PCKIT_IN_TESTS -and -not $PSBoundParameters.ContainsKey('Saved')) { $Saved = Join-Path $env:TEMP "pckit-saved-$PID" }   # never the real saved version
 # one update at a time (the maintenance, the 4-hourly check, the app's Repair / Undo): a second one just stops
+# (it replaces $KitDir\tests and $KitDir\claude whole: never with an empty, relative or drive-root folder)
+if ("$KitDir" -notmatch '^[A-Za-z]:\\[^\\]' -or "$ClaudeDir" -notmatch '^[A-Za-z]:\\[^\\]') { "Kit update: refused - kit folder '$KitDir' / scripts folder '$ClaudeDir' is not a full folder path"; return }
 $umx = New-Object Threading.Mutex($false, "Global\PCSetupKitUpdate$(if ($env:PCKIT_IN_TESTS) { "-$PID" })")
 $got = try { $umx.WaitOne(0) } catch [Threading.AbandonedMutexException] { $true }
 if (-not $got) { return }
@@ -20,6 +22,7 @@ if ($cfg.repo -notmatch '^[\w.-]+/[\w.-]+$') { return }
 $verFile = "$KitDir\kit-version.txt"; $cur = if (Test-Path $verFile) { (Get-Content $verFile -Raw).Trim() } else { '' }
 $stFile = "$ClaudeDir\update-state.json"
 $st = try { Get-Content $stFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { [pscustomobject]@{} }
+if ($st -isnot [Management.Automation.PSCustomObject]) { $st = [pscustomobject]@{} }   # (valid JSON of the wrong shape - a number, a list - counts as no state, never as an error)
 foreach ($p in 'skip', 'failingSince', 'failing') { if (-not ($st.PSObject.Properties.Name -contains $p)) { $st | Add-Member $p $null } }
 function Save-State { try { $st | ConvertTo-Json | Set-Content $stFile -Encoding UTF8 } catch { } }
 function Restart-Tray {   # reload the tray (it won't open a second session)
@@ -27,16 +30,32 @@ function Restart-Tray {   # reload the tray (it won't open a second session)
     Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe' OR Name='Messiah.exe' OR Name='PC Setup Kit.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
     Start-ScheduledTask 'Messiah Tray'
 }
-if ($Rollback) {
+# the saved version back in place (-Rollback, and an install that failed half-way)
+function Restore-Saved {
     $prev = if (Test-Path "$Saved\version.txt") { (Get-Content "$Saved\version.txt" -Raw).Trim() }
-    if (-not $prev) { 'Kit update: nothing saved to go back to'; return }
-    foreach ($d in 'tests', 'claude') { if ((Test-Path "$Saved\kit\$d") -and (Test-Path "$KitDir\$d")) { [IO.Directory]::Delete("$KitDir\$d", $true) } }   # replaced whole, as an update does
-    Copy-Item "$Saved\kit\*" $KitDir -Recurse -Force
-    Copy-Item "$Saved\claude\*" $ClaudeDir -Recurse -Force
-    if ((Test-Path "$Saved\tray\Messiah Tray.ahk") -and (Test-Path $TrayDir)) { Copy-Item "$Saved\tray\Messiah Tray.ahk" $TrayDir -Force }
-    $st.skip = $cur; Save-State   # this release is not installed again; the next one is
+    if (-not $prev) { return $null }
+    # (a file that can't be written - still held open - is skipped, not the end of it: the update never got to write it either)
+    foreach ($d in 'tests', 'claude') { if ((Test-Path "$Saved\kit\$d") -and (Test-Path "$KitDir\$d")) { try { [IO.Directory]::Delete("$KitDir\$d", $true) } catch { } } }   # replaced whole, as an update does
+    # file by file: Copy-Item stops a whole folder at the first file it can't write
+    $script:held = @()
+    function Copy-Back($from, $to) {
+        if (-not (Test-Path $from)) { return }
+        foreach ($f in Get-ChildItem $from -Recurse -File -Force) {
+            $dest = Join-Path $to $f.FullName.Substring($from.Length).TrimStart('\')
+            try { New-Item (Split-Path $dest) -ItemType Directory -Force -ErrorAction Stop | Out-Null; Copy-Item -LiteralPath $f.FullName $dest -Force -ErrorAction Stop } catch { $script:held += (Split-Path $dest -Leaf) }
+        }
+    }
+    Copy-Back "$Saved\kit" $KitDir
+    Copy-Back "$Saved\claude" $ClaudeDir
+    if ((Test-Path "$Saved\tray\Messiah Tray.ahk") -and (Test-Path $TrayDir)) { Copy-Back "$Saved\tray" $TrayDir }
     $prev | Set-Content $verFile
     if (Test-Path "$KitDir\tests") { $prev | Set-Content "$KitDir\tests\tests-version.txt" }
+    $prev
+}
+if ($Rollback) {
+    $prev = Restore-Saved
+    if (-not $prev) { 'Kit update: nothing saved to go back to'; return }
+    $st.skip = $cur; Save-State   # this release is not installed again; the next one is
     Restart-Tray
     "PC Setup Kit: went back to $prev - $cur failed its self-test on this PC (the next release installs normally)"; return
 }
@@ -54,6 +73,7 @@ if ((Ver $tag) -and (Ver $cur) -and (Ver $tag) -lt (Ver $cur)) { return }
 
 $tmp = Join-Path $env:TEMP "pc-setup-kit-update"; if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
 New-Item $tmp -ItemType Directory -Force | Out-Null
+$installing = $false; $savedNow = $false
 try {
     $ProgressPreference = 'SilentlyContinue'
     Invoke-WebRequest "https://github.com/$($cfg.repo)/archive/refs/tags/$tag.zip" -OutFile "$tmp\kit.zip" -UseBasicParsing -TimeoutSec 120
@@ -76,7 +96,9 @@ try {
         Copy-Item "$ClaudeDir\*.ps1" "$Saved\claude\"; foreach ($d in 'hooks', 'skills') { if (Test-Path "$ClaudeDir\$d") { Copy-Item "$ClaudeDir\$d" "$Saved\claude\" -Recurse } }
         if (Test-Path "$TrayDir\Messiah Tray.ahk") { Copy-Item "$TrayDir\Messiah Tray.ahk" "$Saved\tray\" }
         $cur | Set-Content "$Saved\version.txt"
+        $savedNow = $true
     }
+    $installing = $true   # from here on a failure leaves a mix of versions: the catch puts the saved one back
     Copy-Item "$k\*.ps1" $KitDir -Force                                   # setup / tweaks / uninstall
     # the kit copy's tests and scripts (self-test.ps1 runs these tests weekly): replaced whole, so removed files don't linger
     foreach ($d in 'tests', 'claude') { if (Test-Path "$k\$d") { Remove-Item "$KitDir\$d" -Recurse -Force -ErrorAction SilentlyContinue; Copy-Item "$k\$d" $KitDir -Recurse -Force } }
@@ -94,6 +116,7 @@ try {
         Restart-Tray
     }
     $tag | Set-Content $verFile
+    $installing = $false
     $st.failingSince = $null; $st.failing = $null; Save-State
     # what's new, as a short note in the corner (the tray shows tray-news.txt once): the release's first points
     try {
@@ -105,8 +128,12 @@ try {
 }
 catch {
     # retried at every check; still failing after 3 days (disk full, antivirus, a network blocking GitHub) = WARNING
-    if ($st.failing -ne $tag -or -not $st.failingSince) { $st.failing = $tag; $st.failingSince = (Get-Date).ToString('o') }; Save-State
-    $days = ((Get-Date) - [datetime]$st.failingSince).TotalDays
-    "$(if ($days -ge 3) { "WARNING: kit updates have failed for $([int]$days) days" } else { 'Kit update' }): couldn't install $tag ($($_.Exception.Message)) - will retry next time"
+    # half-installed (a full disk, a locked file): the previous version back right away - never a mix of old and new
+    $back = if ($installing -and $savedNow) {   # (only what this run saved: a Reinstall saves nothing, and an older saved version must never come back)
+        try { Restore-Saved } catch { $null } }
+    $since = [datetime]::MinValue
+    if ($st.failing -ne $tag -or -not [datetime]::TryParse("$($st.failingSince)", [ref]$since)) { $st.failing = $tag; $since = Get-Date; $st.failingSince = $since.ToString('o') }; Save-State
+    $days = ((Get-Date) - $since).TotalDays
+    "$(if ($days -ge 3) { "WARNING: kit updates have failed for $([int]$days) days" } else { 'Kit update' }): couldn't install $tag ($($_.Exception.Message))$(if ($back) { " - put $back back as it was$(if ($script:held) { " ($($script:held -join ', ') was held open and never changed)" })" } elseif ($installing) { ' - AND COULD NOT PUT THE PREVIOUS VERSION BACK' }) - will retry next time"
 }
 finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }

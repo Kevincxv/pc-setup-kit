@@ -12,7 +12,7 @@ $mx = New-Object Threading.Mutex($false, "Global\PCSetupKitGamePerf$(if ($TestCs
 if (-not $mx.WaitOne(0)) { return }   # a sample is already running (tests never wait for a real one)
 
 $j = try { Get-Content $History -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
-$h = @($j | ForEach-Object { $_ })   # PowerShell 5.1 hands a JSON array over as ONE item: unrolled here
+$h = @($j | ForEach-Object { $_ } | Where-Object { $_ -is [Management.Automation.PSCustomObject] -and $(try { [void][datetime]"$($_.date)"; $true } catch { $false }) })   # PowerShell 5.1 hands a JSON array over as ONE item: unrolled here (a damaged entry is dropped)
 
 # --- which game (the one in front, fullscreen, or a known one running) ---
 $game = $TestGame

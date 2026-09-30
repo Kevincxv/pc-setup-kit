@@ -10,7 +10,7 @@ param([datetime]$Since = (Get-Date).AddDays(-7), [string]$State = "$PSScriptRoot
     [string]$Root, [string]$TestDriver, [object[]]$TestEvents, [string]$TestGame)
 $ErrorActionPreference = 'SilentlyContinue'
 $s = try { Get-Content $State -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $null }
-if (-not $s) { $s = [pscustomobject]@{} }
+if ($s -isnot [Management.Automation.PSCustomObject]) { $s = [pscustomobject]@{} }   # (valid JSON of the wrong shape - a number, a list - counts as no state, never as an error)
 foreach ($k in 'driver', 'driverSince', 'cachePending') { if (-not ($s.PSObject.Properties.Name -contains $k)) { $s | Add-Member $k $null } }
 if (-not ($s.PSObject.Properties.Name -contains 'resets')) { $s | Add-Member resets @() }
 
