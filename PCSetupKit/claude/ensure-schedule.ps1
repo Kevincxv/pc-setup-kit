@@ -4,7 +4,7 @@
 # The task is changed through its exact XML (handing PowerShell's principal object back fails when the user name
 # equals the computer name). Prints a line only when it changed something.
 # -Force: tests (mocked scheduled-task commands); otherwise it never runs inside the test suite.
-param([string]$TaskName = 'Claude Background Maintenance', [string]$GuardTask = 'PC Setup Kit Update Guard', [string]$CheckTask = 'PC Setup Kit Update Check', [switch]$Force)
+param([string]$TaskName = 'Claude Background Maintenance', [string]$GuardTask = 'PC Setup Kit Update Guard', [string]$CheckTask = 'PC Setup Kit Update Check', [string]$NightTask = 'Messiah Night Restart', [switch]$Force)
 if ($env:PCKIT_IN_TESTS -and -not $Force) { return }
 $ErrorActionPreference = 'Continue'
 # The update guard: 2 minutes after Windows Update installed something (WindowsUpdateClient 19) or a driver was installed
@@ -40,6 +40,22 @@ if ((Test-Path "$PSScriptRoot\update-check.ps1") -and -not (Get-ScheduledTask -T
 "@
     try { Register-ScheduledTask -TaskName $CheckTask -Xml $cx -Force -ErrorAction Stop | Out-Null; 'Update check: a newer kit release now installs within 4 hours (not only at login)' }
     catch { "Update check: couldn't set it up ($($_.Exception.Message)) - next run" }
+}
+# The night restart: every 30 minutes from 3:30 to 5:30 AM, restart-night.ps1 finishes pending updates with a restart -
+# only while nobody uses the PC (its own checks, and the Settings switch). Never wakes the PC, never catches up later.
+if ((Test-Path "$PSScriptRoot\restart-night.ps1") -and -not (Get-ScheduledTask -TaskName $NightTask -ErrorAction SilentlyContinue)) {
+    $nx = @"
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>Messiah: finishes pending updates with a restart at night, only while nobody uses the PC (Settings: Restart at night to finish updates).</Description></RegistrationInfo>
+  <Triggers><CalendarTrigger><StartBoundary>2026-01-01T03:30:00</StartBoundary><Enabled>true</Enabled><Repetition><Interval>PT30M</Interval><Duration>PT2H</Duration><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger></Triggers>
+  <Principals><Principal id="Author"><UserId>$env:USERDOMAIN\$env:USERNAME</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
+  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><StartWhenAvailable>false</StartWhenAvailable><WakeToRun>false</WakeToRun><DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>true</StopIfGoingOnBatteries><ExecutionTimeLimit>PT10M</ExecutionTimeLimit><Enabled>true</Enabled></Settings>
+  <Actions Context="Author"><Exec><Command>$env:SystemRoot\System32\conhost.exe</Command><Arguments>--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot\restart-night.ps1"</Arguments></Exec></Actions>
+</Task>
+"@
+    try { Register-ScheduledTask -TaskName $NightTask -Xml $nx -Force -ErrorAction Stop | Out-Null; 'Night restart: pending updates now finish with a restart at night while nobody uses the PC (a switch in Settings)' }
+    catch { "Night restart: couldn't set it up ($($_.Exception.Message)) - next run" }
 }
 if (-not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) { return }
 $xml = [string](Export-ScheduledTask -TaskName $TaskName)

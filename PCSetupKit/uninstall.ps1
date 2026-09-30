@@ -49,7 +49,7 @@ if (-not $RevertOnly) {
         Do-It "stop $($pr.Name) $($pr.ProcessId)" { Stop-Process -Id $pr.ProcessId -Force }
     }
     Write-Host "`n=== Scheduled tasks" -ForegroundColor Cyan
-    foreach ($t in 'Messiah Tray', 'Claude Admin Tray', 'Claude Background Maintenance', 'Claude Resume After Restart', 'PC Setup Kit Update Guard', 'PC Setup Kit Update Check') {
+    foreach ($t in 'Messiah Tray', 'Claude Admin Tray', 'Claude Background Maintenance', 'Claude Resume After Restart', 'PC Setup Kit Update Guard', 'PC Setup Kit Update Check', 'Messiah Night Restart') {
         if (Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue) { Do-It "remove task '$t'" { Unregister-ScheduledTask -TaskName $t -Confirm:$false } }
     }
     Write-Host "`n=== Shortcuts and tray icon" -ForegroundColor Cyan
@@ -80,7 +80,7 @@ if (-not $RevertOnly) {
         'health-check.ps1', 'maint-due.ps1', 'maint-watch.ps1', 'periodic-maint.ps1', 'resume-after-restart.ps1', 'restart-check.ps1', 'session-lib.ps1',
         'refresh-session.ps1', 'status.ps1', 'status-lib.ps1', 'dashboard.ps1', 'tray-app.ps1', 'app-icon.ps1', 'driver-guard.ps1', 'driver-blocklist.txt', 'trends.ps1', 'health-history.json', 'Messiah Session.lnk', 'app-window.txt', 'tray-hwnd.txt', 'rehearse-login.ps1', 'game-check.ps1', 'kit-update.ps1', 'migrate-names.ps1', 'self-test.ps1', 'self-test.json', 'self-test.log', 'ai-enabled.ps1', 'kit-options.txt', 'optimize.ps1', 'maint-actions.ps1', 'ensure-schedule.ps1', 'todo.ps1', 'display-refresh.ps1', 'todo-scripted.json', 'actions-state.json', 'tweaks-local.ps1',
         'game-perf.ps1', 'perf-history.json', 'tools', 'gpu-watch.ps1', 'gpu-state.json', 'network-check.ps1', 'net-history.json', 'settings-backup.ps1',
-        'settings-restored.txt', 'display-state.json', 'notifications.log', 'gaming-check.ps1', 'gaming-state.json', 'make-usb.ps1', 'after-update.ps1', 'update-check.ps1', 'update-state.json', 'paused.ps1', 'weekly-summary.ps1', 'bios-info.ps1', 'activation-check.ps1', 'activation-state.txt', 'ai-toggle.ps1', 'ai-toggle.log', 'gpu-rollback.ps1', 'gpu-hold.txt', 'weekly-summary.last', 'tray-news.txt', 'self-test-retry.log', 'nvidia-settings.ps1', 'nvidia-settings.txt',
+        'settings-restored.txt', 'display-state.json', 'notifications.log', 'gaming-check.ps1', 'gaming-state.json', 'make-usb.ps1', 'after-update.ps1', 'update-check.ps1', 'update-state.json', 'paused.ps1', 'weekly-summary.ps1', 'bios-info.ps1', 'activation-check.ps1', 'activation-state.txt', 'ai-toggle.ps1', 'ai-toggle.log', 'gpu-rollback.ps1', 'gpu-hold.txt', 'vendor-updates.ps1', 'vendor-state.json', 'restart-night.ps1', 'restart-night.log', 'junk-apps.ps1', 'junk-state.json', 'files-backup.ps1', 'files-backup-state.json', 'weekly-summary.last', 'tray-news.txt', 'self-test-retry.log', 'nvidia-settings.ps1', 'nvidia-settings.txt',
         'maint-report.txt', 'maint-state.json', 'maint-todo.txt', 'maint-todo.shown', 'maint-requests.txt', 'maint-claude-running', 'maint-claude-session',
         'maint-history', 'maint-claude-log', 'restart-ledger.json', 'restart-canary.txt', 'admin-sessions.txt', 'resume-after-login.txt', 'rehearsal.txt',
         'games.txt', 'tray-notified.ini', 'tray-errors.log', 'selfimprove-last', 'selfimprove-journal.md', 'selfimprove-backup', 'session-refresh.log', 'benchmarks.json',

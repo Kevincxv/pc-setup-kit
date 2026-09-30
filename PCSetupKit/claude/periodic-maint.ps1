@@ -2,7 +2,7 @@
 # Tracks what ran when in .claude\maint-state.json and only does tasks that are due. Prints one line per action.
 # Tasks that need judgment (BIOS, firmware, Windows version upgrades, re-benchmarks) are marked due here and done
 # by Claude itself: the launcher opens Claude with /maintain when anything in "claude" is due.
-param([string]$TestDisplayVersion, [string]$TestEdition, [string]$TestInstallType, [string]$TestToday, [ValidateSet('', 'yes', 'no')][string]$TestRebootPending)   # -Test*: tests (-TestRebootPending: this PC may really have a restart pending)
+param([string]$TestDisplayVersion, [string]$TestEdition, [string]$TestInstallType, [string]$TestToday, [ValidateSet('', 'yes', 'no')][string]$TestRebootPending, [int]$TestOsAgeDays = -1)   # -Test*: tests (-TestRebootPending: this PC may really have a restart pending)
 $ErrorActionPreference = 'SilentlyContinue'
 $stateFile = "$PSScriptRoot\maint-state.json"
 function Read-State { $h = @{}; try { $j = Get-Content $stateFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $j = $null }
@@ -42,6 +42,9 @@ if (-not $game -and (Due 'weekly-apps' 7)) {
         for ($i = $h + 2; $i -lt $raw.Count -and $raw[$i] -match '\S' -and $raw[$i] -notmatch 'upgrades? available|explicit targeting'; $i++) {
             $id = $src = $null; if ("$($raw[$i])" -match '^(?<name>.+?)\s+(?<id>\S+)\s+(?<ver>(<\s)?\S+)\s+(?<avail>\S+)\s+(?<src>\S+)\s*$') { $id = $Matches['id']; $src = $Matches['src'] }
             if (-not $id -or ($skip | Where-Object { $id -like "$_*" })) { continue }
+            # (GitHub's test machines come with dozens of developer tools no real PC has - Visual Studio, LLVM, MySQL...:
+            # updating them took 20+ minutes of every fresh-install test. There, only the kit's own apps.)
+            if ($env:GITHUB_ACTIONS -and -not $env:PCKIT_IN_TESTS -and $id -notin 'Git.Git', 'Microsoft.WinDbg', 'AutoHotkey.AutoHotkey', 'Valve.Steam', 'Discord.Discord', 'Google.Chrome') { continue }
             $o = winget upgrade --id $id -e --source $src --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | Out-String
             if ($LASTEXITCODE -eq 0 -or $o -match 'Successfully installed') { "Updated app: $id" } else { "App update FAILED: $id" }
         }
@@ -51,6 +54,7 @@ if (-not $game -and (Due 'weekly-apps' 7)) {
 
 # --- Weekly: settings backup (the look, game settings, the kit's memory - setup brings them back after a reinstall) ---
 if (-not $game -and (Test-Path "$PSScriptRoot\settings-backup.ps1")) { & "$PSScriptRoot\settings-backup.ps1" }   # (it skips itself when the last is under 6 days old)
+if (-not $game -and (Test-Path "$PSScriptRoot\junk-apps.ps1")) { & "$PSScriptRoot\junk-apps.ps1" }   # what came with the PC: junk removed, trials a to-do (weekly with the app updates)
 
 # --- Monthly: cleanup, restore point, orphans, driver store ---
 if (-not $game -and (Due 'monthly-cleanup' 30)) {
@@ -79,8 +83,14 @@ if (-not $game -and (Due 'monthly-cleanup' 30)) {
     foreach ($k in Get-ChildItem $vc) {
         if ($k.PSChildName -in $safe) { Set-ItemProperty $k.PSPath StateFlags0078 2 -Type DWord } else { Remove-ItemProperty $k.PSPath StateFlags0078 }
     }
-    $cm = Start-Process cleanmgr.exe -ArgumentList '/sagerun:78' -WindowStyle Hidden -PassThru
-    if (-not $cm.WaitForExit(900000)) { Stop-Process -Id $cm.Id -Force; 'Disk Cleanup: stopped after 15 min' }
+    # not in Windows' first week: a new install has nothing to clean yet, and Disk Cleanup runs to its 15-minute limit
+    # on one (the first maintenance, right after setup) - next month's cleanup does it
+    $osAge = if ($TestOsAgeDays -ge 0) { $TestOsAgeDays } else { $i = (Get-CimInstance Win32_OperatingSystem).InstallDate; if ($i) { [int]((Get-Date) - $i).TotalDays } else { 99 } }
+    if ($osAge -lt 7) { "Disk Cleanup: skipped - Windows was installed $osAge day(s) ago, nothing to clean yet (next month's cleanup runs it)" }
+    else {
+        $cm = Start-Process cleanmgr.exe -ArgumentList '/sagerun:78' -WindowStyle Hidden -PassThru
+        if (-not $cm.WaitForExit(900000)) { Stop-Process -Id $cm.Id -Force; 'Disk Cleanup: stopped after 15 min' }
+    }
     if ($woDays -and -not (Test-Path 'C:\Windows.old')) { "Removed the previous Windows (Windows.old) - its $woDays-day window for going back had passed" }
     # Steam (only while it's closed): downloads and temp files untouched for 14 days (abandoned installs), and folders of
     # uninstalled games no installed game points to - those go to the Recycle Bin (some old games keep saves there)

@@ -56,7 +56,7 @@ function New-Object {
         }
     }
 }
-function DC { $u = $env:LOCALAPPDATA; $env:LOCALAPPDATA = $la; try { @(& "$d\driver-check.ps1" -TestAmdChipset $DC.AmdHave) } finally { $env:LOCALAPPDATA = $u } }
+function DC { $u = $env:LOCALAPPDATA; $env:LOCALAPPDATA = $la; try { @(& "$d\driver-check.ps1" -TestAmdChipset $DC.AmdHave -TestAmdGpu $DC.AmdGpu) } finally { $env:LOCALAPPDATA = $u } }
 
 if (-not (Assert-Mocks $mocked)) { Finish }
 
@@ -126,4 +126,23 @@ Reset-D; $DC.Gpu = 'AMD Radeon RX TEST'; $DC.Cpu = 'AMD Ryzen 5 TEST'; $DC.AmdPa
 Check "... a download without AMD's signature: never run" (-not ($DCcalls -match '^run AMD') -and ($o -match "did not carry AMD's signature")) (($DCcalls + $o) -join ' / ')
 Reset-D; $DC.Gpu = 'AMD Radeon RX TEST'; $DC.Cpu = 'AMD Ryzen 5 TEST'; $DC.AmdPage = 'a changed page'; $o = DC
 Check "... AMD's page changed (no link found): nothing done, no error" (-not ($o -match 'AMD chipset') -and -not ($DCcalls -match 'AMD_Chipset')) ($o -join ' / ')
+
+Section 'AMD Radeon: the newest WHQL Adrenalin driver from AMD'
+$rp = '<a href="https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.8.1-win11-b.exe">x</a> <a href="https://drivers.amd.com/drivers/whql-amd-software-adrenalin-edition-26.9.2-win11-c.exe">y</a> <a href="https://drivers.amd.com/drivers/installer/26.10/whql/amd-software-adrenalin-edition-26.8.1-minimalsetup-260818_web.exe">z</a>'
+function Radeon([hashtable]$o = @{}) { Reset-D; $DC.Gpu = 'AMD Radeon RX 7800 XT'; $DC.Cpu = 'Intel TEST'; $DC.AmdPage = $rp; $DC.Signer = 'CN=Advanced Micro Devices, Inc., O=Advanced Micro Devices, Inc.'; foreach ($k in $o.Keys) { $DC[$k] = $o[$k] }; DC }
+[IO.File]::Delete("$d\gpu-hold.txt")
+$o = Radeon @{ AmdGpu = '26.8.1.260818' }
+Check 'an older Adrenalin: the newest WHQL package downloaded, AMD-signed, a restore point, installed silently' (($DCcalls -match 'download .*adrenalin-edition-26\.9\.2-win11-c\.exe') -and ($DCcalls -contains 'restore point') -and ($DCcalls -match '^run whql-amd-software-adrenalin-edition-26\.9\.2-win11-c\.exe -install$') -and ($o -match 'AMD Radeon: installed 26\.9\.2')) (($DCcalls + $o) -join ' / ')
+$o = Radeon @{ AmdGpu = '26.9.2.260901' }
+Check '... already the newest: nothing downloaded, said' (-not ($DCcalls -match 'adrenalin') -and ($o -match 'AMD Radeon: 26\.9\.2\.260901 is up to date')) (($DCcalls + $o) -join ' / ')
+$o = Radeon @{ AmdGpu = 'none' }
+Check '... no Adrenalin yet: installed' ($DCcalls -match '^run whql-amd-software-adrenalin-edition-26\.9\.2') (($DCcalls + $o) -join ' / ')
+$o = Radeon @{ AmdGpu = '26.8.1'; Signer = 'CN=Somebody Else' }
+Check "... not AMD's signature: never run" (-not ($DCcalls -match '^run whql') -and ($o -match "did not carry AMD's signature")) (($DCcalls + $o) -join ' / ')
+'26.9.2' | Set-Content "$d\gpu-hold.txt"
+$o = Radeon @{ AmdGpu = '26.8.1' }
+Check '... went back from 26.9.2 (the app''s rollback): that version is skipped until a newer one' (-not ($DCcalls -match 'adrenalin') -and ($o -match 'up to date')) (($DCcalls + $o) -join ' / ')
+[IO.File]::Delete("$d\gpu-hold.txt")
+$o = Radeon @{ AmdGpu = '26.8.1'; Gpu = 'AMD Radeon RX 580' }
+Check 'an old Radeon (RX 580, a different driver line): left to Windows Update' (-not ($DCcalls -match 'adrenalin')) (($DCcalls + $o) -join ' / ')
 Finish

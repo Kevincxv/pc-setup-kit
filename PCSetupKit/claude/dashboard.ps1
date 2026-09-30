@@ -259,6 +259,8 @@ try {
             if (-not (Test-Path $u)) { Say 'The uninstaller is missing - Repair the kit first (Maintenance page).'; return }
             Start-Process powershell -Verb RunAs -ArgumentList (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit', '-File', "`"$u`"", '-Yes') + @(if ($rv -eq 'Yes') { '-RevertTweaks' }))
             $win.Close() }
+        FilesBackup  = { Start-Process powershell -WindowStyle Hidden -ArgumentList ((& $psArgs 'files-backup.ps1') + '-Enable'); & "$cl\todo.ps1" -Id 'backup' -Done
+            Say 'Backing up your files to that drive now - from now on it happens by itself whenever the drive is connected.'; Update-View -Force }
         Welcomed     = { Set-Opt 'welcome' 'done'; $script:welcomeDone = $true; Update-Nav; $navItems.Home.Button.IsChecked = $true }
     }
 
@@ -336,6 +338,8 @@ try {
         if ($t -match '(https://[^\s)]+?)[.,;]?(\s|$)') { return @('Open the page', $Matches[1]) }   # an item with its own link (the BIOS page, ...)
         switch -Regex ($t) {
             'previous graphics driver' { return @('Go back to the previous driver', 'kit:gpu-rollback') }
+            '^(.+?) is installed - .*the Uninstall button here' { return @("Uninstall $($Matches[1])", "kit:uninstall:$($Matches[1])") }
+            'Back up your files to' { return @('Back up to this drive', 'kit:files-backup') }
             'activated' { return @('Activation settings', 'ms-settings:activation') }
             'hypervisor' { return @('Windows features', 'optionalfeatures.exe') }
             'Xbox Game Bar' { return @('Microsoft Store', 'ms-windows-store://pdp/?ProductId=9NZKPSTSNW4P') }
@@ -361,7 +365,7 @@ try {
             $bp = New-Object Windows.Controls.WrapPanel -Property @{ Margin = '14,6,0,0' }   # (small buttons, no gap under them)
             if ($more) { $db = New-Btn 'E946' 'Details' -Small { $t = $this.DataContext; $t.Visibility = if ($t.Visibility -eq 'Visible') { 'Collapsed' } else { 'Visible' } }; $db.DataContext = $mt; [void]$bp.Children.Add($db) }
             $fx = Get-TodoFix $text
-            if ($fx) { $b = New-Btn 'E8A7' $fx[0] -Small { $c = $this.Uid; if ($c -eq 'kit:gpu-rollback') { & $act.GpuRollback } elseif ($c -match '^(\S+\.exe)( (.+))?$') { if ($Matches[3]) { Start-Process $Matches[1] -ArgumentList $Matches[3] } else { Start-Process $Matches[1] } } else { Start-Process $c } }; $b.Uid = $fx[1]; [void]$bp.Children.Add($b) }   # (Uid: the button's own data)
+            if ($fx) { $b = New-Btn 'E8A7' $fx[0] -Small { $c = $this.Uid; if ($c -eq 'kit:gpu-rollback') { & $act.GpuRollback } elseif ($c -like 'kit:uninstall:*') { Start-Process powershell -Verb RunAs -ArgumentList ((& $psArgs 'junk-apps.ps1') + '-Remove', "`"$($c.Substring(14))`""); Say 'Its own uninstaller opens - follow it; the item goes away once it is removed.' } elseif ($c -eq 'kit:files-backup') { & $act.FilesBackup } elseif ($c -match '^(\S+\.exe)( (.+))?$') { if ($Matches[3]) { Start-Process $Matches[1] -ArgumentList $Matches[3] } else { Start-Process $Matches[1] } } else { Start-Process $c } }; $b.Uid = $fx[1]; [void]$bp.Children.Add($b) }   # (Uid: the button's own data)
             $sb = New-Btn 'E823' 'Remind me in a week' -Small { & "$cl\todo.ps1" -Snooze $this.Uid -Days 7; Say 'Snoozed - it comes back in a week if it still needs you.'; Update-View -Force }
             $sb.Uid = $text; [void]$bp.Children.Add($sb)
             [void]$row.Children.Add($bp); $row
@@ -486,7 +490,7 @@ try {
                 # what setup did: the report's "WHAT WAS DONE" (optimize.ps1), the main lines
                 $rep = @(Get-Content "$env:USERPROFILE\Documents\PC Setup Kit report.txt" -Encoding UTF8 -ErrorAction SilentlyContinue)
                 $i = [array]::IndexOf($rep, 'WHAT WAS DONE'); $j = [array]::IndexOf($rep, 'WHAT NEEDS YOU')
-                $did = @(if ($i -ge 0 -and $j -gt $i) { $rep[($i + 1)..($j - 1)] | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notmatch '^(WARNING|Reminder|Restore point|Next:|Checked|\[|Apps: \d|Crashes: none|Tweaks: all|Maintenance: running)|FAILED|timed out|could not run' } | Select-Object -Unique -First 10 | ForEach-Object { @{ Text = "- $_"; Level = 'info' } } })
+                $did = @(if ($i -ge 0 -and $j -gt $i) { $rep[($i + 1)..($j - 1)] | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notmatch '^(WARNING|Reminder|Restore point|Next:|Checked|\[|Apps: \d|Crashes: none|Tweaks: all|Maintenance: running|Maintenance (|Other drivers: all up to date|Next:)|FAILED|timed out|could not run' } | Select-Object -Unique -First 10 | ForEach-Object { @{ Text = "- $_"; Level = 'info' } } })
                 if (-not $did) { $did = @(@{ Text = '- Windows updated, drivers and apps installed, the screen at its best resolution and refresh rate'; Level = 'info' }, @{ Text = '- Telemetry, ads and bloat off; the best power plan; games tuned (each change is yours to switch off in Settings)'; Level = 'info' }) }
                 [void]$out.Add((New-Card 'What was done' 'E9D5' $did @(if ($rep) { New-Btn 'E8A5' 'The full report' { Start-Process notepad.exe "`"$env:USERPROFILE\Documents\PC Setup Kit report.txt`"" } })))
                 [void]$out.Add((New-Card 'From now on' 'E823' @(
@@ -627,7 +631,11 @@ try {
                 $openRow = New-SwitchRow "Open $name when I log in" "Off: $name starts in the hidden tray (^ next to the clock) and works on its own. On: this window also opens once per start-up (not while a game is fullscreen)." ((Get-Opt 'openatlogin' 'off') -eq 'on') {
                     Set-Opt 'openatlogin' $(if ($this.IsChecked) { 'on' } else { 'off' }); Say "Saved - $(if ($this.IsChecked) { "this window opens at login" } else { "$name starts in the hidden tray at login" })."
                 }
-                [void]$out.Add((New-Card 'AI assistant and start-up' 'E713' @($aiRow, $openRow) $null))
+                # (restart-night.ps1: on by default, except on the PC the kit is made on)
+                $nightRow = New-SwitchRow 'Restart at night to finish updates' 'When an update waits for a restart, the PC restarts between 3:30 and 5:30 AM - only if nobody has used it for an hour, no game is running and it is plugged in. A 5-minute warning first (the tray''s Cancel restart stops it). Off: updates finish whenever you restart.' ((Get-Opt 'nightrestart' $(if (Test-Path "$cl\publish-kit.ps1") { 'off' } else { 'on' })) -eq 'on') {
+                    Set-Opt 'nightrestart' $(if ($this.IsChecked) { 'on' } else { 'off' }); Say "Saved - $(if ($this.IsChecked) { 'pending updates finish with a restart at night while the PC is unused' } else { 'updates finish whenever you restart' })."
+                }
+                [void]$out.Add((New-Card 'AI assistant, start-up and restarts' 'E713' @($aiRow, $openRow, $nightRow) $null))
                 # --- Gaming options (kit-options.txt; gaming-check.ps1 / nvidia-settings.ps1 apply them at the next check)
                 [void]$out.Add((New-Section 'Gaming'))
                 $opts = foreach ($o in @(@('defenderexclusions', 'off', 'Microsoft Defender skips my game folders', 'Less stutter while games load and build their shaders. A small security trade-off: files in those folders are no longer scanned. Off by default.'),

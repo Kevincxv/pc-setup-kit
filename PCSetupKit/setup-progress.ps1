@@ -8,7 +8,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName PresentationFramework
 # the steps in order, with their usual minutes on a new PC (the bar moves by these, not by step count)
 $steps = @(@('Waiting for internet', 0.3), @('Applying Windows tweaks', 1.5),
-    @('Getting winget ready', 2), @('Installing apps', 8), @('Setting up the maintenance', 1), @('Installing Claude Code', 2), @('Optimizing this PC', 6))
+    @('Getting winget ready', 2), @('Installing apps', 8), @('Setting up the maintenance', 1), @('Installing Claude Code', 2), @('Optimizing this PC', 3))   # (the full maintenance continues in the background after setup)
 $dark = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize').AppsUseLightTheme -eq 0
 $c = if ($dark) { @{ Bg = '#202020'; Card = '#2B2B2B'; Text = '#FFFFFF'; Sub = '#A8A8A8'; Accent = '#8F7DFF'; Done = '#6CCB5F'; Bad = '#FF99A4' } }
 else { @{ Bg = '#F3F3F3'; Card = '#FFFFFF'; Text = '#1B1B1B'; Sub = '#5F5F5F'; Accent = '#6D5AE6'; Done = '#0F7B0F'; Bad = '#C42B1C' } }

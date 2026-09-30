@@ -4,3 +4,5 @@ kit-version.txt
 tests/last-run.txt
 PCSetupKit/tests/last-run.txt
 
+tools/installer/out/
+PCSetupKit/Microsoft/

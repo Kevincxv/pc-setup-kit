@@ -7,7 +7,7 @@ $st = "$Work\gaming-state.json"
 $global:acts = @()
 $rec = { param($w) $global:acts += $w }
 function Pc([hashtable]$over = @{}) {
-    $h = @{ Cpu = 'AMD Ryzen 7 5800X3D 8-Core Processor'; GameBar = $true; VCacheSvc = 'Stopped|Automatic'; Bar1MiB = 16384; Hypervisor = $false; HvOffNext = $false; HvFeatures = @(); Option = $null
+    $h = @{ Cpu = 'AMD Ryzen 7 5800X3D 8-Core Processor'; GameBar = $true; VCacheSvc = 'Stopped|Automatic'; Bar1MiB = 16384; Hypervisor = $false; HvOffNext = $false; HvFeatures = @(); HvInUse = ''; Option = $null
         Libraries = @([pscustomobject]@{ Path = 'C:\Steam'; Games = 4; Hdd = $false; SsdFreeGB = 900 }) }
     foreach ($k in $over.Keys) { $h[$k] = $over[$k] }; $h
 }
@@ -37,8 +37,16 @@ $o = Invoke-Gaming (Pc @{ Libraries = @([pscustomobject]@{ Path = 'D:\SteamLibra
 Check 'Steam games on a hard drive, the SSD has room: Reminder with how to move them' ("$o" -match '^Reminder: 12 Steam game\(s\) are on a hard drive \(D:\\SteamLibrary\) while the SSD has 500 GB free') ($o -join ' / ')
 $o = Invoke-Gaming (Pc @{ Libraries = @([pscustomobject]@{ Path = 'D:\SteamLibrary'; Games = 12; Hdd = $true; SsdFreeGB = 40 }) })
 Check '... the SSD nearly full: not said (nowhere to move them)' (-not $o) ($o -join ' / ')
-$o = Invoke-Gaming (Pc @{ Hypervisor = $true; HvFeatures = @('VirtualMachinePlatform') })
-Check 'the hypervisor running: Reminder naming what turned it on' ("$o" -match '^Reminder: the Windows hypervisor is running \(for WSL / Virtual Machine Platform\)') ($o -join ' / ')
+Clear-Path $st
+$o = Invoke-Gaming (Pc @{ Hypervisor = $true; HvFeatures = @('VirtualMachinePlatform', 'Containers-DisposableClientVM'); HvInUse = '' })
+Check 'the hypervisor running and nothing uses it: its features and the hypervisor turned off by itself, said' ((($acts -join ',') -eq 'feature off VirtualMachinePlatform,feature off Containers-DisposableClientVM,hypervisor off') -and "$o" -match '^Gaming: turned off the Windows hypervisor \(WSL / Virtual Machine Platform, Windows Sandbox\) - nothing on this PC uses it') (($o + $acts) -join ' / ')
+$o = Invoke-Gaming (Pc @{ Hypervisor = $true; HvFeatures = @('VirtualMachinePlatform'); HvInUse = '' })
+Check '... switched on again later: the owner''s choice, left alone' (-not $acts -and -not $o) (($o + $acts) -join ' / ')
+Clear-Path $st
+$o = Invoke-Gaming (Pc @{ Hypervisor = $true; HvFeatures = @('VirtualMachinePlatform'); HvInUse = 'WSL (Ubuntu)' })
+Check 'WSL (or a VM, an emulator, Docker) in use: left on, nothing said' (-not $acts -and -not $o) (($o + $acts) -join ' / ')
+$o = Invoke-Gaming (Pc @{ Hypervisor = $true; HvFeatures = @(); HvInUse = '' })
+Check 'only memory integrity (the owner''s switch) runs it: left alone' (-not $acts -and -not $o) (($o + $acts) -join ' / ')
 $o = Invoke-Gaming (Pc @{ Hypervisor = $true; HvOffNext = $true })
 Check '... already set to be off at the next restart: not said' (-not $o) ($o -join ' / ')
 

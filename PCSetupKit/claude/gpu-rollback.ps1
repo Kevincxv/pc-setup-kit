@@ -41,7 +41,9 @@ if (-not $Yes -and -not $T) {
     Write-Host 'The screen goes black for a few seconds. A restore point is made first.'
     if ((Read-Host 'Type YES to go back') -ne 'YES') { return 'Cancelled - nothing was changed' }
 }
+# the version to hold back, as driver-check.ps1 compares it: NVIDIA's (560.94), AMD Adrenalin's (26.8.1)
 $nv = if ($T) { $T.NvidiaVersion } elseif ($cur.Device -match 'NVIDIA') { "$(& nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>$null | Select-Object -First 1)".Trim() }
+elseif ($cur.Device -match 'Radeon|AMD') { $a = "$((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object { $_.DisplayName -eq 'AMD Software' } | Select-Object -First 1).DisplayVersion)"; if ($a -match '^(\d+\.\d+\.\d+)') { $Matches[1] } }
 Act 'restore point' {
     $k = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore'
     $was = (Get-ItemProperty $k).SystemRestorePointCreationFrequency

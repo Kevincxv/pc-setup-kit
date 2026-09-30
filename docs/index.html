@@ -57,7 +57,7 @@
     </div>
     <ol>
       <li>Open the downloaded file. If your browser asks, choose <strong>Keep</strong>.</li>
-      <li>If Windows shows <strong>"Windows protected your PC"</strong>, click <strong>More info</strong>, then <strong>Run anyway</strong>. This shows up because the file isn't signed by a paid certificate.</li>
+      <li>If Windows shows <strong>"Windows protected your PC"</strong>, click <strong>More info</strong>, then <strong>Run anyway</strong>. This shows up because the file isn't code-signed yet: the project has applied for free code signing by the <a href="https://signpath.org">SignPath Foundation</a> (<a href="code-signing.html">code signing policy</a>).</li>
       <li>Click <strong>Yes</strong> when it asks for administrator rights, read what it will do, then type <code>YES</code>.</li>
       <li>Wait 15-30 minutes. It tweaks Windows, installs the apps, optimizes the PC, then the app opens with a welcome page showing what it did.</li>
     </ol>
@@ -107,7 +107,7 @@
     <p style="margin:16px 0 0">Remove it any time with <code>C:\PCSetupKit\uninstall.ps1</code> (add <code>-RevertTweaks</code> to put the Windows settings back).</p>
   </div>
 
-  <footer>Source, releases and the fresh-Windows USB install: <a href="https://github.com/Kevincxv/pc-setup-kit">github.com/Kevincxv/pc-setup-kit</a></footer>
+  <footer>Source, releases and the fresh-Windows USB install: <a href="https://github.com/Kevincxv/pc-setup-kit">github.com/Kevincxv/pc-setup-kit</a> · <a href="code-signing.html">Code signing policy</a> · MIT license</footer>
 </main>
 <script>
   document.querySelectorAll('.copy').forEach(function (b) {

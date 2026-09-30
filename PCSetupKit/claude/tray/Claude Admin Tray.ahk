@@ -36,6 +36,7 @@ pauseMenu.Add("For 2 hours", (*) => SetPause(2))
 pauseMenu.Add("Until tomorrow", (*) => SetPause(24))
 pauseMenu.Add("Resume now", (*) => SetPause(0))
 tray.Add("Pause maintenance", pauseMenu)
+tray.Add("Cancel restart", (*) => Run(A_WinDir "\System32\shutdown.exe /a", , "Hide"))   ; stops a night restart's 5-minute countdown (restart-night.ps1)
 tray.Add()
 tray.Add("Remove tray icon", (*) => ExitApp())
 tray.Default := "Open " NAME
@@ -302,6 +303,8 @@ UsbBackup() {
     if EnvGet("PCKIT_IN_TESTS") != "" || !FileExist(CL "\settings-backup.ps1")
         return
     try Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' CL '\settings-backup.ps1" -ToUsb', , "Hide"
+    if FileExist(CL "\files-backup.ps1")   ; the owner's files, when it's the drive chosen for them (files-backup.ps1)
+        try Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' CL '\files-backup.ps1" -Arrived', , "Hide"
 }
 
 ; Every 5 minutes while something is fullscreen: game-perf.ps1 records a minute of the game's frame rate and the graphics

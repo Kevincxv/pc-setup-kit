@@ -2,7 +2,7 @@
 # Started by the launcher (fire-and-forget) and by the "Claude Background Maintenance" task at logon.
 # Runs the driver check, Claude Code maintenance and PC health check in parallel and writes a report
 # that the launcher shows at the next start.
-param([switch]$Force, [switch]$Unattended, [switch]$Now)   # -Now: the owner started it (tray / app "Run maintenance now", optimize): runs even while paused   # -Unattended: run at login by the scheduled task; also lets Claude do /maintain headless
+param([switch]$Force, [switch]$Unattended, [switch]$Now, [switch]$NoSelfTest)   # -NoSelfTest: the first run right after setup (optimize.ps1 -FinishReport) - the next run does it   # -Now: the owner started it (tray / app "Run maintenance now", optimize): runs even while paused   # -Unattended: run at login by the scheduled task; also lets Claude do /maintain headless
 $ErrorActionPreference = 'Continue'
 $dir = "$env:USERPROFILE\.claude"
 $report = "$dir\maint-report.txt"
@@ -29,8 +29,11 @@ $renamed = if (Test-Path "$dir\migrate-names.ps1") { & "$dir\migrate-names.ps1" 
 # AutoHotkey updates too. Never from the test suite: it would change the owner's real Start menu and tray.
 $trayApp = if (-not $env:PCKIT_IN_TESTS -and (Test-Path "$dir\tray-app.ps1")) { & "$dir\tray-app.ps1" }
 $start = Get-Date
+# the driver check's limit: 20 min, 50 on a Dell / HP / Lenovo (the maker's weekly BIOS + driver run, vendor-updates.ps1) -
+# a Windows Update driver search that hangs must not hold every PC's maintenance for 50 minutes
+$drvLimit = if ("$((Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).Manufacturer)" -match '^(Dell|HP|Hewlett|Lenovo)') { 3000 } else { 1200 }
 $jobs = foreach ($j in @(
-        @{ Name = 'Drivers'; Script = 'driver-check.ps1'; Timeout = 1200 },
+        @{ Name = 'Drivers'; Script = 'driver-check.ps1'; Timeout = $drvLimit },
         @{ Name = 'Claude Code'; Script = 'claude-maint.ps1'; Timeout = 300 },    # its own steps can take 120+45+45 s (+45 per plugin)
         @{ Name = 'PC health'; Script = 'health-check.ps1'; Timeout = 900 },     # long limit: first crash-dump analysis downloads symbols
         @{ Name = 'Periodic'; Script = 'periodic-maint.ps1'; Timeout = 3600 },   # weekly app updates, monthly cleanup (only when due)
@@ -44,6 +47,9 @@ $jobs = foreach ($j in @(
     [pscustomobject]@{ Name = $j.Name; Proc = $p; Out = $out; Deadline = $start.AddSeconds($j.Timeout) }
 }
 foreach ($j in $jobs) {
+    # (a job that finished while an earlier one was still being waited for is done - not "timed out" because its own
+    # limit passed meanwhile: that false WARNING woke /maintain after every slow run)
+    if ($j.Proc.HasExited) { continue }
     $left = [int]($j.Deadline - (Get-Date)).TotalMilliseconds
     if ($left -le 0 -or -not $j.Proc.WaitForExit($left)) { Stop-Process -Id $j.Proc.Id -Force -ErrorAction SilentlyContinue; $j | Add-Member TimedOut $true }
 }
@@ -56,7 +62,7 @@ foreach ($j in $jobs) {
 }
 # Self-test (weekly, and after a kit update - so after the jobs): the kit's test suite against the installed scripts.
 # A failure is a WARNING, so /maintain looks at it at this same login.
-$st = @(if (Test-Path "$dir\self-test.ps1") { & "$dir\self-test.ps1" | Where-Object { $_ } })
+$st = @(if (-not $NoSelfTest -and (Test-Path "$dir\self-test.ps1")) { & "$dir\self-test.ps1" | Where-Object { $_ } })
 if ($st) { $lines += '[Self-test]'; $lines += $st }
 # Without Claude: scripted decisions - safe fixes and plain to-do items - from what the jobs found (maint-actions.ps1)
 $act = @(if (-not $ai -and (Test-Path "$dir\maint-actions.ps1")) { & "$dir\maint-actions.ps1" -Lines $lines | Where-Object { $_ } })

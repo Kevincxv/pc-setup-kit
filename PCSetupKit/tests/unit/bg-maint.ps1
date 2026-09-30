@@ -8,7 +8,7 @@ $realTray = { @(Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe' O
 $trayBefore = & $realTray
 function New-Case([hashtable]$Jobs, [string]$Unattended, [switch]$Short) {
     $t = (Get-Content "$Src\claude-bg-maint.ps1" -Raw).Replace("'Global\ClaudeBgMaint'", "'Global\ClaudeBgMaintT$PID'")
-    if ($Short) { $t = $t.Replace("Script = 'driver-check.ps1'; Timeout = 1200", "Script = 'driver-check.ps1'; Timeout = 4") }
+    if ($Short) { $t = $t.Replace("Script = 'driver-check.ps1'; Timeout = `$drvLimit", "Script = 'driver-check.ps1'; Timeout = 4") }
     Set-Content "$C\claude-bg-maint.ps1" $t
     Copy-Item "$Src\maint-due.ps1" $C -Force
     '' | Set-Content "$C\game-check.ps1"   # never gaming here (game-aware.ps1 tests that)

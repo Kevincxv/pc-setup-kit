@@ -87,11 +87,28 @@ if ($gpus.Count -ge 2 -and $fast) {
 # --- the hypervisor (WSL, virtual machines, Sandbox): a few % of gaming performance ---
 $hv = if ($T) { $T.Hypervisor } else { (Get-CimInstance Win32_ComputerSystem).HypervisorPresent }
 $offNext = if ($T) { $T.HvOffNext } else { "$(bcdedit /enum '{current}' 2>$null)" -match 'hypervisorlaunchtype\s+Off' }
+# Turned off by itself when nothing on the PC uses it (no WSL distro, virtual machine, Android emulator, Docker or VM
+# app) - once: switched on again afterwards, it's the owner's choice and stays. Memory integrity alone (the owner's
+# switch in the app) is left alone. Takes effect at the next restart.
 if ($hv -and -not $offNext -and -not (Test-Path "$PSScriptRoot\sandbox-features-before.json")) {   # (not the kit's own Sandbox test)
     $names = @{ 'Microsoft-Hyper-V-All' = 'Hyper-V'; 'VirtualMachinePlatform' = 'WSL / Virtual Machine Platform'; 'HypervisorPlatform' = 'Windows Hypervisor Platform (emulators, VMs)'; 'Containers-DisposableClientVM' = 'Windows Sandbox' }
-    $on = if ($T) { $T.HvFeatures } else { @($names.Keys | Where-Object { (Get-WindowsOptionalFeature -Online -FeatureName $_).State -eq 'Enabled' }) }
+    $on = @(if ($T) { $T.HvFeatures } else { $names.Keys | Where-Object { (Get-WindowsOptionalFeature -Online -FeatureName $_).State -eq 'Enabled' } })
     $what = @($on | ForEach-Object { $names[$_] }) -join ', '
-    "Reminder: the Windows hypervisor is running$(if ($what) { " (for $what)" }) - it costs a few % in games. If you don't use it: Start > `"Turn Windows features on or off`", untick it, restart"
+    $inUse = if ($T) { $T.HvInUse } else {
+        $apps = @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' |
+                Where-Object { $_.DisplayName -match 'Docker Desktop|BlueStacks|Android Studio|VMware|VirtualBox|LDPlayer|MEmu|Nox|Genymotion|Windows Subsystem for Android|Podman' } | ForEach-Object DisplayName)
+        $wsl = @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss' | Where-Object { $_.GetValue('DistributionName') })
+        $vms = @(Get-ChildItem "$env:ProgramData\Microsoft\Windows\Hyper-V\Virtual Machines" -Filter *.vmcx -Recurse)
+        @(@($apps | Select-Object -First 2) + @(if ($wsl) { "WSL ($(@($wsl | ForEach-Object { $_.GetValue('DistributionName') }) -join ', '))" }) + @(if ($vms) { "$($vms.Count) Hyper-V virtual machine(s)" })) -join ', '
+    }
+    if (-not ($st.PSObject.Properties.Name -contains 'hvOff')) { $st | Add-Member hvOff $null }
+    if ($on -and -not $inUse -and -not $st.hvOff) {
+        foreach ($f in $on) { Act "feature off $f" { $null = Disable-WindowsOptionalFeature -Online -FeatureName $f -NoRestart -WarningAction SilentlyContinue } }
+        Act 'hypervisor off' { $null = bcdedit /set '{current}' hypervisorlaunchtype off 2>&1 }
+        $st.hvOff = @{ date = $(if ($T) { '2026-01-01' } else { (Get-Date).ToString('o') }); features = @($on) }
+        try { $st | ConvertTo-Json -Depth 4 | Set-Content $State -Encoding UTF8 } catch { }
+        "Gaming: turned off the Windows hypervisor ($what) - nothing on this PC uses it, and it costs a few % in games (from the next restart; to use it again: Start > `"Turn Windows features on or off`")"
+    }
 }
 
 # --- optional: Defender skips the game libraries ---

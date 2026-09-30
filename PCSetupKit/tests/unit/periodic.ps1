@@ -42,7 +42,7 @@ function Get-Process { param($Name) if ($Name -eq 'steam' -and $PM.SteamRunning)
 function Get-ItemProperty { if ("$args" -match 'Valve\\Steam') { return [pscustomobject]@{ SteamPath = $PM.SteamPath } }; Microsoft.PowerShell.Management\Get-ItemProperty @args }
 function Test-Path { $a = @($args | ForEach-Object { $_ }) -join ' '; if ($a -match 'RebootPending|RebootRequired') { return $PM.Reboot }; Microsoft.PowerShell.Management\Test-Path @args }
 function State([hashtable]$s) { $base = @{ 'weekly-apps' = $now.ToString('o'); 'monthly-cleanup' = $now.ToString('o'); 'trim' = $now.ToString('o') }; foreach ($k in $s.Keys) { $base[$k] = $s[$k] }; $base | ConvertTo-Json | Set-Content "$d\maint-state.json" }
-function PM { $global:psdriveCalls = 0; @(& "$d\periodic-maint.ps1" -TestDisplayVersion 25H2 -TestEdition Professional -TestToday $now.ToString('s')) }
+function PM([int]$OsAge = 30) { $global:psdriveCalls = 0; @(& "$d\periodic-maint.ps1" -TestDisplayVersion 25H2 -TestEdition Professional -TestToday $now.ToString('s') -TestOsAgeDays $OsAge) }
 function St { Get-Content "$d\maint-state.json" -Raw | ConvertFrom-Json }
 $old = $now.AddDays(-40).ToString('o')
 
@@ -130,6 +130,8 @@ Reset-M; State @{ 'monthly-cleanup' = $old }; $PM.Rps = @(RestorePt 0.5); $PM.Re
 Check 'a restore point from today already exists: no second one' (-not ($PMcalls -contains 'Checkpoint-Computer')) ''
 Check 'restart pending: DISM skipped (it would hang)' (-not ($PMcalls -match 'DISM')) ''
 Check 'Disk Cleanup hanging: stopped after 15 min and said so' (($PMcalls -match 'Stop-Process') -and ($o -match 'Disk Cleanup: stopped after 15 min')) ($o -join ' / ')
+Reset-M; State @{ 'monthly-cleanup' = $old }; $o = PM -OsAge 0
+Check 'Windows installed today (the first maintenance after setup): no Disk Cleanup (nothing to clean, 15 minutes saved), said; the rest of the cleanup still runs' (-not ($PMcalls -match 'cleanmgr') -and ($o -match 'Disk Cleanup: skipped - Windows was installed 0 day') -and ($PMcalls -match 'DISM .*StartComponentCleanup')) ($o -join ' / ')
 Reset-M; State @{ 'monthly-cleanup' = $old }; $PM.Rps = @(); $PM.RpWorks = $false; $o = PM
 Check 'System Protection off: restore point FAILED is reported' ([bool]($o -match 'Restore point FAILED')) ($o -join ' / ')
 

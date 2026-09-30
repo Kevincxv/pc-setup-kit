@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code signing policy - Messiah</title>
+<style>
+  :root { --bg: #f6f6f8; --card: #fff; --text: #1b1b1f; --sub: #5d5d66; --line: #e3e3e8; --accent: #5b57e8; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1b1b1f; --card: #26262c; --text: #f2f2f5; --sub: #a8a8b3; --line: #34343c; --accent: #a8a6ff; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 28px; margin: 0 0 8px; } h2 { font-size: 18px; margin: 0 0 8px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin: 16px 0; }
+  a { color: var(--accent); } p, li { color: var(--text); } .sub { color: var(--sub); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Code signing policy</h1>
+  <p class="sub">For the Messiah installer (Install-Messiah.exe) of the open-source <a href="https://github.com/Kevincxv/pc-setup-kit">pc-setup-kit</a> project.</p>
+
+  <div class="card">
+    <h2>Who signs</h2>
+    <p>Free code signing provided by <a href="https://about.signpath.io">SignPath.io</a>, certificate by <a href="https://signpath.org">SignPath Foundation</a> (applied for; until it is granted the installer is not signed).</p>
+    <p>Only the installer built from this repository's source by GitHub Actions (<code>.github/workflows/sign.yml</code>, from <code>tools/installer/Installer.cs</code>) is signed, and only for published releases. Nothing built on a personal computer is ever signed.</p>
+  </div>
+
+  <div class="card">
+    <h2>Team roles</h2>
+    <ul>
+      <li><strong>Committers and reviewers:</strong> the repository's maintainers (<a href="https://github.com/Kevincxv/pc-setup-kit/graphs/contributors">contributors</a>).</li>
+      <li><strong>Approvers:</strong> the owner of <a href="https://github.com/Kevincxv/pc-setup-kit">the repository</a>, who approves each signing request.</li>
+    </ul>
+    <p>All team members use multi-factor authentication for GitHub and SignPath.</p>
+  </div>
+
+  <div class="card" id="privacy">
+    <h2>Privacy</h2>
+    <p>This program does not send personal information anywhere. It only connects to the internet to do what it is for: downloading Windows, driver and app updates from their makers (Microsoft, winget, NVIDIA, AMD, Intel, the PC maker), and newer versions of itself from this project's GitHub releases. The optional AI assistant (Claude) is only used after the owner signs in with their own Claude account, and is subject to <a href="https://www.anthropic.com/legal/privacy">Anthropic's privacy policy</a>.</p>
+  </div>
+</main>
+</body>
+</html>

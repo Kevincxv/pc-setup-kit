@@ -50,8 +50,8 @@ if ($healthRan) {
     if (($l = Line '^Reminder: (.+) network link is only (.+?) \(') -and $l -match '^Reminder: (.+) network link is only (.+?) \(') {
         Todo 'network-link' "Your wired network ($($Matches[1])) connects at only $($Matches[2]). Try another network cable (Cat5e or better) or another port on the router."
     } else { Done 'network-link' }
-    if (($l = Line '^Reminder: (.+) \((\d+) GB\) is connected and nothing is backed up') -and $l -match '^Reminder: (.+) \((\d+) GB\) is connected') {
-        Todo 'backup' "The drive $($Matches[1]) is connected but nothing is backed up. To back up your files to it automatically: open Control Panel > File History, choose that drive and click Turn on."
+    if (($l = Line '^Reminder: (.+) \((\d+) GB(, (\w):)?\) is connected and nothing is backed up') -and $l -match '^Reminder: (.+) \((\d+) GB(, (\w):)?\) is connected') {
+        Todo 'backup' "Back up your files to $($Matches[1])$(if ($Matches[4]) { " ($($Matches[4]):)" }) automatically: Documents, Desktop, Pictures, Videos and Music are copied to it whenever it's connected, and nothing is ever deleted from the backup. One click: Back up to this drive."
     } else { Done 'backup' }
     if (Line '^WARNING: Defender real-time protection is OFF') {
         Todo 'defender' "Windows Security's real-time protection is off. Open Windows Security > Virus & threat protection > Manage settings and turn Real-time protection on (unless you use another antivirus)."

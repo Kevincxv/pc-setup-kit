@@ -1,0 +1,57 @@
+# Code signing (SignPath Foundation, free for open source): for every release, GitHub builds Install-Messiah.exe from
+# tools\installer\Installer.cs, SignPath signs it, and the signed file is attached to the release. The install page's
+# download button then gets no "Windows protected your PC" warning.
+# Until the SignPath secrets exist (see SIGNING.md) the exe is still built as a check, but nothing is attached - an
+# unsigned exe would warn just like the .cmd does.
+name: sign installer
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+jobs:
+  sign:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+    env:
+      HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Install-Messiah.exe (the C# compiler that comes with Windows)
+        shell: powershell
+        run: |
+          & .\tools\installer\build.ps1 -Out "$PWD\tools\installer\out\Install-Messiah.exe" -Version "${{ github.event.release.tag_name || '0.0.0' }}"
+          if (-not (Test-Path .\tools\installer\out\Install-Messiah.exe)) { exit 1 }
+      - name: Keep the unsigned build (SignPath signs exactly this file)
+        id: unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-unsigned
+          path: tools/installer/out/Install-Messiah.exe
+          if-no-files-found: error
+      - name: Sign it (SignPath)
+        if: env.HAS_SIGNPATH == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: pc-setup-kit
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+      - name: Check the signature, then attach it to the release
+        if: env.HAS_SIGNPATH == 'true' && github.event_name == 'release'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          $f = Get-ChildItem .\signed -Recurse -Filter Install-Messiah.exe | Select-Object -First 1
+          $sig = Get-AuthenticodeSignature $f.FullName
+          if ($sig.Status -ne 'Valid') { "signature: $($sig.Status) - not attached"; exit 1 }
+          "signed by: $($sig.SignerCertificate.Subject)"
+          gh release upload $env:TAG $f.FullName --clobber -R $env:GITHUB_REPOSITORY

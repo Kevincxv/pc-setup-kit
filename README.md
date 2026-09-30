@@ -73,6 +73,11 @@ Microsoft's Media Creation Tool USB plus `autounattend.xml` and the `PCSetupKit`
 - **Easy to live with**: a note after each kit update saying what's new, a weekly one-line summary, Pause maintenance (tray menu) for a stream or a tournament, "Remind me in a week" and a direct "fix it" button on to-do items, Repair / Undo the last update, back up or restore your settings by hand, and Ctrl+Alt+P (Ctrl+Alt+M with Messiah) to open the app from anywhere.- **Settings stay optimized**: 2 minutes after every Windows Update or driver install, everything an update can undo (settings, services, removed apps, the power plan, OneDrive, monitors, NVIDIA settings) is put back.
 - **Self-testing**: weekly and after every update, the kit's test suite checks the maintenance scripts on the PC
   itself (in a sandbox - nothing changes).
+- **Hands-off extras**: on Dell, HP and Lenovo Think* PCs the maker's own tool installs BIOS, firmware and drivers
+  weekly; AMD Radeon cards get AMD's newest driver (like NVIDIA's); pending updates finish with a restart at night while
+  nobody uses the PC (a switch; 5-minute warning, Cancel restart in the tray); an unused hypervisor is turned off;
+  junk that came with the PC is removed (trial antivirus: one click); your files are copied to a second drive by itself
+  once you pick it.
 - **One-click fixes**: go back to the previous graphics driver (Maintenance page; the newer one is held back), uninstall
   from Settings, big Windows upgrades wait 45 days (security updates don't), and on laptops with two graphics chips
   every game is set to the fast one.
@@ -88,3 +93,5 @@ C:\PCSetupKit\uninstall.ps1 -RevertTweaks   # ...and puts the Windows settings b
 
 Nothing is deleted outright: removed files are moved to `%USERPROFILE%\.claude\pc-setup-kit-removed-<date>`.
 Installed apps (and with Messiah, your Claude conversations and account) stay.
+
+License: MIT. Code signing policy: https://kevincxv.github.io/pc-setup-kit/code-signing.html

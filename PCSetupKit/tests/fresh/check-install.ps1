@@ -36,8 +36,14 @@ Check "the optional Claude part recorded as $(if ($withClaude) { 'on' } else { '
 $claude = "$env:USERPROFILE\.local\bin\claude.exe"
 if (-not $withClaude) {
     Check 'no Claude Code, no skills, no hook, no session shortcut (the app is Messiah either way)' (-not (Test-Path $claude) -and -not (Test-Path "$cl\skills") -and -not (Test-Path "$cl\hooks") -and -not (Test-Path "$cl\Messiah Session.lnk")) ''
+    # setup was done before its first full maintenance: that one runs in the background (optimize.ps1 -Background) -
+    # wait for it, then check it all the same (up to an hour)
+    $ran = Test-Path "$cl\setup-maint-running.txt"
+    for ($w = 0; (Test-Path "$cl\setup-maint-running.txt") -and $w -lt 240; $w++) { Start-Sleep 15 }
+    Check 'setup finished before the long maintenance, which ran in the background right after' ($ran -or ((Get-Content "$env:USERPROFILE\Documents\PC Setup Kit report.txt" -Raw -ErrorAction SilentlyContinue) -match 'in the background, right after setup')) ''
+    Check '... and finished (within the hour)' (-not (Test-Path "$cl\setup-maint-running.txt")) ''
     $rep = Get-Content "$env:USERPROFILE\Documents\PC Setup Kit report.txt" -Raw -ErrorAction SilentlyContinue
-    Check 'the PC was optimized by script: report in Documents (this PC, what was done incl. the maintenance, what needs you)' ($rep -match 'THIS PC' -and $rep -match 'WHAT WAS DONE' -and $rep -match 'Maintenance: running everything now' -and $rep -match 'WHAT NEEDS YOU') "$rep"
+    Check 'the PC was optimized by script: report in Documents (this PC, what was done incl. the maintenance, what needs you)' ($rep -match 'THIS PC' -and $rep -match 'WHAT WAS DONE' -and $rep -match 'Maintenance \(in the background, right after setup\):\s+\S' -and $rep -match 'WHAT NEEDS YOU') "$rep"
     Check '... the maintenance ran and wrote its report' ((Get-Content "$cl\maint-report.txt" -TotalCount 1 -ErrorAction SilentlyContinue) -match '^Checked ') ''
     Write-Host "`n--- optimization report ---`n$rep"
 }

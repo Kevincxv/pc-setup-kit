@@ -79,7 +79,9 @@ if (-not $expoTest -and $ram.ConfiguredClockSpeed -and $ram.ConfiguredClockSpeed
     "Reminder: RAM runs at its default $($ram.ConfiguredClockSpeed) MT/s ($($ram.PartNumber.Trim())) - if it's a faster kit, turn EXPO/XMP on in BIOS"
 }
 $bios = Get-CimInstance Win32_BIOS
-if ($bios.ReleaseDate -and $bios.ReleaseDate -lt (Get-Date).AddMonths(-12)) { "Reminder: BIOS $($bios.SMBIOSBIOSVersion) is from $($bios.ReleaseDate.ToString('d')) (over a year old)" }
+# (not where the PC maker's own tool keeps the BIOS current - vendor-updates.ps1)
+$makerTool = try { (Get-Content "$PSScriptRoot\vendor-state.json" -Raw -ErrorAction Stop | ConvertFrom-Json).supported -eq $true } catch { $false }
+if (-not $makerTool -and $bios.ReleaseDate -and $bios.ReleaseDate -lt (Get-Date).AddMonths(-12)) { "Reminder: BIOS $($bios.SMBIOSBIOSVersion) is from $($bios.ReleaseDate.ToString('d')) (over a year old)" }
 # monitors: fixed first (native resolution, best refresh rate - also one plugged in later), then what's still off is said
 if (Test-Path "$PSScriptRoot\display-refresh.ps1") { & "$PSScriptRoot\display-refresh.ps1" }
 Add-Type -TypeDefinition @'
@@ -163,9 +165,11 @@ if (Test-Path "$PSScriptRoot\nvidia-settings.ps1") { & "$PSScriptRoot\nvidia-set
 if (Test-Path "$PSScriptRoot\network-check.ps1") { & "$PSScriptRoot\network-check.ps1" }
 
 # --- Backups: impossible with one drive (a copy on the same disk dies with it); when a second/external drive shows up, offer it ---
+# files-backup.ps1: the one-click offer, then the backup itself whenever the chosen drive is there
+if (Test-Path "$PSScriptRoot\files-backup.ps1") { & "$PSScriptRoot\files-backup.ps1" -Check }
 $fh = Test-Path "$env:LOCALAPPDATA\Microsoft\Windows\FileHistory\Configuration\Config1.xml"
 $bk = Get-ScheduledTask | Where-Object { $_.TaskName -match 'backup' -and $_.TaskPath -notlike '\Microsoft\*' -and $_.State -ne 'Disabled' }
-if (-not $fh -and -not $bk) {
+if (-not (Test-Path "$PSScriptRoot\files-backup.ps1") -and -not $fh -and -not $bk) {   # (an older copy without it)
     $sys = (Get-Partition -DriveLetter C).DiskNumber
     foreach ($d in Get-Disk | Where-Object { $_.Number -ne $sys -and $_.BusType -ne 'File Backed Virtual' -and $_.Size -ge 64GB }) {
         "Reminder: $($d.FriendlyName) ($([int]($d.Size / 1GB)) GB) is connected and nothing is backed up"

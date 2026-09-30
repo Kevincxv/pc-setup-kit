@@ -160,12 +160,13 @@ if (-not (Test-Path "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe")) { '  Au
 if (-not $WithClaude) {
     # Without Claude the optimization is a script too: monitors, benchmark baseline, drivers, app updates, checks,
     # cleanup, self-test, fixes and to-do items - and a readable report (Documents\PC Setup Kit report.txt)
-    Step 'Optimizing this PC (drivers, updates, checks, benchmark - takes a few minutes)'
-    & "$cl\optimize.ps1" -NoOpen | ForEach-Object { "  $_" }   # (the app's welcome page shows what was done; the report stays in Documents)
+    Step 'Optimizing this PC (monitors, benchmark - the full maintenance then continues in the background)'
+    & "$cl\optimize.ps1" -NoOpen -Background | ForEach-Object { "  $_" }   # (the app's welcome page shows what was done; the report stays in Documents)
     Step 'Done'
     Write-Host @'
 
-  Setup finished. From now on the PC maintains itself at every login (updates, drivers, cleanup, crash checks).
+  Setup finished - the PC is ready to use. Its first full maintenance (updates, drivers, checks) runs in the
+  background now; from then on the PC maintains itself at every login (updates, drivers, cleanup, crash checks).
   The report (Documents\PC Setup Kit report.txt) shows what was done and anything that needs you; the tray
   icon in the hidden tray and the "Messiah" app (Start menu and desktop) show the status.
   You can unplug the USB drive now. Log: C:\PCSetupKit\setup.log
