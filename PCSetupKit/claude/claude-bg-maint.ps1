@@ -88,6 +88,8 @@ if ($Unattended -and $ai) {
         Add-Content "$dir\maint-requests.txt" -Encoding UTF8 ("The previous hidden run ($($prev[1]), started $($prev[2])) was cut off (the PC was turned off, or it hit its time limit). " +
             "Its transcript is session $($prev[0])$(if ($plog) { " (log: $($plog.FullName))" }). Check what it had started, verify anything that needed the restart, and finish it.")
     }
+    # the published release failing its daily fresh-install check on GitHub: a job for /maintain (the kit's own PC only)
+    if (Test-Path "$dir\release-issues.ps1") { $lines += @(& "$dir\release-issues.ps1") }
     # Warnings count as handled only once /maintain has finished (a shutdown in the middle leaves them due for next login)
     $due = @(& "$dir\maint-due.ps1")
     if ($due -or (Test-Path "$dir\maint-requests.txt")) { $runs += @{ Mode = 'maintain'; Minutes = 45 } }

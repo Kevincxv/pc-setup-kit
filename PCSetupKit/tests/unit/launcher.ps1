@@ -37,7 +37,11 @@ function Launch([switch]$Auto, [string[]]$LaunchArgs, [switch]$Revive) {   # -Re
     $psi.EnvironmentVariables['USERPROFILE'] = $home2; $psi.EnvironmentVariables['FAKE_LOG'] = $log
     $token = [guid]::NewGuid().ToString(); $psi.EnvironmentVariables['PCKIT_LAUNCH_TOKEN'] = $token
     if ($Auto) { $psi.EnvironmentVariables['CLAUDE_ADMIN_AUTOSTART'] = $(if ($Revive) { '2' } else { '1' }) } else { $psi.EnvironmentVariables.Remove('CLAUDE_ADMIN_AUTOSTART') }
-    $p = [Diagnostics.Process]::Start($psi); $out = $p.StandardOutput.ReadToEnd(); $err = $p.StandardError.ReadToEnd(); [void]$p.WaitForExit(30000)
+    # both pipes read at once, with a real limit: reading one to the end first hung the suite for 10 minutes when the
+    # other filled up, or when something the launcher started kept a pipe open (9/29, under a full parallel run)
+    $p = [Diagnostics.Process]::Start($psi); $ot = $p.StandardOutput.ReadToEndAsync(); $et = $p.StandardError.ReadToEndAsync()
+    if (-not $p.WaitForExit(60000)) { try { $p.Kill() } catch {} }
+    $out = if ($ot.Wait(10000)) { $ot.Result } else { '' }; $err = if ($et.Wait(10000)) { $et.Result } else { '(stderr not closed)' }
     $r = [pscustomobject]@{ Args = @(); Env = $null; Out = $out; Err = $err }
     # bg-maint is fire-and-forget: its marker can appear a moment later - only the checks that ask wait for it (up to 2 s)
     $r | Add-Member NoteProperty Token $token

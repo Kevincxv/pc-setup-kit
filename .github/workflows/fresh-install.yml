@@ -103,6 +103,22 @@ jobs:
             gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --prerelease=false --latest=false
             echo "$TAG passed, but $newest is newer - $TAG is released without becoming the latest"
           fi
+      - uses: actions/checkout@v4
+      - name: The install page to the signed installer (once the latest release has it)
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh release list -R "$GITHUB_REPOSITORY" --limit 5 --json tagName,isLatest --jq '.[] | select(.isLatest) | .tagName')
+          if ! gh release view "$latest" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qx 'Install-Messiah.exe'; then echo "the latest release ($latest) has no signed installer yet - page unchanged"; exit 0; fi
+          git fetch -q origin main && git checkout -q -B main origin/main
+          r=$(pwsh -NoProfile -File tools/signing/switch-page.ps1 -Docs docs)
+          if [ "$r" = "changed" ]; then
+            git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -q -am "Install page: the signed installer (Install-Messiah.exe)" && git push -q origin main
+            echo "install page switched to the signed installer"
+          else echo "install page already on the signed installer"; fi
 
   # The daily check failed: an issue on the repository (one at a time - a later failure adds a comment)
   alert:
@@ -121,3 +137,20 @@ jobs:
           open=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "Daily install check failed in:title" --json number --jq '.[0].number')
           if [ -n "$open" ]; then gh issue comment "$open" -R "$GITHUB_REPOSITORY" --body "Failed again on $(date -u +%F) ($tag): $RUN"
           else gh issue create -R "$GITHUB_REPOSITORY" --title "Daily install check failed ($tag)" --body "A fresh install of the latest release ($tag) failed today: $RUN - something outside the kit may have changed (winget, a download, the Claude Code installer). New installs may be affected until it's fixed."; fi
+  # A passing daily check after a failed one: the issue is closed again (the fix worked, or the outside cause went away)
+  resolved:
+    name: close a fixed daily-check issue
+    needs: setup
+    if: success() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          tag=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          for n in $(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "Daily install check failed in:title" --json number --jq '.[].number'); do
+            gh issue close "$n" -R "$GITHUB_REPOSITORY" --comment "The daily fresh install of $tag passed again: $RUN"
+          done

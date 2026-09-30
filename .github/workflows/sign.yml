@@ -55,3 +55,18 @@ jobs:
           if ($sig.Status -ne 'Valid') { "signature: $($sig.Status) - not attached"; exit 1 }
           "signed by: $($sig.SignerCertificate.Subject)"
           gh release upload $env:TAG $f.FullName --clobber -R $env:GITHUB_REPOSITORY
+      - name: The install page to the signed installer (once the latest release has it)
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh release list -R "$GITHUB_REPOSITORY" --limit 5 --json tagName,isLatest --jq '.[] | select(.isLatest) | .tagName')
+          if ! gh release view "$latest" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qx 'Install-Messiah.exe'; then echo "the latest release ($latest) has no signed installer yet - page unchanged"; exit 0; fi
+          git fetch -q origin main && git checkout -q -B main origin/main
+          r=$(pwsh -NoProfile -File tools/signing/switch-page.ps1 -Docs docs)
+          if [ "$r" = "changed" ]; then
+            git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -q -am "Install page: the signed installer (Install-Messiah.exe)" && git push -q origin main
+            echo "install page switched to the signed installer"
+          else echo "install page already on the signed installer"; fi

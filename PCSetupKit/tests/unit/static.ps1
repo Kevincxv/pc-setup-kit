@@ -49,7 +49,8 @@ if ($inRepo) {
     $page = Get-Content "$repoRoot\docs\index.html" -Raw -ErrorAction SilentlyContinue
     $links = @([regex]::Matches("$page", 'href="([^"]+\.cmd)" download') | ForEach-Object { [uri]::UnescapeDataString($_.Groups[1].Value) } | Where-Object { $_ -like 'Install*' })
     $bad = @($links | Where-Object { $f = "$repoRoot\docs\$_"; -not (Test-Path $f) -or (Get-Content $f -Raw) -notmatch 'github\.com/Kevincxv/pc-setup-kit/releases/latest/download/install\.ps1' -or [IO.File]::ReadAllText($f) -match '[^\r]\n' })
-    Check 'install page: one download button (one app; the AI assistant is a switch in it), a CRLF batch file running install.ps1' ($links.Count -eq 1 -and -not $bad) "links: $($links -join ', '); bad: $($bad -join ', ')"
+    $signed = @([regex]::Matches("$page", 'href="(https://github\.com/Kevincxv/pc-setup-kit/releases/latest/download/Install-Messiah\.exe)"') | ForEach-Object { $_.Groups[1].Value })   # (after code signing: sign.yml switches the page)
+    Check 'install page: one download button (one app; the AI assistant is a switch in it) - a CRLF batch file running install.ps1, or the signed installer' ((($links.Count -eq 1 -and -not $bad) -and -not $signed) -or ($signed.Count -eq 1 -and -not $links)) "links: $($links -join ', '); bad: $($bad -join ', ')"
     # every PC updates with the updater it already has: the kit-update.ps1 of the release it runs, possibly several behind.
     # Each of those only installs a release holding its list of required files ($need) - this release must hold them all,
     # or PCs on that release would never update again. The last 10 releases' updaters (their tags, in the repo).

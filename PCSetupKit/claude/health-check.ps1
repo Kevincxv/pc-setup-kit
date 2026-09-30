@@ -44,7 +44,8 @@ if ($fixed) { "Tweaks: Windows had reverted $($fixed.Count) - re-applied: $(($fi
 
 # --- Security, clock, app updates ---
 $mp = Get-MpComputerStatus
-if ($mp -and -not $mp.RealTimeProtectionEnabled) { 'WARNING: Defender real-time protection is OFF' }
+if (Test-Path "$PSScriptRoot\defender-check.ps1") { & "$PSScriptRoot\defender-check.ps1" }   # (switched back on when nothing else protects the PC)
+elseif ($mp -and -not $mp.RealTimeProtectionEnabled) { 'WARNING: Defender real-time protection is OFF' }
 if ($mp -and $mp.QuickScanAge -gt 7 -and -not (& "$PSScriptRoot\game-check.ps1")) {   # never scan under a running game
     Start-Process "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -ArgumentList '-Scan', '-ScanType', '1' -WindowStyle Hidden
     "Security: started a quick virus scan (last one $(if ($mp.QuickScanAge -ge 10000) { 'never' } else { "$($mp.QuickScanAge) days ago" }))"

@@ -111,6 +111,11 @@ delete the file when empty). Logs of headless runs are in `.claude\maint-claude-
 with open items, go through them together; remove each line once it's done. One-off requests for the next login run can be
 left in `.claude\maint-requests.txt`.
 
+A request about GitHub's daily fresh-install check failing (release-issues.ps1, only on the PC the kit is made on) is
+the one case where a hidden run publishes: fix the cause in the kit, install the fix on this PC, and publish with
+`publish-kit.ps1` only after the full unit suite and its own checks pass; then watch it with `watch-release.ps1`. If
+anything fails, or the cause is outside the kit, don't publish - comment on the issue and tell the owner.
+
 ## Report
 End with: what you did, anything the owner must do (physical steps, BIOS), anything that finishes at their next
 shutdown/restart (whenever suits them), and when the next check is due.
