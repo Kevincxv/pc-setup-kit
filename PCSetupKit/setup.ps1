@@ -32,7 +32,7 @@ Step 'Waiting for internet'
 for ($i = 0; $i -lt 60 -and -not (Test-NetConnection 1.1.1.1 -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue); $i++) { Start-Sleep 5 }
 
 Step 'Applying Windows tweaks (with the power plan and removing OneDrive)'
-& "$kit\tweaks.ps1" | ForEach-Object { "  $_" }
+& "$kit\tweaks.ps1" -Quick | ForEach-Object { "  $_" }
 
 # (the power plan - laptops kept on Balanced - and removing OneDrive are part of tweaks.ps1 above: its guard puts
 # them back after every update)

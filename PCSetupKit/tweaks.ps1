@@ -2,6 +2,8 @@
 # Idempotent: only changes what differs from the target and prints one line per change, so it is used both
 # by setup.ps1 at first logon and by health-check.ps1 as a "tweak guard" after Windows updates.
 # Must run elevated, as the user who owns the PC (HKCU settings apply to that user).
+# -Quick: setup's first run - the slow parts (the old Windows parts, via DISM) wait for the first maintenance
+param([switch]$Quick)
 $ErrorActionPreference = 'SilentlyContinue'
 $changes = New-Object System.Collections.Generic.List[string]
 # one guard at a time (health-check, the update guard, setup, the app's choices): the originals file isn't written twice at
@@ -206,9 +208,14 @@ $apps = 'Microsoft.Copilot', 'Microsoft.Windows.Ai.Copilot.Provider', 'Microsoft
     'Microsoft.ZuneVideo', 'Clipchamp.Clipchamp', 'MicrosoftCorporationII.QuickAssist', 'MicrosoftCorporationII.MicrosoftFamily',
     'Microsoft.OutlookForWindows', 'MSTeams', 'MicrosoftTeams', 'Microsoft.MicrosoftOfficeHub', 'Microsoft.Office.OneNote',
     'Microsoft.MicrosoftStickyNotes', 'Microsoft.WindowsAlarms', 'Microsoft.WindowsSoundRecorder', 'Microsoft.549981C3F5F10',
-    'Microsoft.Windows.DevHome', 'Microsoft.XboxGamingOverlay', 'Microsoft.MixedReality.Portal', 'Microsoft.Wallet',
+    'Microsoft.Windows.DevHome', 'Microsoft.XboxGamingOverlay', 'Microsoft.XboxSpeechToTextOverlay', 'Microsoft.MixedReality.Portal', 'Microsoft.Wallet',
     'Microsoft.Microsoft3DViewer', 'Microsoft.SkypeApp', 'Microsoft.LinkedIn', 'SpotifyAB.SpotifyMusic', 'Disney.37853FC22B2CE',
-    'Facebook.Facebook', 'Facebook.Instagram', 'BytedancePte.Ltd.TikTok', '5319275A.WhatsAppDesktop', 'AmazonVideo.PrimeVideo'
+    'Facebook.Facebook', 'Facebook.Instagram', 'BytedancePte.Ltd.TikTok', '5319275A.WhatsAppDesktop', 'AmazonVideo.PrimeVideo',
+    # older Windows images and PC makers' extras (a new Windows 11 has none of them - removed where they are)
+    'Microsoft.BingFinance', 'Microsoft.BingSports', 'Microsoft.BingTravel', 'Microsoft.BingHealthAndFitness', 'Microsoft.BingFoodAndDrink',
+    'Microsoft.News', 'Microsoft.Messaging', 'Microsoft.OneConnect', 'Microsoft.Print3D', 'Microsoft.MSPaint', 'Microsoft.Office.Sway',
+    'Microsoft.NetworkSpeedTest', 'microsoft.windowscommunicationsapps', 'Microsoft.MicrosoftPCManager', 'Microsoft.MicrosoftJournal',
+    'king.com.CandyCrushSaga', 'king.com.CandyCrushSodaSaga', 'king.com.BubbleWitch3Saga'   # (Microsoft.MSPaint is Paint 3D - Paint itself stays)
 # AMD's dual-CCD X3D CPUs (Ryzen 9 7900X3D/7950X3D/9900X3D/9950X3D) need the Xbox Game Bar: AMD's driver uses it to
 # see that a game runs and to put it on the V-Cache cores - without it games can lose a lot of frame rate
 $dualX3D = "$((Get-CimInstance Win32_Processor | Select-Object -First 1).Name)" -match 'Ryzen 9 \d{4}X3D'
@@ -232,6 +239,46 @@ foreach ($a in $apps) {
     }
 }
 
+# --- Old Windows parts - what tiny11 removes too, but never what Windows needs to update and repair itself (its component
+# store, recovery, Defender - tiny11 "core" deletes those, and then no security update installs again): Internet
+# Explorer's engine, the legacy Media Player, WordPad, Steps Recorder, the math input recognizer, the XPS viewer;
+# PowerShell 2.0 (an old way around PowerShell's security) and Recall off; Windows' reserved storage (about 7 GB kept
+# for updates - they use free space instead). Newer Windows versions come without most of them. Slow (DISM): not during
+# setup (-Quick: the first maintenance does it minutes later), and checked again only on a new Windows build (a feature
+# update can bring them back) ---
+$group = 'legacy'
+$build = "$([Environment]::OSVersion.Version.Build)"
+$legacyCaps = 'Browser.InternetExplorer', 'Media.WindowsMediaPlayer', 'Microsoft.Windows.WordPad', 'App.StepsRecorder', 'MathRecognizer', 'XPS.Viewer',
+    'Microsoft.Windows.PowerShell.ISE', 'Microsoft.Wallpapers.Extended', 'Language.Speech'   # (kept: handwriting - pen laptops; text-to-speech - Narrator; face sign-in)
+$legacyFeats = 'MicrosoftWindowsPowerShellV2Root', 'MicrosoftWindowsPowerShellV2', 'Recall'
+if (Want 'legacy') {
+    Redo 'legacy'
+    if (-not $Quick -and "$($bk['legacy|build'].Build)" -ne $build) {
+        $all = $true
+        foreach ($c in @(Get-WindowsCapability -Online | Where-Object { $_.State -eq 'Installed' -and ($_.Name -split '~')[0] -in $legacyCaps })) {
+            Remove-WindowsCapability -Online -Name $c.Name | Out-Null
+            if ((Get-WindowsCapability -Online -Name $c.Name).State -ne 'Installed') { Save-Original "cap|$($c.Name)" @{ Installed = $true }; $changes.Add("old Windows part $(($c.Name -split '~')[0]) removed") } else { $all = $false }
+        }
+        foreach ($f in @(Get-WindowsOptionalFeature -Online | Where-Object { $_.State -eq 'Enabled' -and $_.FeatureName -in $legacyFeats })) {
+            Disable-WindowsOptionalFeature -Online -FeatureName $f.FeatureName -NoRestart -WarningAction SilentlyContinue | Out-Null
+            Save-Original "feature|$($f.FeatureName)" @{ Enabled = $true }; $changes.Add("Windows feature $($f.FeatureName) off")
+        }
+        if ("$((Get-WindowsReservedStorageState).ReservedStorageState)" -eq 'Enabled') {   # (an enum: the same in every language)
+            Set-WindowsReservedStorageState -State Disabled | Out-Null   # (refused while an update is being installed: tried again next time)
+            if ("$((Get-WindowsReservedStorageState).ReservedStorageState)" -eq 'Disabled') { Save-Original 'reserved|storage' @{ Enabled = $true }; $changes.Add('reserved storage off (about 7 GB free again)') } else { $all = $false }
+        }
+        if ($all) { $bk['legacy|build'] = @{ Build = $build }; $script:bkDirty = $true }   # (anything refused: tried again at the next check)
+    }
+} else {
+    # the owner wants them: each one the kit removed comes back (from Windows Update), once
+    Undo-Once 'legacy' {
+        foreach ($n in @($bk.Keys | Where-Object { $_ -like 'cap|*' })) { Add-WindowsCapability -Online -Name $n.Substring(4) | Out-Null }
+        foreach ($n in @($bk.Keys | Where-Object { $_ -like 'feature|*' })) { Enable-WindowsOptionalFeature -Online -FeatureName $n.Substring(8) -NoRestart -WarningAction SilentlyContinue | Out-Null }
+        if ($bk.ContainsKey('reserved|storage')) { Set-WindowsReservedStorageState -State Enabled | Out-Null }
+    } 'old Windows parts back (your choice)'
+    if ($bk.ContainsKey('legacy|build')) { $bk.Remove('legacy|build'); $script:bkDirty = $true }
+}
+$group = $null
 # --- Power: part of the guard because chipset/graphics driver installers and Windows feature updates switch it back.
 # A desktop: Ultimate Performance (made from Windows' own template under a fixed id - found in any language), no USB
 # sleep, no hibernation. A laptop (a battery): Balanced kept - Ultimate would drain it - with hibernation (a flat
@@ -313,8 +360,48 @@ if (Want 'startup-clutter') { foreach ($r in @(@('HKCU:\Software\Microsoft\Windo
     }
 } }
 
-# --- Devices: no power-saving on controllers and wired network ---
-# game controllers: Xbox (045E), PlayStation (054C), Nintendo (057E), 8BitDo (2DC8), Hori (0F0D), PowerA (20D6), PDP (0E6F)
+# --- Edge: it stays (Windows and many apps show their pages with it - WebView2 - and Windows Update puts a removed Edge
+# back), but out of the way: no desktop icon (not after its own updates either), not pinned to the taskbar, no first-run
+# pages or "make Edge your default" prompts. (The default browser can't be switched by a program on a home PC - Windows 11
+# ignores its default-apps policy outside company domains and blocks everything else: Messiah's Welcome page has the
+# one-click way, Windows' own Chrome page - the VM test, 9/30) ---
+$group = 'edge'
+Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' HideFirstRunExperience 1
+Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' DefaultBrowserSettingEnabled 0
+Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate' CreateDesktopShortcutDefault 0
+Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate' 'CreateDesktopShortcut{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}' 0   # (Edge's own id)
+# (tests: the icons and the pins live in PCKIT_EDGE_ROOT - never this PC's; none set: not touched)
+$er = $env:PCKIT_EDGE_ROOT; $edgeFiles = -not $env:PCKIT_IN_TESTS -or $er
+$edgeIcons = if ($er) { "$er\public\Microsoft Edge.lnk", "$er\desktop\Microsoft Edge.lnk" } else { "$env:PUBLIC\Desktop\Microsoft Edge.lnk", "$([Environment]::GetFolderPath('Desktop'))\Microsoft Edge.lnk" }
+$pinned = if ($er) { "$er\pinned" } else { "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar" }
+if (-not $edgeFiles) { }
+elseif (Want 'edge') {
+    Redo 'edge'
+    foreach ($l in $edgeIcons) { if (Test-Path -LiteralPath $l) { Save-Original 'edge|desktop' @{ Removed = (Get-Date).ToString('d') }; [IO.File]::Delete($l); $changes.Add('Edge desktop icon removed') } }
+    if (Test-Path -LiteralPath "$pinned\Microsoft Edge.lnk") {
+        # (Windows 11 lets a program unpin, not pin: the taskbar's own "Unpin" on the pinned shortcut)
+        try { (New-Object -ComObject Shell.Application).Namespace($pinned).ParseName('Microsoft Edge.lnk').InvokeVerb('taskbarunpin') } catch { }
+        if (-not (Test-Path -LiteralPath "$pinned\Microsoft Edge.lnk")) { Save-Original 'edge|pinned' @{ Removed = (Get-Date).ToString('d') }; $changes.Add('Edge unpinned from the taskbar') }
+    }
+} else {
+    # the owner wants Edge as it was: its desktop icon back (a pin can't be put back by a program - right-click Edge in Start)
+    Undo-Once 'edge' {
+        $exe = if ($er) { "$er\msedge.exe" } else { "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" }
+        if ($bk.ContainsKey('edge|desktop') -and (Test-Path $exe)) { $s = (New-Object -ComObject WScript.Shell).CreateShortcut($edgeIcons[0]); $s.TargetPath = $exe; $s.Save() }
+    } 'Edge back as it was (your choice)'
+}
+$group = $null
+
+# --- The install USB's Start pins (make-usb.ps1: Windows' Start-pins policy, marked PCKit=1) are applied by now: the policy
+# goes, so the pins are the owner's to change (while it stays, Windows would put them back). Anyone else's policy stays. ---
+$sp = 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Start'
+if (-not $Quick -and (Get-ItemProperty $sp -Name PCKit).PCKit -eq 1) {
+    foreach ($n in 'ConfigureStartPins', 'ConfigureStartPins_ProviderSet', 'ConfigureStartPins_WinningProvider', 'PCKit') { Remove-ItemProperty $sp -Name $n }
+    Remove-ItemProperty 'HKLM:\SOFTWARE\Microsoft\PolicyManager\providers\B5292708-1619-419B-9923-E5D9F3925E71\default\Device\Start' -Name ConfigureStartPins
+    $changes.Add('Start pins from the install USB kept - yours to change now')
+}
+
+# --- Devices: no power-saving on controllers and wired network ---# game controllers: Xbox (045E), PlayStation (054C), Nintendo (057E), 8BitDo (2DC8), Hori (0F0D), PowerA (20D6), PDP (0E6F)
 foreach ($d in Get-CimInstance -Namespace root\wmi MSPower_DeviceEnable | Where-Object { $_.Enable -and $_.InstanceName -match 'VID_(045E|054C|057E|2DC8|0F0D|20D6|0E6F)' }) {
     Save-Original "power|$($d.InstanceName)" @{ Enable = $true }
     Set-CimInstance -InputObject $d -Property @{ Enable = $false }; $changes.Add('controller power-saving off')

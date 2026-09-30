@@ -1,4 +1,4 @@
-﻿# tweaks.ps1 (the tweak guard: runs at setup and at every login on every PC) with every write mocked:
+# tweaks.ps1 (the tweak guard: runs at setup and at every login on every PC) with every write mocked:
 # a fresh Windows gets every tweak once (originals recorded), an already-tweaked PC gets nothing, special cases.
 . "$PSScriptRoot\..\lib.ps1"
 $tweaksText = Get-Content "$Kit\tweaks.ps1" -Raw
@@ -6,7 +6,8 @@ $bk = "$Work\tweaks-backup.json"
 Set-Content "$Work\tweaks.ps1" $tweaksText.Replace("'C:\PCSetupKit\tweaks-backup.json'", "'$bk'")
 $mocked = 'Set-ItemProperty', 'New-Item', 'Get-ItemProperty', 'Set-Service', 'Stop-Service', 'Get-Service', 'Disable-ScheduledTask', 'Unregister-ScheduledTask',
     'Get-ScheduledTask', 'Get-AppxPackage', 'Get-AppxProvisionedPackage', 'Remove-AppxPackage', 'Remove-AppxProvisionedPackage', 'Get-CimInstance', 'Set-CimInstance',
-    'Get-NetAdapter', 'Get-NetAdapterAdvancedProperty', 'Set-NetAdapterAdvancedProperty', 'Get-Printer', 'Test-Path', 'powercfg', 'Get-Process', 'Stop-Process', 'Start-Process', 'Remove-ItemProperty', 'winget', 'Get-PhysicalDisk', 'Get-Partition'
+    'Get-NetAdapter', 'Get-NetAdapterAdvancedProperty', 'Set-NetAdapterAdvancedProperty', 'Get-Printer', 'Test-Path', 'powercfg', 'Get-Process', 'Stop-Process', 'Start-Process', 'Remove-ItemProperty', 'winget', 'Get-PhysicalDisk', 'Get-Partition',
+    'Get-WindowsCapability', 'Remove-WindowsCapability', 'Add-WindowsCapability', 'Get-WindowsOptionalFeature', 'Disable-WindowsOptionalFeature', 'Enable-WindowsOptionalFeature', 'Get-WindowsReservedStorageState', 'Set-WindowsReservedStorageState'
 if (-not (Test-Tripwire "$Work\tweaks.ps1" $mocked)) { Finish }
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
 
@@ -19,6 +20,8 @@ function Fresh {
             @{ P = '\'; N = 'AsrAPPShopUpdate'; S = 'Ready' }, @{ P = '\Microsoft\Windows\Defrag\'; N = 'ScheduledDefrag'; S = 'Ready' }, @{ P = '\'; N = 'MyOwnTask'; S = 'Ready' })
         Power = @(@{ I = 'USB\VID_045E&PID_0B00\1_0'; E = $true }, @{ I = 'PCI\VEN_10EC&DEV_8125\X_0'; E = $true }, @{ I = 'USB\VID_046D&PID_C08B\M_0'; E = $true })
         Nic = @{ 'Energy-Efficient Ethernet' = 'Enabled'; 'Green Ethernet' = 'Enabled'; 'Jumbo Packet' = 'Disabled' }
+        Caps = @{ 'Browser.InternetExplorer~~~~0.0.11.0' = 'Installed'; 'Media.WindowsMediaPlayer~~~~0.0.12.0' = 'Installed'; 'VBSCRIPT~~~~' = 'Installed'; 'Microsoft.Windows.Notepad.System~~~~0.0.1.0' = 'Installed' }
+        Feats = @{ 'MicrosoftWindowsPowerShellV2Root' = 'Enabled'; 'Recall' = 'Disabled'; 'MediaPlayback' = 'Enabled' }; Reserved = 'Enabled'
     }
     foreach ($s in $svcNames) { $TW.Services[$s] = $(if ($s -in 'StiSvc', 'PhoneSvc', 'diagsvc', 'Spooler', 'SysMain', 'DiagTrack') { 'Automatic' } else { 'Manual' }) }
     $global:TWlog = New-Object System.Collections.Generic.List[string]
@@ -67,6 +70,14 @@ function Stop-Process { $global:TWlog.Add('stop-process') }
 function Start-Process { param($FilePath, $ArgumentList, [switch]$Wait) $global:TWlog.Add("run $(Split-Path $FilePath -Leaf) $ArgumentList"); $TW.OneDrive = $false }
 function Remove-ItemProperty { param($Path, $Name) if ($Name -and $global:TW.Reg.ContainsKey("$Path|$Name")) { $global:TW.Reg.Remove("$Path|$Name") }; $global:TWlog.Add("remove $Path $Name") }
 function Get-Item { if ("$args" -match '^HKCU:.+CurrentVersion\\Run$') { return [pscustomobject]@{ Property = $global:TW.Run } }; if ("$args" -match '^HK.+CurrentVersion\\Run$') { return $null }; Microsoft.PowerShell.Management\Get-Item @args }
+function Get-WindowsCapability { param([switch]$Online, $Name) $global:TW.Caps.Keys | Where-Object { -not $Name -or $_ -eq $Name } | ForEach-Object { [pscustomobject]@{ Name = $_; State = $global:TW.Caps[$_] } } }
+function Remove-WindowsCapability { param([switch]$Online, $Name) if (-not $global:TW.CapStuck) { $global:TW.Caps[$Name] = 'NotPresent' }; $global:TWlog.Add("cap removed $Name") }
+function Add-WindowsCapability { param([switch]$Online, $Name) $global:TW.Caps[$Name] = 'Installed'; $global:TWlog.Add("cap added $Name") }
+function Get-WindowsOptionalFeature { param([switch]$Online) $global:TW.Feats.Keys | ForEach-Object { [pscustomobject]@{ FeatureName = $_; State = $global:TW.Feats[$_] } } }
+function Disable-WindowsOptionalFeature { param([switch]$Online, $FeatureName, [switch]$NoRestart) $global:TW.Feats[$FeatureName] = 'Disabled'; $global:TWlog.Add("feature off $FeatureName") }
+function Enable-WindowsOptionalFeature { param([switch]$Online, $FeatureName, [switch]$NoRestart) $global:TW.Feats[$FeatureName] = 'Enabled'; $global:TWlog.Add("feature on $FeatureName") }
+function Get-WindowsReservedStorageState { [pscustomobject]@{ ReservedStorageState = $global:TW.Reserved } }
+function Set-WindowsReservedStorageState { param($State) $global:TW.Reserved = $State; $global:TWlog.Add("reserved $State") }
 if (-not (Assert-Mocks $mocked)) { Finish }
 function Run { @(& "$Work\tweaks.ps1") }
 
@@ -178,4 +189,49 @@ Check 'the Sticky Keys / Filter Keys / Toggle Keys shortcut prompts off' ($TW.Re
 Check 'Windows on an SSD: SysMain off' ($TW.Services['SysMain'] -eq 'Disabled') ''
 Fresh; $TW.Hdd = $true; Clear-Path $bk; [void](Run)
 Check 'Windows on a hard drive: SysMain kept (prefetch is what makes apps start quicker there)' ($TW.Services['SysMain'] -eq 'Automatic') $TW.Services['SysMain']
+
+Section 'old Windows parts (what tiny11 removes too - never what updates and repairs need)'
+Fresh; Clear-Path $bk; '' | Set-Content $opt; $o = @(& "$Work\tweaks.ps1" -Quick)
+Check 'setup''s first run (-Quick): the slow DISM part waits for the first maintenance' (-not ($TWlog -match '^cap |^feature |^reserved ')) ($TWlog -join ', ')
+$o = Run
+Check 'the Internet Explorer engine and the legacy Media Player removed; VBScript (old installers use it) and Notepad kept' (($o -contains 'old Windows part Browser.InternetExplorer removed') -and ($o -contains 'old Windows part Media.WindowsMediaPlayer removed') -and
+    $TW.Caps['VBSCRIPT~~~~'] -eq 'Installed' -and $TW.Caps['Microsoft.Windows.Notepad.System~~~~0.0.1.0'] -eq 'Installed') ($o -join ' / ')
+Check 'PowerShell 2.0 off; media playback (games play videos with it) left on' ($TW.Feats['MicrosoftWindowsPowerShellV2Root'] -eq 'Disabled' -and $TW.Feats['MediaPlayback'] -eq 'Enabled') ''
+Check 'reserved storage off (about 7 GB), said' ($TW.Reserved -eq 'Disabled' -and ($o -contains 'reserved storage off (about 7 GB free again)')) ($o -join ' / ')
+$TWlog.Clear(); $o = Run
+Check '... after that it isn''t even looked at again on the same Windows build (DISM takes seconds every time)' (-not ($TWlog -match '^cap |^feature |^reserved ') -and -not ($o -match 'old Windows|reserved')) ($TWlog -join ', ')
+Fresh; Clear-Path $bk; $TW.CapStuck = $true; [void](Run); $TWlog.Clear(); $TW.CapStuck = $false; $o = Run
+Check 'a removal Windows refused (an update being installed) is tried again at the next check' ($o -contains 'old Windows part Browser.InternetExplorer removed') ($o -join ' / ')
+'tweak.legacy=off' | Set-Content $opt; $o = Run
+Check 'switched off in Settings: each part the kit removed comes back, and reserved storage' (($o -contains 'old Windows parts back (your choice)') -and $TW.Caps['Browser.InternetExplorer~~~~0.0.11.0'] -eq 'Installed' -and
+    $TW.Feats['MicrosoftWindowsPowerShellV2Root'] -eq 'Enabled' -and $TW.Reserved -eq 'Enabled') ($o -join ' / ')
+'' | Set-Content $opt; $TWlog.Clear(); $o = Run
+Check '... and switched on again: removed again (checked afresh)' ($o -contains 'old Windows part Browser.InternetExplorer removed') ($o -join ' / ')
+Section 'the install USB''s Start pins: the policy goes once Start has them'
+$sp = 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Start'
+Fresh; Clear-Path $bk; '' | Set-Content $opt; $TW.Reg["$sp|PCKit"] = 1; $TW.Reg["$sp|ConfigureStartPins"] = '{"pinnedList":[]}'; $o = @(& "$Work\tweaks.ps1" -Quick)
+Check 'not during setup (Start may still be starting)' ($TW.Reg.ContainsKey("$sp|ConfigureStartPins")) ''
+$o = Run
+Check 'the first maintenance takes the kit''s policy away (the pins stay, the owner''s to change)' (-not $TW.Reg.ContainsKey("$sp|ConfigureStartPins") -and -not $TW.Reg.ContainsKey("$sp|PCKit") -and ($o -contains 'Start pins from the install USB kept - yours to change now')) ($o -join ' / ')
+Fresh; Clear-Path $bk; $TW.Reg["$sp|ConfigureStartPins"] = '{"pinnedList":[]}'; $o = Run
+Check '... a Start-pins policy that isn''t the kit''s (a company''s) stays' ($TW.Reg.ContainsKey("$sp|ConfigureStartPins")) ''
+Section 'Edge kept out of the way (it stays installed: Windows and apps need it)'
+$er = "$Work\edge"; $env:PCKIT_EDGE_ROOT = $er; $uc = 'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice|ProgId'
+$pol = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System|DefaultAssociationsConfiguration'
+function EdgeFresh { Clear-Path $er; foreach ($d in 'public', 'desktop', 'pinned') { New-Item "$er\$d" -ItemType Directory -Force | Out-Null; '' | Set-Content "$er\$d\Microsoft Edge.lnk" }; '' | Set-Content "$er\chrome"; '' | Set-Content "$er\msedge.exe" }
+Fresh; Clear-Path $bk; '' | Set-Content $opt; EdgeFresh; $TW.Reg[$uc] = 'MSEdgeHTM'; $o = Run
+Check 'its desktop icons are removed, and it may not put them back when it updates' (($o -contains 'Edge desktop icon removed') -and -not (Test-Path "$er\public\Microsoft Edge.lnk") -and -not (Test-Path "$er\desktop\Microsoft Edge.lnk") -and
+    $TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate|CreateDesktopShortcutDefault'] -eq 0) ($o -join ' / ')
+Check 'no first-run pages, no "make Edge your default" prompts' ($TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Edge|HideFirstRunExperience'] -eq 1 -and $TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Edge|DefaultBrowserSettingEnabled'] -eq 0) ''
+Check 'no default-apps policy (Windows applies it on company-domain PCs only; the Welcome page has the one-click way)' (-not $TW.Reg.ContainsKey($pol) -and -not ($o -match 'Chrome')) ($o -join ' / ')
+$o = Run
+Check '... done once: the next check changes nothing' (-not ($o -match 'Edge|Chrome')) ($o -join ' / ')
+Fresh; Clear-Path $bk; EdgeFresh; $TW.Reg[$uc] = 'MSEdgeHTM'; [void](Run)
+'tweak.edge=off' | Set-Content $opt; $o = Run
+Check 'switched off in Settings: its desktop icon and prompts come back' (($o -contains 'Edge back as it was (your choice)') -and (Test-Path "$er\public\Microsoft Edge.lnk") -and
+    -not $TW.Reg.ContainsKey('HKLM:\SOFTWARE\Policies\Microsoft\Edge|HideFirstRunExperience')) ($o -join ' / ')
+'' | Set-Content $opt; $env:PCKIT_EDGE_ROOT = ''
+Fresh; Clear-Path $bk; $o = Run
+Check 'in tests without a folder of their own, no icon or pin of this PC is touched' (-not ($o -match 'Edge desktop|unpinned')) ($o -join ' / ')
+
 Finish

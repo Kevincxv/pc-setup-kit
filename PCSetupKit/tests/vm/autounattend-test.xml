@@ -11,7 +11,13 @@
       <InputLocale>en-US</InputLocale><SystemLocale>en-US</SystemLocale><UILanguage>en-US</UILanguage><UserLocale>en-US</UserLocale>
     </component>
     <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-      <DiskConfiguration>
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Description>Older PCs too: skip Windows 11's hardware check (TPM, Secure Boot, CPU, RAM)</Description>
+          <Path>cmd.exe /c "for %v in (BypassTPMCheck BypassSecureBootCheck BypassRAMCheck BypassCPUCheck BypassStorageCheck) do reg add HKLM\SYSTEM\Setup\LabConfig /v %v /t REG_DWORD /d 1 /f"</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>      <DiskConfiguration>
         <Disk wcm:action="add">
           <DiskID>0</DiskID>
           <WillWipeDisk>true</WillWipeDisk>

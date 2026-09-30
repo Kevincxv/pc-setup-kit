@@ -107,6 +107,9 @@ Healthy; $M.Events = @()   # the time service never synced (not started)
 Section 'tweak guard'
 Healthy; 'x' | Set-Content "$d\reverted.flag"; $o = HC
 Check 'a tweak Windows reverted is re-applied and reported' ([bool]($o -match 'Tweaks: Windows had reverted 1 - re-applied: iGPU disabled again')) ($o -join ' / ')
+'x' | Set-Content "$d\setup-maint-running.txt"; $o = HC
+Check '... in the first maintenance right after setup: what setup left for it, not called reverted' ([bool]($o -match "Tweaks: the rest of setup's changes applied \(1\): iGPU disabled again") -and -not ($o -match 'had reverted')) ($o -join ' / ')
+Clear-Path "$d\setup-maint-running.txt"
 Clear-Path "$d\reverted.flag"
 
 Section 'hardware reminders'

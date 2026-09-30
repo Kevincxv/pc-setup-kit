@@ -18,7 +18,10 @@ $Work = Join-Path $env:TEMP "pckit-tests\$TestName-$(Get-Date -Format HHmmss)-$(
 New-Item $Work -ItemType Directory -Force | Out-Null
 $script:pass = 0; $script:fail = 0; $script:skip = 0
 
+# (anything after the detail - e.g. a second Check that lost its line break - fails loudly instead of being ignored: 9/30 a
+# check vanished that way)
 function Check([string]$Name, $Cond, $Detail) {
+    if ($args.Count) { $script:fail++; Write-Host "  FAIL  $Name  (Check was given $($args.Count) more argument(s) - a missing line break?)" -ForegroundColor Red; return }
     if ($Cond) { $script:pass++; Write-Host "  PASS  $Name" -ForegroundColor Green }
     else { $script:fail++; Write-Host "  FAIL  $Name  $Detail" -ForegroundColor Red }
 }

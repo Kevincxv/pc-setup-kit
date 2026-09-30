@@ -14,6 +14,10 @@ Check 'local account allowed (BypassNRO) and Microsoft-account screens hidden' (
 Check 'privacy page answered with all data sharing off (ProtectYourPC 3)' ($raw -match '<ProtectYourPC>3</ProtectYourPC>') ''
 Check 'no disk layout: the owner picks the disk, nothing is wiped automatically' ($raw -notmatch '<DiskConfiguration|<InstallTo|<WillWipeDisk') ''
 Check 'no passwords, product keys or accounts embedded' ($raw -notmatch '<Password>|<ProductKey>|<LocalAccounts>|<AutoLogon>') ''
+$pe = @(($x.unattend.settings | Where-Object pass -eq 'windowsPE').component.RunSynchronous.RunSynchronousCommand.Path)
+Check 'older PCs install too: Windows 11''s hardware check skipped while Windows installs (TPM, Secure Boot, CPU, RAM, disk)' (@('BypassTPMCheck', 'BypassSecureBootCheck', 'BypassRAMCheck', 'BypassCPUCheck', 'BypassStorageCheck' | Where-Object { "$pe" -notmatch $_ }).Count -eq 0 -and "$pe" -match 'HKLM\\SYSTEM\\Setup\\LabConfig') "$pe"
+$tx = try { [xml](Get-Content "$Kit\tests\vm\autounattend-test.xml" -Raw) } catch { $null }
+Check '... the VM test''s answer file too (it tests the real one''s steps)' ($tx -and "$(($tx.unattend.settings | Where-Object pass -eq 'windowsPE').component.RunSynchronous.RunSynchronousCommand.Path)" -eq "$pe") ''
 Check 'all components for 64-bit Windows' (-not ($x.unattend.settings.component | Where-Object { $_.processorArchitecture -ne 'amd64' })) ''
 $cmd = ($x.unattend.settings | Where-Object pass -eq 'oobeSystem').component.FirstLogonCommands.SynchronousCommand.CommandLine
 $inner = [regex]::Match($cmd, '-Command "(.*)"$').Groups[1].Value

@@ -98,7 +98,8 @@ Check 'a driver that failed before is hidden, not retried forever' (($o -match "
 Check 'the rest are installed: success and failure reported per driver' (($o -contains 'Driver: Realtek - Net - 10.70 - installed') -and ($o -contains 'Driver: Logitech - HID - 1.2 - FAILED') -and -not ($o -match 'Driver: AMD - Display - 32.0 -')) ($o -join ' / ')
 $calls = @($DCcalls)
 Check 'a restore point is made right before the installs (one per run), and said' ((@($calls -eq 'restore point').Count -eq 1) -and ([array]::IndexOf($calls, 'restore point') -lt [array]::IndexOf($calls, 'install updates')) -and ($o -contains 'Restore point created before the driver install')) ($calls -join ', ')
-Check '... Windows'' one-per-day limit lifted for it and put back' (($calls -contains 'set SystemRestorePointCreationFrequency 0') -and (($calls -match '^(remove|set) SystemRestorePointCreationFrequency').Count -eq 2)) ($calls -join ', ')Check 'licence terms accepted for them' ($DC.Updates[0].EulaAccepted -and $DC.Updates[2].EulaAccepted) ''
+Check '... Windows'' one-per-day limit lifted for it and put back' (($calls -contains 'set SystemRestorePointCreationFrequency 0') -and (($calls -match '^(remove|set) SystemRestorePointCreationFrequency').Count -eq 2)) ($calls -join ', ')
+Check 'licence terms accepted for them' ($DC.Updates[0].EulaAccepted -and $DC.Updates[2].EulaAccepted) ''
 Check 'restart needed: REBOOT line (finishes at the owner''s next restart)' ([bool]($o -match '^REBOOT required to finish driver installs')) ''
 Reset-D; Rec @((Drv '617.14'))
 $bad = New-WUUpdate 'Realtek - Net - 10.71'; $bad | Add-Member DriverProvider 'Realtek'; $bad | Add-Member DriverVerDate ([datetime]'2026-09-01')

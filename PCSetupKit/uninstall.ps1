@@ -110,6 +110,10 @@ if ($RevertTweaks) {
             'app' { $apps += $k[1] }
             'startup' { Do-It "start-up item $($k[2]) back on" { if ($v.Existed) { Set-ItemProperty -Path $k[1] -Name $k[2] -Value ([Convert]::FromBase64String($v.Value)) -Type Binary } else { Remove-ItemProperty -Path $k[1] -Name $k[2] } } }
             'plan' { $plan = $v.Guid }   # put back below
+            'edge' { if ($k[1] -eq 'desktop' -and (Test-Path "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe")) { Do-It 'Edge desktop icon back' { $s = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:PUBLIC\Desktop\Microsoft Edge.lnk"); $s.TargetPath = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"; $s.Save() } } }   # (the pin and the default browser: the owner's to choose again)
+            'cap' { Do-It "Windows part $(($k[1] -split '~')[0]) back" { Add-WindowsCapability -Online -Name $k[1] | Out-Null } }
+            'feature' { Do-It "Windows feature $($k[1]) back on" { Enable-WindowsOptionalFeature -Online -FeatureName $k[1] -NoRestart -WarningAction SilentlyContinue | Out-Null } }
+            'reserved' { Do-It 'reserved storage back on' { Set-WindowsReservedStorageState -State Enabled | Out-Null } }
             'pagefile' { }   # kept: no page file at all makes games crash when memory runs short
         }
     }

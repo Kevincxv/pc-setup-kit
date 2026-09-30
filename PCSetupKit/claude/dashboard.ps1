@@ -505,7 +505,12 @@ try {
                 [void]$txt.Children.Add((New-Text 'This PC is ready' $brush.Text 22 'SemiBold' '0'))
                 [void]$txt.Children.Add((New-Text 'Windows is updated, tuned for games and set up to look after itself - nothing else to do.' $brush.Sub 13 'Normal' '0,2,0,0'))
                 [void]$hero.Children.Add($badge); [void]$hero.Children.Add($txt)
-                [void]$out.Add((New-Card $null $null @($hero) @(New-Btn 'E73E' 'Got it' $act.Welcomed -Accent)))
+                # Chrome installed, Edge still the browser: Windows' own Chrome page, one "Set default" click (no program may switch it)
+                $https = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice' -ErrorAction SilentlyContinue).ProgId
+                $chromeReg = @('HKLM:\SOFTWARE\RegisteredApplications', 'HKCU:\SOFTWARE\RegisteredApplications' | Where-Object { (Get-ItemProperty $_ -ErrorAction SilentlyContinue).'Google Chrome' })
+                $toChrome = if ($chromeReg -and (-not $https -or $https -like 'MSEdge*')) { $u = if ($chromeReg[0] -like 'HKLM*') { 'registeredAppMachine' } else { 'registeredAppUser' }
+                    New-Btn 'E774' 'Make Chrome your browser' ([scriptblock]::Create("Start-Process 'ms-settings:defaultapps?$u=Google%20Chrome'")) }
+                [void]$out.Add((New-Card $null $null @($hero) @(@(New-Btn 'E73E' 'Got it' $act.Welcomed -Accent) + @($toChrome | Where-Object { $_ }))))
                 # what setup did: the report's "WHAT WAS DONE" (optimize.ps1), the main lines
                 $rep = @(Get-Content "$env:USERPROFILE\Documents\PC Setup Kit report.txt" -Encoding UTF8 -ErrorAction SilentlyContinue)
                 $i = [array]::IndexOf($rep, 'WHAT WAS DONE'); $j = [array]::IndexOf($rep, 'WHAT NEEDS YOU')
@@ -678,7 +683,9 @@ try {
                         @('telemetry', 'Telemetry, ads and Windows AI off', 'No diagnostic data, ads, suggestions, Bing in search, Copilot or Recall.'),
                         @('bloat-apps', 'Preinstalled apps removed', 'News, Weather, Teams, Clipchamp, Solitaire, TikTok and the like. Off: Messiah stops removing them (reinstall any from the Microsoft Store).'),
                         @('onedrive', 'OneDrive removed', 'Off: OneDrive comes back and can sync again.'),
+                        @('edge', 'Edge kept out of the way', 'Edge stays installed (Windows and many apps need it), but no desktop icon, no taskbar pin, no prompts, and Chrome is your browser. Off: its icon and prompts come back.'),
                         @('start-menu', 'Start menu recommendations and Task View off', 'A cleaner Start menu and taskbar.'),
+                        @('legacy', 'Old Windows parts removed', 'Internet Explorer''s engine, the old Media Player, WordPad, Steps Recorder and the like; PowerShell 2.0 and Recall off; reserved storage (about 7 GB) freed. Never what updates need. Off: they come back.'),
                         @('startup-clutter', 'Start-up clutter off', 'Vendor updaters and promo tools don''t start with Windows. Off: they start again.'),
                         @('transparency', 'Transparency effects off', 'Slightly less work for the graphics card. Off: see-through Start menu and windows again.'))
                     'Windows Update'      = @(

@@ -9,22 +9,46 @@
 #   4. the kit's newest tested release: autounattend.xml + PCSetupKit\ (optionally with Messiah), and this PC's
 #      settings backup when the stick is for reinstalling THIS PC
 # Run from the app (Maintenance > Make an install USB) or by hand; asks for admin. Takes 20-40 minutes (a 7 GB download).
-# -Disk N -Yes -WithClaude -NoBackup: no questions. -Iso <file>: a Windows 11 ISO already downloaded.
+# -Disk N -Yes -WithClaude -NoBackup: no questions. -StockImage: Windows as Microsoft ships it (not slimmed down tiny11-style);
+# -ShowImagePlan: the apps and Start pins the slimmed-down image gets (tests). -Iso <file>: a Windows 11 ISO already downloaded.
 # -Plan: say what it would do, change nothing (tests); -Disks <json>: made-up disks for -Plan (tests); -AllowVirtual: a
 # virtual disk (VHD) counts as a stick too (the end-to-end test). -KitFrom <folder>: this kit folder (the repo root,
 # holding autounattend.xml and PCSetupKit\) instead of the newest release; -AnswerFile <xml>: another answer file -
 # both only for the boot-from-USB VM test (tests\vm), whose answer file also picks the VM's empty disk and an account.
 param([int]$Disk = -1, [switch]$Yes, [switch]$WithClaude, [switch]$NoBackup, [string]$Iso, [switch]$Plan, [string]$Disks, [switch]$AllowVirtual,
-    [string]$Cache = "$env:ProgramData\PCSetupKit\windows-image", [string]$KitFrom, [string]$AnswerFile)
+    [string]$Cache = "$env:ProgramData\PCSetupKit\windows-image", [string]$KitFrom, [string]$AnswerFile, [switch]$StockImage, [switch]$ShowImagePlan)
 $ErrorActionPreference = 'Stop'
 $repo = 'Kevincxv/pc-setup-kit'
 $fidoUrl = 'https://raw.githubusercontent.com/pbatard/Fido/v1.70/Fido.ps1'
 $fidoSha = '24C86067FA399D2FD75EF0693A2EC79CA8DB162827F808CAAC03541CBF640C13'
 function Say($m, $color = 'Gray') { Write-Host $m -ForegroundColor $color }
 function Ask($q) { if ($Yes) { return '' }; Read-Host $q }
+# what the kit removes: tweaks.ps1's own lists ($apps, $legacyCaps), read from the file - one list for the stick and for setup
+function Get-KitList([string]$Tweaks, [string]$Name) {
+    $ast = [Management.Automation.Language.Parser]::ParseFile($Tweaks, [ref]$null, [ref]$null)
+    $a = $ast.Find({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and "$($n.Left)" -eq "`$$Name" }, $true)
+    try { @($a.Right.Expression.SafeGetValue()) } catch { @() }
+}
+# the stick is tiny11 as the base: on top of what setup removes everywhere, what tiny11 removes too - only in a NEW Windows
+# (an installed PC keeps them: its games may sign in with Xbox, someone may use Narrator). All of it comes back from the
+# Microsoft Store or Settings > Optional features, and apps that need WebView2 install it themselves.
+$imageOnlyApps = 'Microsoft.XboxIdentityProvider', 'Microsoft.Xbox.TCUI', 'Microsoft.GamingApp', 'Microsoft.MicrosoftEdge.Stable', 'Microsoft.MicrosoftEdgeDevToolsClient'
+$imageOnlyParts = 'Hello.Face', 'Language.TextToSpeech', 'Language.OCR', 'Language.Handwriting'
+function Get-KitBloat([string]$Tweaks) {
+    # (not the Xbox Game Bar: AMD's dual-CCD X3D CPUs need it - setup knows the new PC's CPU and decides there)
+    @(@(Get-KitList $Tweaks 'apps') | Where-Object { $_ -ne 'Microsoft.XboxGamingOverlay' }) + $imageOnlyApps
+}
+# a new user's Start: Windows' own tools only (no placeholder pins that install an app when clicked)
+function Get-StartPins {
+    $ids = 'windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel', 'Microsoft.WindowsStore_8wekyb3d8bbwe!App', 'Microsoft.Windows.Photos_8wekyb3d8bbwe!App',
+        'Microsoft.WindowsCalculator_8wekyb3d8bbwe!App', 'Microsoft.WindowsNotepad_8wekyb3d8bbwe!App', 'Microsoft.Paint_8wekyb3d8bbwe!App', 'Microsoft.ScreenSketch_8wekyb3d8bbwe!App',
+        'Microsoft.WindowsTerminal_8wekyb3d8bbwe!App'
+    ConvertTo-Json @{ pinnedList = @(@{ desktopAppLink = '%APPDATA%\Microsoft\Windows\Start Menu\Programs\File Explorer.lnk' }) + @($ids | ForEach-Object { @{ packagedAppId = $_ } }) } -Depth 3
+}
+if ($ShowImagePlan) { "BLOAT $(@(Get-KitBloat "$(Split-Path $PSScriptRoot)\tweaks.ps1") -join ',')"; "PARTS $(@(@(Get-KitList "$(Split-Path $PSScriptRoot)\tweaks.ps1" 'legacyCaps') + $imageOnlyParts) -join ',')"; "PINS $(Get-StartPins | ConvertFrom-Json | ConvertTo-Json -Depth 3 -Compress)"; return }
 
 if (-not $Plan -and -not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"") + @(if ($Disk -ge 0) { '-Disk', $Disk }) + @(if ($Yes) { '-Yes' }) + @(if ($WithClaude) { '-WithClaude' }) + @(if ($NoBackup) { '-NoBackup' }) + @(if ($Iso) { '-Iso', "`"$Iso`"" })
+    $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"") + @(if ($Disk -ge 0) { '-Disk', $Disk }) + @(if ($Yes) { '-Yes' }) + @(if ($WithClaude) { '-WithClaude' }) + @(if ($StockImage) { '-StockImage' }) + @(if ($NoBackup) { '-NoBackup' }) + @(if ($Iso) { '-Iso', "`"$Iso`"" })
     Start-Process powershell -Verb RunAs -ArgumentList $a; return
 }
 $Host.UI.RawUI.WindowTitle = 'PC Setup Kit - making an install USB'
@@ -189,11 +213,119 @@ try {
             if ($LASTEXITCODE) { throw "Splitting install.wim failed (DISM $LASTEXITCODE)" }
         } else { Copy-Item $From "$dst\sources\" }
     }
+    # --- the tiny11 part: Windows itself on the stick comes without the bloat, so a new PC never has it - not removed
+    # after the first sign-in, while Windows keeps adding things (the VM test, 9/30: Teams and OneDrive came back that
+    # way). Never what Windows needs to update and repair itself (tiny11 "core" deletes its component store, recovery
+    # and Defender - then no security update installs again). In the Home and Pro editions (other editions: as Microsoft
+    # ships them - the kit's setup still removes all of it):
+    #   - every app tweaks.ps1 removes (its own list, read from it), never provisioned for a new user
+    #   - Outlook, Dev Home and Phone Link not installed by Windows after setup (Teams: not provisioned); OneDrive not set up at first sign-in
+    #   - no ads, suggested apps or silent app installs; no automatic drive encryption (Windows 11 encrypts a new PC by
+    #     itself - on a local account with the recovery key saved nowhere, and it costs SSD speed; Settings turns it on)
+    #   - Start with Windows' own tools pinned - no placeholders that install Outlook, Solitaire or WhatsApp when clicked
+    #   - no Edge, WebView2 or EdgeUpdate (as tiny11), and Windows doesn't put Edge back (an app that needs WebView2 still
+    #     installs it - that stays allowed); the Xbox sign-in parts and app, text-to-speech, OCR, handwriting, face sign-in
+    #   - OneDrive's installer, the old Windows parts tweaks.ps1 removes (Internet Explorer, the old Media Player, ...),
+    #     reserved storage
+    # Anything failing here: the image as Microsoft ships it (setup removes the same things later) - never a broken stick.
+    # a file or folder in the mounted image: Windows' own ones belong to TrustedInstaller - taken over first
+    # (one that won't go is said and left - it doesn't cost the rest of the slimming)
+    function Remove-ImagePath([string]$Path) {
+        if (-not (Test-Path -LiteralPath $Path)) { return }
+        $dir = Test-Path -LiteralPath $Path -PathType Container
+        if ($dir) { & takeown /f $Path /a /r /d y 2>$null | Out-Null; & icacls $Path /grant '*S-1-5-32-544:F' /t /c /q 2>$null | Out-Null }
+        else { & takeown /f $Path /a 2>$null | Out-Null; & icacls $Path /grant '*S-1-5-32-544:F' /c /q 2>$null | Out-Null }   # (/r on a file: an error)
+        try { if ($dir) { [IO.Directory]::Delete($Path, $true) } else { [IO.File]::Delete($Path) } } catch { Say "Windows image: $(Split-Path $Path -Leaf) couldn't be removed - left" 'Yellow' }
+    }
+    function Optimize-Image([string]$File, [string]$Editions = '^Windows 1\d (Home|Pro)$') {
+        if ($StockImage) { return }
+        # (native tools here - DISM, reg, takeown - write to stderr for harmless things like a key that isn't there; under
+        # 'Stop' PowerShell 5.1 turns any of that into an error that ends the whole edition: 9/30, the first stick)
+        $ErrorActionPreference = 'Continue'; $done = 0
+        $free = (Get-PSDrive (Split-Path $File -Qualifier).TrimEnd(':')).Free
+        if ($free -lt 20GB) { Say 'Windows image: not slimmed down (needs 20 GB free here) - setup removes the bloat instead' 'Yellow'; return }
+        $bloat = @(Get-KitBloat "$kroot\PCSetupKit\tweaks.ps1"); $parts = @(@(Get-KitList "$kroot\PCSetupKit\tweaks.ps1" 'legacyCaps') + $imageOnlyParts)
+        if ($bloat.Count -lt 20) { Say 'Windows image: not slimmed down (the kit''s app list could not be read) - setup removes the bloat instead' 'Yellow'; return }
+        $mnt = Join-Path $Cache 'mount'
+        $info = "$(& dism /Get-WimInfo "/WimFile:$File")"
+        $idx = @([regex]::Matches($info, 'Index : (\d+)\s+Name : (.+?)\s+Description') | Where-Object { $_.Groups[2].Value -match $Editions } | ForEach-Object { [int]$_.Groups[1].Value })
+        foreach ($i in $idx) {
+            Say "Windows image: slimming down edition $i (tiny11-style, about 5 minutes)..."
+            if (Test-Path $mnt) { & dism /Unmount-Image "/MountDir:$mnt" /Discard | Out-Null; [IO.Directory]::Delete($mnt, $true) }
+            New-Item $mnt -ItemType Directory -Force | Out-Null
+            & dism /Mount-Image "/ImageFile:$File" "/Index:$i" "/MountDir:$mnt" | Out-Null
+            if ($LASTEXITCODE) { Say "Windows image: edition $i could not be opened (DISM $LASTEXITCODE) - left as it is" 'Yellow'; continue }
+            $ok = $false
+            try {
+                Get-AppxProvisionedPackage -Path $mnt -ErrorAction Stop | Where-Object { $_.DisplayName -in $bloat } | ForEach-Object { Remove-AppxProvisionedPackage -Path $mnt -PackageName $_.PackageName -ErrorAction Stop | Out-Null }
+                Get-WindowsCapability -Path $mnt -ErrorAction Stop | Where-Object { $_.State -eq 'Installed' -and ($_.Name -split '~')[0] -in $parts } | ForEach-Object { Remove-WindowsCapability -Path $mnt -Name $_.Name -ErrorAction Stop | Out-Null }
+                foreach ($f in "$mnt\Program Files (x86)\Microsoft\Edge", "$mnt\Program Files (x86)\Microsoft\EdgeCore", "$mnt\Program Files (x86)\Microsoft\EdgeWebView",
+                    "$mnt\Program Files (x86)\Microsoft\EdgeUpdate", "$mnt\ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft Edge.lnk", "$mnt\Windows\System32\OneDriveSetup.exe", "$mnt\Windows\SysWOW64\OneDriveSetup.exe") { Remove-ImagePath $f }
+                & reg load HKLM\PCKIT_SOFT "$mnt\Windows\System32\config\SOFTWARE" | Out-Null
+                & reg load HKLM\PCKIT_SYS "$mnt\Windows\System32\config\SYSTEM" | Out-Null
+                & reg load HKLM\PCKIT_DEF "$mnt\Users\Default\NTUSER.DAT" | Out-Null
+                try {
+                    # (Teams: gone with the provisioned apps above - its auto-install switch, Communications, is locked to TrustedInstaller even in the image)
+                    foreach ($u in 'OutlookUpdate', 'DevHomeUpdate', 'CrossDeviceUpdate') { & reg delete "HKLM\PCKIT_SOFT\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\$u" /f 2>$null | Out-Null }
+                    & reg add 'HKLM\PCKIT_SOFT\Policies\Microsoft\Windows\CloudContent' /v DisableWindowsConsumerFeatures /t REG_DWORD /d 1 /f | Out-Null
+                    # Start's pins also as Windows' own Start-pins policy (the file alone: Windows 11 24H2 kept its placeholders).
+                    # PCKit=1: the first maintenance takes the policy away again once Start has it - the pins stay the owner's to change
+                    $pinsJson = (Get-StartPins | ConvertFrom-Json | ConvertTo-Json -Depth 3 -Compress)
+                    foreach ($pk in 'Microsoft\PolicyManager\current\device\Start', 'Microsoft\PolicyManager\providers\B5292708-1619-419B-9923-E5D9F3925E71\default\Device\Start') {
+                        # (PowerShell's own registry access: a quoted JSON value through reg.exe's command line gets mangled)
+                        $rk = "Registry::HKEY_LOCAL_MACHINE\PCKIT_SOFT\$pk"; if (-not (Test-Path $rk)) { New-Item $rk -Force | Out-Null }
+                        New-ItemProperty $rk -Name ConfigureStartPins -Value $pinsJson -PropertyType String -Force | Out-Null
+                    }
+                    & reg add 'HKLM\PCKIT_SOFT\Microsoft\PolicyManager\current\device\Start' /v ConfigureStartPins_ProviderSet /t REG_DWORD /d 1 /f | Out-Null
+                    & reg add 'HKLM\PCKIT_SOFT\Microsoft\PolicyManager\current\device\Start' /v ConfigureStartPins_WinningProvider /t REG_SZ /d 'B5292708-1619-419B-9923-E5D9F3925E71' /f | Out-Null
+                    & reg add 'HKLM\PCKIT_SOFT\Microsoft\PolicyManager\current\device\Start' /v PCKit /t REG_DWORD /d 1 /f | Out-Null
+                    foreach ($u in 'Microsoft Edge', 'Microsoft EdgeWebView', 'Microsoft Edge Update') { & reg delete "HKLM\PCKIT_SOFT\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$u" /f 2>$null | Out-Null }
+                    foreach ($v in 'edgeupdate', 'edgeupdatem', 'MicrosoftEdgeElevationService') { & reg delete "HKLM\PCKIT_SYS\ControlSet001\Services\$v" /f 2>$null | Out-Null }
+                    # EdgeUpdate's scheduled tasks: the task files and Task Scheduler's own entries for them (else it reports missing tasks)
+                    $tc = 'Registry::HKEY_LOCAL_MACHINE\PCKIT_SOFT\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache'
+                    foreach ($t in @(Get-ChildItem "$tc\Tree" -ErrorAction SilentlyContinue | Where-Object PSChildName -like 'MicrosoftEdgeUpdate*')) {
+                        $tid = (Get-ItemProperty $t.PSPath -Name Id -ErrorAction SilentlyContinue).Id
+                        if ($tid) { foreach ($sub in 'Tasks', 'Boot', 'Logon', 'Plain', 'Maintenance') { Remove-Item "$tc\$sub\$tid" -Recurse -Force -ErrorAction SilentlyContinue } }
+                        Remove-Item $t.PSPath -Recurse -Force -ErrorAction SilentlyContinue
+                    }
+                    Get-ChildItem "$mnt\Windows\System32\Tasks" -Filter 'MicrosoftEdgeUpdate*' -File -ErrorAction SilentlyContinue | ForEach-Object { Remove-ImagePath $_.FullName }
+                    & reg delete 'HKLM\PCKIT_SOFT\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\EdgeUpdate' /f 2>$null | Out-Null   # (the first-sign-in Edge install)
+                    & reg add 'HKLM\PCKIT_SOFT\Policies\Microsoft\EdgeUpdate' /v 'Install{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}' /t REG_DWORD /d 0 /f | Out-Null   # (Edge itself - not WebView2)
+                    & reg add 'HKLM\PCKIT_SOFT\Policies\Microsoft\EdgeUpdate' /v CreateDesktopShortcutDefault /t REG_DWORD /d 0 /f | Out-Null
+                    & reg add 'HKLM\PCKIT_SOFT\Microsoft\Windows\CurrentVersion\ReserveManager' /v ShippedWithReserves /t REG_DWORD /d 0 /f | Out-Null
+                    & reg add 'HKLM\PCKIT_SYS\ControlSet001\Control\BitLocker' /v PreventDeviceEncryption /t REG_DWORD /d 1 /f | Out-Null
+                    & reg delete 'HKLM\PCKIT_DEF\Software\Microsoft\Windows\CurrentVersion\Run' /v OneDriveSetup /f 2>$null | Out-Null
+                    foreach ($v in 'SilentInstalledAppsEnabled', 'PreInstalledAppsEnabled', 'OemPreInstalledAppsEnabled', 'ContentDeliveryAllowed', 'SubscribedContent-338388Enabled', 'SystemPaneSuggestionsEnabled') {
+                        & reg add 'HKLM\PCKIT_DEF\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' /v $v /t REG_DWORD /d 0 /f | Out-Null
+                    }
+                } finally { [gc]::Collect(); foreach ($h in 'PCKIT_SOFT', 'PCKIT_SYS', 'PCKIT_DEF') { & reg unload "HKLM\$h" 2>$null | Out-Null } }
+                $shell = "$mnt\Users\Default\AppData\Local\Microsoft\Windows\Shell"; New-Item $shell -ItemType Directory -Force | Out-Null
+                # (no byte-order mark: with one, Windows ignores the file - 9/30, the VM test. PowerShell 5.1's -Encoding UTF8 writes one)
+                [IO.File]::WriteAllText("$shell\LayoutModification.json", (Get-StartPins), (New-Object Text.UTF8Encoding $false))
+                $ok = $true; $done++
+            } catch { Say "Windows image: edition $i left as it is ($($_.Exception.Message))" 'Yellow' }
+            & dism /Unmount-Image "/MountDir:$mnt" $(if ($ok) { '/Commit' } else { '/Discard' }) | Out-Null
+            if ($LASTEXITCODE -and $ok) { throw "Saving the slimmed-down Windows image failed (DISM $LASTEXITCODE)" }
+        }
+        if (Test-Path $mnt) { [IO.Directory]::Delete($mnt, $true) }
+        # (what was removed still takes room in the file until it's written anew)
+        if ($done) {
+            $slim = "$File.slim"; if (Test-Path $slim) { [IO.File]::Delete($slim) }
+            foreach ($n in 1..([regex]::Matches($info, 'Index : \d+').Count)) {
+                & dism /Export-Image "/SourceImageFile:$File" "/SourceIndex:$n" "/DestinationImageFile:$slim" /Compress:max | Out-Null
+                if ($LASTEXITCODE) { throw "Rewriting the Windows image failed (DISM $LASTEXITCODE)" }
+            }
+            [IO.File]::Delete($File); [IO.File]::Move($slim, $File)
+            Say "Windows image: slimmed down ($done of $($idx.Count) edition(s))"
+        }
+    }
     if ($Iso) {
         Say 'USB: copying Windows 11 (about 10 minutes)...'
         & robocopy "$src\" "$dst\" /E /R:2 /W:2 /NFL /NDL /NJH /NJS /NP /XF install.wim install.esd | Out-Null
         if ($LASTEXITCODE -ge 8) { throw "Copying Windows onto the stick failed (robocopy $LASTEXITCODE)" }
-        Put-InstallImage $wim.FullName
+        # (the image on the ISO can't be changed: a copy, slimmed down)
+        $work = Join-Path $Cache 'install.wim'; if (Test-Path $work) { [IO.File]::Delete($work) }
+        if ($wim.Extension -eq '.wim' -and -not $StockImage) { Copy-Item $wim.FullName $work; Optimize-Image $work; Put-InstallImage $work; [IO.File]::Delete($work) } else { Put-InstallImage $wim.FullName }
     }
     else {
         # from the .esd, as the Media Creation Tool builds it: image 1 = the setup files, 2 + 3 = boot.wim (Windows PE
@@ -212,7 +344,7 @@ try {
             & dism /Export-Image "/SourceImageFile:$esd" "/SourceIndex:$i" "/DestinationImageFile:$tmpWim" /Compress:max | Out-Null
             if ($LASTEXITCODE) { throw "Building install.wim failed at image $i (DISM $LASTEXITCODE)" }
         }
-        Put-InstallImage $tmpWim; [IO.File]::Delete($tmpWim)
+        Optimize-Image $tmpWim; Put-InstallImage $tmpWim; [IO.File]::Delete($tmpWim)
         $sig = Get-AuthenticodeSignature "$dst\setup.exe"
         if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw "The built setup.exe isn't signed by Microsoft ($($sig.Status)) - don't use this stick." }
     }

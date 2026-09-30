@@ -9,7 +9,8 @@
 # A screenshot of the VM's screen every 2 minutes, and of the finished desktop. Results: %USERPROFILE%\.claude\vm-test\
 # (screen-*.png, make-usb.txt, check.txt, self-test.txt, result.txt). The VM and its disks are removed afterwards
 # (-Keep: left, to look at in Hyper-V Manager). Never restarts this PC.
-param([int]$Minutes = 150, [switch]$Keep, [string]$Out = "$env:USERPROFILE\.claude\vm-test", [string]$Root = "$env:ProgramData\PCSetupKit\vm-test")
+# -Resume: the VM is already running (the runner itself was stopped): carries on from waiting for setup, results kept
+param([int]$Minutes = 150, [switch]$Keep, [switch]$Resume, [string]$Out = "$env:USERPROFILE\.claude\vm-test", [string]$Root = "$env:ProgramData\PCSetupKit\vm-test")
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path (Split-Path (Split-Path $PSScriptRoot))   # the repo root (autounattend.xml, PCSetupKit\)
 $name = 'Messiah USB test'
@@ -38,13 +39,14 @@ function Remove-TestVm {
     foreach ($v in "$Root\usb.vhdx", "$Root\os.vhdx") { if (Test-Path $v) { Dismount-VHD -Path $v -ErrorAction SilentlyContinue; [IO.File]::Delete($v) } }
 }
 
+$usb = "$Root\usb.vhdx"
+if (-not $Resume) {
 if (Test-Path $Out) { [IO.Directory]::Delete($Out, $true) }
 New-Item $Out, $Root -ItemType Directory -Force | Out-Null
 Say "Boot-from-USB test: kit from $repo"
 Remove-TestVm
 
 # 1. the stick
-$usb = "$Root\usb.vhdx"
 New-VHD -Path $usb -SizeBytes 32GB -Dynamic | Out-Null
 $disk = Mount-VHD -Path $usb -Passthru | Get-Disk
 Say "Stick: virtual disk $($disk.Number) - make-usb.ps1 builds it (Windows from Microsoft, this kit)..."
@@ -64,6 +66,7 @@ Set-VMFirmware -VMName $name -FirstBootDevice $stick -EnableSecureBoot On -Secur
 Set-VMVideo -VMName $name -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single -ErrorAction SilentlyContinue
 Start-VM -Name $name
 Say 'VM: started from the stick - Windows Setup, then the first login runs setup.ps1'
+} else { Say 'Resumed: the VM is running - waiting for setup' }
 $w = [Diagnostics.Stopwatch]::StartNew(); $n = 0; $done = $false; $installedAt = $null
 while ($w.Elapsed.TotalMinutes -lt $Minutes) {
     Save-Screen ("$Out\screen-{0:D3}.png" -f $n); $n++
@@ -88,8 +91,31 @@ $chk | Set-Content "$Out\check.txt"
 $stt = @(Invoke-Command -VMName $name -Credential $cred -ErrorAction Continue -ScriptBlock { & powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.claude\self-test.ps1" -Force 2>&1 | ForEach-Object { "$_" } })
 $stt | Set-Content "$Out\self-test.txt"
 Save-Screen "$Out\screen-finished.png"
-$res = "$(($chk -match '^RESULT ') | Select-Object -Last 1)"; $self = "$(($stt -match 'Self-test|self-test') | Select-Object -Last 1)"
-$ok = $res -match 'fail=0' -and $self -match '^Self-test \(requested\): \d+ passed, 0 failed'
+
+# 4. the VM restarted once (the VM - never this PC): nothing setup removed came back meanwhile (the tweak guard finds
+# nothing to do), no removed app is still provisioned for new users (the slimmed-down image), no drive encryption
+$bloat = @(& "$repo\PCSetupKit\claude\make-usb.ps1" -ShowImagePlan | Where-Object { $_ -match '^BLOAT ' } | ForEach-Object { ($_ -replace '^BLOAT ') -split ',' })
+Restart-VM -Name $name -Force; Start-Sleep 90
+$after = $null; for ($t = 0; $t -lt 20 -and -not $after; $t++) {
+    $after = try { Invoke-Command -VMName $name -Credential $cred -ErrorAction Stop -ScriptBlock {
+            if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) { return }   # (not signed in yet)
+            Start-Sleep 60   # (the sign-in's own work: Windows applies the default-apps policy)
+            $pin = "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Microsoft Edge.lnk"
+            "bloat provisioned: $((Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -in $using:bloat } | ForEach-Object DisplayName) -join ', ')"
+            "drive encryption: $((Get-BitLockerVolume -MountPoint C: -ErrorAction SilentlyContinue).VolumeStatus)"
+            "Edge desktop icon: $((Test-Path "$env:PUBLIC\Desktop\Microsoft Edge.lnk") -or (Test-Path "$env:USERPROFILE\Desktop\Microsoft Edge.lnk"))"
+            "Edge pinned: $(Test-Path $pin)"
+            "tweak guard: $((& powershell -NoProfile -ExecutionPolicy Bypass -File C:\PCSetupKit\tweaks.ps1) -join ', ')"
+            "Teams: $([bool](Get-AppxPackage MSTeams))  OneDrive: $(Test-Path "$env:LOCALAPPDATA\Microsoft\OneDrive\OneDrive.exe")"
+        } } catch { $null }
+    if (-not $after) { Start-Sleep 30 }
+}
+$after | Set-Content "$Out\after-restart.txt"; Save-Screen "$Out\screen-after-restart.png"
+Say "After a restart: $(($after | ForEach-Object { $_ }) -join ' | ')"
+$again = $after -match '^tweak guard: .+'
+if (-not $after -or ($after -match '^Edge (desktop icon|pinned): True') -or $again -or ($after -match '^bloat provisioned: .+') -or ($after -match '^drive encryption: (?!FullyDecrypted)')) { $chk += 'RESULT after-restart fail=1' }
+$res = ($chk -match '^RESULT ') -join ' + '; $self = "$(($stt -match 'Self-test|self-test') | Select-Object -Last 1)"
+$ok = $res -match 'fail=0' -and $res -notmatch 'fail=[1-9]' -and $self -match '^Self-test \(requested\): \d+ passed, 0 failed'
 "$(if ($ok) { 'PASSED' } else { 'FAILED' }): Windows installed in $([int]$installedAt.TotalMinutes) min, setup done at $([int]$w.Elapsed.TotalMinutes) min | $res | $self" | Tee-Object "$Out\result.txt" | ForEach-Object { Say $_ }
 if (-not $Keep) { Remove-TestVm; Say 'VM and its disks removed' }
 exit [int](-not $ok)
