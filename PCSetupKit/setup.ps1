@@ -32,7 +32,16 @@ Step 'Waiting for internet'
 for ($i = 0; $i -lt 60 -and -not (Test-NetConnection 1.1.1.1 -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue); $i++) { Start-Sleep 5 }
 
 Step 'Applying Windows tweaks (with the power plan and removing OneDrive)'
-& "$kit\tweaks.ps1" -Quick | ForEach-Object { "  $_" }
+# in a process of its own with a time limit: a Windows part that hangs (9/30 on GitHub: 90 minutes, then the run was
+# stopped) mustn't stop the whole setup - it's stopped, said with where it was, and the maintenance's guard redoes it
+$tw = Join-Path $env:TEMP "pckit-tweaks-$PID"; $env:PCKIT_TWEAKS_TRACE = "$tw.trace"; foreach ($f in "$tw.out", "$tw.trace") { if (Test-Path $f) { [IO.File]::Delete($f) } }
+$twp = Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$kit\tweaks.ps1`"", '-Quick' -WindowStyle Hidden -PassThru -RedirectStandardOutput "$tw.out"
+if (-not $twp.WaitForExit(1200000)) {
+    try { $twp.Kill() } catch { }
+    "  Windows tweaks: stopped after 20 minutes (at: $((Get-Content "$tw.trace" -ErrorAction SilentlyContinue | Select-Object -Last 1) -replace '^\S+ \S* ?')) - the maintenance applies the rest"
+}
+Get-Content "$tw.out" -ErrorAction SilentlyContinue | Where-Object { $_.Trim() } | ForEach-Object { "  $_" }
+$env:PCKIT_TWEAKS_TRACE = $null; foreach ($f in "$tw.out", "$tw.trace") { if (Test-Path $f) { [IO.File]::Delete($f) } }
 
 # (the power plan - laptops kept on Balanced - and removing OneDrive are part of tweaks.ps1 above: its guard puts
 # them back after every update)

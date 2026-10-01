@@ -33,6 +33,9 @@ Check 'tweaks applied and their originals recorded (for the uninstaller)' (Test-
 $maintRan = Test-Path "$cl\setup-maint-running.txt"
 for ($w = 0; (Test-Path "$cl\setup-maint-running.txt") -and $w -lt 240; $w++) { Start-Sleep 15 }
 $again = @(& "$kit\tweaks.ps1")
+# no first maintenance yet (with Claude, the maintenance runs at the next sign-in): the guard just did that deferred part
+# itself - a second run must then change nothing
+if (-not $maintRan -and $again -and -not ($again | Where-Object { $_ -notmatch '^(old Windows part|Windows feature|reserved storage)' })) { $again = @(& "$kit\tweaks.ps1") }
 Check 'running the tweak guard again changes nothing (it all stuck)' ($again.Count -eq 0) ($again -join ' / ')
 if ((Get-CimInstance Win32_Battery) -or $env:PCKIT_TEST_BATTERY -eq '1') { Check 'a laptop: the Balanced power plan kept (Ultimate would drain the battery)' ((powercfg /getactivescheme) -match '381b4222-f694-41f0-9685-ff5bb260df2e') "$(powercfg /getactivescheme)" }
 else { Check 'Ultimate Performance power plan active' ((powercfg /getactivescheme) -match '99999999-9999-9999-9999-999999999999|Ultimate Performance') "$(powercfg /getactivescheme)" }

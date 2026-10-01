@@ -218,6 +218,10 @@ $o = Run
 Check 'the first maintenance takes the kit''s policy away (the pins stay, the owner''s to change)' (-not $TW.Reg.ContainsKey("$sp|ConfigureStartPins") -and -not $TW.Reg.ContainsKey("$sp|PCKit") -and ($o -contains 'Start pins from the install USB kept - yours to change now')) ($o -join ' / ')
 Fresh; Clear-Path $bk; $TW.Reg["$sp|ConfigureStartPins"] = '{"pinnedList":[]}'; $o = Run
 Check '... a Start-pins policy that isn''t the kit''s (a company''s) stays' ($TW.Reg.ContainsKey("$sp|ConfigureStartPins")) ''
+Section 'where it is, for setup''s time limit'
+Fresh; Clear-Path $bk; $env:PCKIT_TWEAKS_TRACE = "$Work\trace.txt"; Clear-Path $env:PCKIT_TWEAKS_TRACE; [void](Run); $tr = @(Get-Content $env:PCKIT_TWEAKS_TRACE -ErrorAction SilentlyContinue); $env:PCKIT_TWEAKS_TRACE = $null
+Check 'each section is noted as it starts (a hang names itself), the end too' (($tr -match ' Services$') -and ($tr -match ' Preinstalled apps$') -and ($tr[-1] -match ' done$')) ($tr -join ' / ')
+
 Section 'Edge kept out of the way (it stays installed: Windows and apps need it)'
 $er = "$Work\edge"; $env:PCKIT_EDGE_ROOT = $er; $uc = 'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice|ProgId'
 $pol = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System|DefaultAssociationsConfiguration'

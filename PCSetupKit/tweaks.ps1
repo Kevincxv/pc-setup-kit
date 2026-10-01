@@ -5,6 +5,8 @@
 # -Quick: setup's first run - the slow parts (the old Windows parts, via DISM) wait for the first maintenance
 param([switch]$Quick)
 $ErrorActionPreference = 'SilentlyContinue'
+# where it is, for whoever runs it with a time limit (setup.ps1): PCKIT_TWEAKS_TRACE names the file - a hang names itself
+function Trace([string]$Where) { if ($env:PCKIT_TWEAKS_TRACE) { try { Add-Content $env:PCKIT_TWEAKS_TRACE "$((Get-Date).ToString('T')) $Where" } catch { } } }
 $changes = New-Object System.Collections.Generic.List[string]
 # one guard at a time (health-check, the update guard, setup, the app's choices): the originals file isn't written twice at
 # once - the second waits (up to 2 min). Tests each get their own.
@@ -51,6 +53,7 @@ function Set-Reg($Path, $Name, $Value, $Type = 'DWord') {
     }
 }
 
+Trace 'Telemetry, ads, suggestions, AI features'
 # --- Telemetry, ads, suggestions, AI features ---
 $group = 'telemetry'
 $pol = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows'   # (not $P: a later $p is the same variable in PowerShell)
@@ -97,6 +100,7 @@ Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Privacy' TailoredExperi
 Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' BingSearchEnabled 0
 Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications' ToastEnabled 0
 
+Trace 'Taskbar / Start / look'
 # --- Taskbar / Start / look ---
 $group = 'start-menu'
 $ADV = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
@@ -117,6 +121,7 @@ Set-Reg 'HKCU:\Control Panel\Mouse' MouseSpeed '0' String       # no mouse accel
 Set-Reg 'HKCU:\Control Panel\Mouse' MouseThreshold1 '0' String
 Set-Reg 'HKCU:\Control Panel\Mouse' MouseThreshold2 '0' String
 
+Trace 'Gaming / performance'
 # --- Gaming / performance ---
 $group = 'game-recording'
 Set-Reg 'HKCU:\System\GameConfigStore' GameDVR_Enabled 0
@@ -164,6 +169,7 @@ if ($cs -and -not $cs.AutomaticManagedPagefile -and -not (Get-CimInstance Win32_
 # with, instead of hours (busy PowerShell scripts alone can fill the default Windows PowerShell log in an afternoon)
 foreach ($log in 'Application', 'System', 'Windows PowerShell') { Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\$log" MaxSize 67108864 }
 
+Trace 'Services'
 # --- Services ---
 # SysMain (prefetch) only goes where Windows is on an SSD: on a hard drive it's what makes apps start quicker
 $sysHdd = "$((Get-PhysicalDisk | Where-Object DeviceId -eq "$((Get-Partition -DriveLetter C -ErrorAction SilentlyContinue).DiskNumber)").MediaType)" -eq 'HDD'
@@ -179,6 +185,7 @@ foreach ($n in $manual) {
     if ($s -and $s.StartType -eq 'Automatic') { Save-Original "service|$n" @{ StartType = 'Automatic' }; Set-Service $n -StartupType Manual; $changes.Add("service $n manual") }
 }
 
+Trace 'Scheduled tasks'
 # --- Scheduled tasks (telemetry, feedback, compatibility scans) ---
 $tasks = '\Microsoft\Windows\Application Experience\MareBackup', '\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser',
     '\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser Exp', '\Microsoft\Windows\Application Experience\PcaPatchDbTask',
@@ -200,6 +207,7 @@ foreach ($t in Get-ScheduledTask | Where-Object { $_.TaskName -match 'AsrAPPShop
     Unregister-ScheduledTask -TaskName $t.TaskName -Confirm:$false; $changes.Add("motherboard installer task $($t.TaskName) removed")
 }
 
+Trace 'Preinstalled apps'
 # --- Preinstalled apps (current user, all users, and new users) ---
 $apps = 'Microsoft.Copilot', 'Microsoft.Windows.Ai.Copilot.Provider', 'MicrosoftWindows.Client.WebExperience', 'Microsoft.WidgetsPlatformRuntime',
     'Microsoft.StartExperiencesApp', 'MicrosoftWindows.CrossDevice', 'Microsoft.YourPhone', 'Microsoft.BingNews', 'Microsoft.BingWeather',
@@ -239,6 +247,7 @@ foreach ($a in $apps) {
     }
 }
 
+Trace 'Old Windows parts'
 # --- Old Windows parts - what tiny11 removes too, but never what Windows needs to update and repair itself (its component
 # store, recovery, Defender - tiny11 "core" deletes those, and then no security update installs again): Internet
 # Explorer's engine, the legacy Media Player, WordPad, Steps Recorder, the math input recognizer, the XPS viewer;
@@ -286,6 +295,7 @@ if (Want 'legacy') {
     if ($bk.ContainsKey('legacy|build')) { $bk.Remove('legacy|build'); $script:bkDirty = $true }
 }
 $group = $null
+Trace 'Power'
 # --- Power: part of the guard because chipset/graphics driver installers and Windows feature updates switch it back.
 # A desktop: Ultimate Performance (made from Windows' own template under a fixed id - found in any language), no USB
 # sleep, no hibernation. A laptop (a battery): Balanced kept - Ultimate would drain it - with hibernation (a flat
@@ -323,6 +333,7 @@ else {
 $group = $null
 if (-not $laptop -and (Want 'hibernation') -and (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name HibernateEnabled).HibernateEnabled -ne 0) { powercfg /hibernate off; $changes.Add('hibernation off') }
 
+Trace 'OneDrive'
 # --- OneDrive: a feature update can bring it back - removed again (its sync is also off by policy, above) ---
 $od = @("$env:LOCALAPPDATA\Microsoft\OneDrive\OneDrive.exe", "$env:ProgramFiles\Microsoft OneDrive\OneDrive.exe") | Where-Object { Test-Path $_ }
 if (-not (Want 'onedrive')) {   # the owner wants OneDrive: back once (winget), its sync allowed again (the policy, above)
@@ -338,6 +349,7 @@ elseif ($od) {
     $changes.Add('OneDrive removed')
 }
 
+Trace 'Start-up clutter'
 # --- Start-up clutter: vendor updaters, promo tools and OEM "assistants" that start with Windows for nothing -
 # turned off the way Task Manager does it (StartupApproved), so they're still installed and can be turned back on in
 # Task Manager > Startup apps. Never games, launchers, chat, audio, RGB or mouse/keyboard software. ---
@@ -367,6 +379,7 @@ if (Want 'startup-clutter') { foreach ($r in @(@('HKCU:\Software\Microsoft\Windo
     }
 } }
 
+Trace 'Edge'
 # --- Edge: it stays (Windows and many apps show their pages with it - WebView2 - and Windows Update puts a removed Edge
 # back), but out of the way: no desktop icon (not after its own updates either), not pinned to the taskbar, no first-run
 # pages or "make Edge your default" prompts. (The default browser can't be switched by a program on a home PC - Windows 11
@@ -385,7 +398,8 @@ if (-not $edgeFiles) { }
 elseif (Want 'edge') {
     Redo 'edge'
     foreach ($l in $edgeIcons) { if (Test-Path -LiteralPath $l) { Save-Original 'edge|desktop' @{ Removed = (Get-Date).ToString('d') }; [IO.File]::Delete($l); $changes.Add('Edge desktop icon removed') } }
-    if (Test-Path -LiteralPath "$pinned\Microsoft Edge.lnk") {
+    # (only with a desktop shell in this session: without one the shell's unpin can wait forever - a service, a test machine)
+    if ((Test-Path -LiteralPath "$pinned\Microsoft Edge.lnk") -and (Get-Process explorer -ErrorAction SilentlyContinue | Where-Object SessionId -eq (Get-Process -Id $PID).SessionId)) {
         # (Windows 11 lets a program unpin, not pin: the taskbar's own "Unpin" on the pinned shortcut)
         try { (New-Object -ComObject Shell.Application).Namespace($pinned).ParseName('Microsoft Edge.lnk').InvokeVerb('taskbarunpin') } catch { }
         if (-not (Test-Path -LiteralPath "$pinned\Microsoft Edge.lnk")) { Save-Original 'edge|pinned' @{ Removed = (Get-Date).ToString('d') }; $changes.Add('Edge unpinned from the taskbar') }
@@ -399,6 +413,7 @@ elseif (Want 'edge') {
 }
 $group = $null
 
+Trace 'The install USBs Start pins'
 # --- The install USB's Start pins (make-usb.ps1: Windows' Start-pins policy, marked PCKit=1) are applied by now: the policy
 # goes, so the pins are the owner's to change (while it stays, Windows would put them back). Anyone else's policy stays. ---
 $sp = 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Start'
@@ -408,7 +423,9 @@ if (-not $Quick -and (Get-ItemProperty $sp -Name PCKit).PCKit -eq 1) {
     $changes.Add('Start pins from the install USB kept - yours to change now')
 }
 
-# --- Devices: no power-saving on controllers and wired network ---# game controllers: Xbox (045E), PlayStation (054C), Nintendo (057E), 8BitDo (2DC8), Hori (0F0D), PowerA (20D6), PDP (0E6F)
+Trace 'Devices'
+# --- Devices: no power-saving on controllers and wired network ---
+# game controllers: Xbox (045E), PlayStation (054C), Nintendo (057E), 8BitDo (2DC8), Hori (0F0D), PowerA (20D6), PDP (0E6F)
 foreach ($d in Get-CimInstance -Namespace root\wmi MSPower_DeviceEnable | Where-Object { $_.Enable -and $_.InstanceName -match 'VID_(045E|054C|057E|2DC8|0F0D|20D6|0E6F)' }) {
     Save-Original "power|$($d.InstanceName)" @{ Enable = $true }
     Set-CimInstance -InputObject $d -Property @{ Enable = $false }; $changes.Add('controller power-saving off')
@@ -438,6 +455,7 @@ if (-not $laptop) {
     }
 }
 
+Trace 'done'
 if ($bkDirty) {
     New-Item (Split-Path $bkFile) -ItemType Directory -Force | Out-Null
     $bk | ConvertTo-Json -Depth 4 | Set-Content "$bkFile.tmp" -Encoding utf8
