@@ -10,7 +10,7 @@ try {
     # the real recording code of tweaks.ps1 (its header + footer), applied to test values
     $tw = Get-Content "$Kit\tweaks.ps1" -Raw
     $head = $tw.Substring(0, $tw.IndexOf('# --- Telemetry')).Replace("'C:\PCSetupKit\tweaks-backup.json'", "'$bkf'")
-    $foot = $tw.Substring($tw.IndexOf('if ($bkDirty)'))
+    $foot = $tw.Substring($tw.LastIndexOf("Trace 'done'"))   # (the end: the last save of the originals and the lock)
     Set-Content "$Work\tweaks-test.ps1" ($head + "Set-Reg '$key' ValueA 0`nSet-Reg '$key' ValueS 'changed' 'String'`nSet-Reg '$key' ValueNew 1`n" + $foot)
     $o = & "$Work\tweaks-test.ps1"
     Check 'tweaks applied to the test values' ((Get-ItemProperty $key).ValueA -eq 0 -and (Get-ItemProperty $key).ValueS -eq 'changed' -and (Get-ItemProperty $key).ValueNew -eq 1) ($o -join ',')

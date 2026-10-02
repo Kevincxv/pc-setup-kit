@@ -230,6 +230,13 @@ Check '... not when the owner keeps OneDrive' ($TW.Reg.ContainsKey('Registry::HK
 '' | Set-Content $opt
 Fresh; Clear-Path $bk; $TW.Tasks += @{ P = '\Microsoft\Windows\Sustainability\'; N = 'SustainabilityTelemetry'; S = 'Ready' }, @{ P = '\GoogleUserPEH\'; N = 'RunPlatformExperienceHelper_Daily'; S = 'Ready' }, @{ P = '\GoogleSystem\GoogleUpdater\'; N = 'GoogleUpdaterTaskSystem'; S = 'Ready' }; $o = Run
 Check 'the telemetry tasks the audit found are off, and Chrome''s "tips" helper - Chrome''s own updater stays' (($o -contains 'task SustainabilityTelemetry off') -and ($o -contains 'task RunPlatformExperienceHelper_Daily off') -and -not ($o -match 'GoogleUpdaterTaskSystem')) ($o -join ' / ')
+Section 'a run stopped halfway (setup''s 20-minute limit) keeps what it changed'
+$tt = Get-Content "$Kit\tweaks.ps1" -Raw
+Check 'the originals are saved at every section, not only at the end (10/2: a stopped run on GitHub had saved none)' ($tt -match 'function Trace\(\[string\]\$Where\) \{ Save-Backup;' -and @([regex]::Matches($tt, '(?m)^Trace ''')).Count -ge 10) ''
+Check '... and the taskbar unpin (the shell can wait forever) runs in its own process, 30 seconds at most' ($tt -match 'taskbarunpin' -and $tt -match 'WaitForExit\(30000\)') ''
+Fresh; Clear-Path $bk; $env:PCKIT_TWEAKS_TRACE = "$Work\trace2.txt"; [void](Run); $env:PCKIT_TWEAKS_TRACE = $null
+Check '... the originals file is complete after a normal run all the same' ((Test-Path $bk) -and (Get-Content $bk -Raw) -match 'DiagTrack') ''
+
 Section 'Edge kept out of the way (it stays installed: Windows and apps need it)'
 $er = "$Work\edge"; $env:PCKIT_EDGE_ROOT = $er; $uc = 'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice|ProgId'
 $pol = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System|DefaultAssociationsConfiguration'

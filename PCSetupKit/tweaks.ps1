@@ -6,7 +6,9 @@
 param([switch]$Quick)
 $ErrorActionPreference = 'SilentlyContinue'
 # where it is, for whoever runs it with a time limit (setup.ps1): PCKIT_TWEAKS_TRACE names the file - a hang names itself
-function Trace([string]$Where) { if ($env:PCKIT_TWEAKS_TRACE) { try { Add-Content $env:PCKIT_TWEAKS_TRACE "$((Get-Date).ToString('T')) $Where" } catch { } } }
+# (and the originals recorded so far are saved: a run stopped halfway - setup's time limit - still leaves the uninstaller
+# everything it changed; 10/2 on GitHub a stopped run had saved none)
+function Trace([string]$Where) { Save-Backup; if ($env:PCKIT_TWEAKS_TRACE) { try { Add-Content $env:PCKIT_TWEAKS_TRACE "$((Get-Date).ToString('T')) $Where" } catch { } } }
 $changes = New-Object System.Collections.Generic.List[string]
 # one guard at a time (health-check, the update guard, setup, the app's choices): the originals file isn't written twice at
 # once - the second waits (up to 2 min). Tests each get their own.
@@ -18,6 +20,12 @@ try { [void]$tmx.WaitOne(120000) } catch [Threading.AbandonedMutexException] { }
 $bkFile = 'C:\PCSetupKit\tweaks-backup.json'
 $bk = @{}; try { (Get-Content $bkFile -Raw | ConvertFrom-Json -ErrorAction Stop).PSObject.Properties | ForEach-Object { $bk[$_.Name] = $_.Value } } catch {}
 $bkDirty = $false
+function Save-Backup {
+    if (-not $script:bkDirty) { return }
+    New-Item (Split-Path $bkFile) -ItemType Directory -Force | Out-Null
+    $bk | ConvertTo-Json -Depth 4 | Set-Content "$bkFile.tmp" -Encoding utf8
+    Move-Item "$bkFile.tmp" $bkFile -Force; $script:bkDirty = $false
+}
 function Save-Original($Key, $Data) { if (-not $bk.ContainsKey($Key)) { $bk[$Key] = $Data; $script:bkDirty = $true } }
 
 # The owner's choices (the app's Settings > What the kit changes; kit-options.txt "tweak.<group>=off"): a group turned
@@ -416,7 +424,10 @@ elseif (Want 'edge') {
     # (only with a desktop shell in this session: without one the shell's unpin can wait forever - a service, a test machine)
     if ((Test-Path -LiteralPath "$pinned\Microsoft Edge.lnk") -and (Get-Process explorer -ErrorAction SilentlyContinue | Where-Object SessionId -eq (Get-Process -Id $PID).SessionId)) {
         # (Windows 11 lets a program unpin, not pin: the taskbar's own "Unpin" on the pinned shortcut)
-        try { (New-Object -ComObject Shell.Application).Namespace($pinned).ParseName('Microsoft Edge.lnk').InvokeVerb('taskbarunpin') } catch { }
+        # (in a process of its own, 30 seconds at most: the shell's verb can wait forever - 10/2 on GitHub it held setup for 20 minutes)
+        $up = "try { (New-Object -ComObject Shell.Application).Namespace('$($pinned.Replace("'", "''"))').ParseName('Microsoft Edge.lnk').InvokeVerb('taskbarunpin') } catch { }"
+        $upp = Start-Process powershell -ArgumentList '-NoProfile', '-STA', '-Command', $up -WindowStyle Hidden -PassThru
+        if ($upp -and -not $upp.WaitForExit(30000)) { try { $upp.Kill() } catch { } }
         if (-not (Test-Path -LiteralPath "$pinned\Microsoft Edge.lnk")) { Save-Original 'edge|pinned' @{ Removed = (Get-Date).ToString('d') }; $changes.Add('Edge unpinned from the taskbar') }
     }
 } else {
@@ -471,10 +482,6 @@ if (-not $laptop) {
 }
 
 Trace 'done'
-if ($bkDirty) {
-    New-Item (Split-Path $bkFile) -ItemType Directory -Force | Out-Null
-    $bk | ConvertTo-Json -Depth 4 | Set-Content "$bkFile.tmp" -Encoding utf8
-    Move-Item "$bkFile.tmp" $bkFile -Force
-}
+Save-Backup
 try { $tmx.ReleaseMutex() } catch { }
 $changes | Select-Object -Unique
