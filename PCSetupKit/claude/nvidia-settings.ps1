@@ -1,4 +1,4 @@
-# NVIDIA driver settings for games, on the driver's global profile (every game), once per driver version (run by
+# NVIDIA driver settings for games, on the driver's global profile (every game), kept that way: checked at every run, put back if reset (run by
 # health-check.ps1; never under a game):
 # - Low latency mode "On" (Maximum pre-rendered frames = 1): less input lag; games with NVIDIA Reflex use their own
 # - Shader cache size "Unlimited": games don't recompile shaders (stutter) because an old 4 GB cache filled up
@@ -13,33 +13,9 @@ $want = [ordered]@{ '8102046' = @('Maximum pre-rendered frames', '1'); '11306135
 $npiUrl = 'https://github.com/Orbmu2k/nvidiaProfileInspector/releases/download/v3.0.2.1/nvidiaProfileInspector.zip'
 $npiSha = '88DCF3514111E8DE630688467C03C36D8C2A8AD9EBC8073F27C069F82B75BB40'
 
-$gpu = if ($T) { $T.Gpu } else { Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'NVIDIA' } | Select-Object -First 1 }
-if (-not $gpu) { return }
-$opt = if ($T) { $T.Option } else { $l = @(Get-Content $Options) -match '^\s*nvidiasettings\s*=' | Select-Object -First 1; if ($l) { ($l -split '=', 2)[1].Trim() } }
-if ($opt -eq 'off') { return }
-$drv = if ($T) { $T.Driver } else { "$($gpu.DriverVersion)" }
-if ("$(Get-Content $State -TotalCount 1)".Trim() -eq $drv) { return }   # done for this driver
-$game = if ($T) { $T.Game } else { & "$PSScriptRoot\game-check.ps1" }
-if ($game) { return }   # the driver reloads its profile: not under a game (next check)
-
-$tool = "$PSScriptRoot\tools\npi\nvidiaProfileInspector.exe"
-if (-not $T -and -not (Test-Path $tool)) {
-    $zip = Join-Path $env:TEMP "pckit-npi-$PID.zip"; $ProgressPreference = 'SilentlyContinue'
-    try { Invoke-WebRequest $npiUrl -OutFile $zip -UseBasicParsing -TimeoutSec 60 } catch { return }   # offline: next check
-    if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $npiSha) { [IO.File]::Delete($zip); 'NVIDIA settings: the Profile Inspector download did not match the checked version - not used'; return }
-    Expand-Archive $zip (Split-Path $tool) -Force; [IO.File]::Delete($zip)
-}
-# the .nip: a list of profiles; "Base Profile" is the global one
-$x = '<?xml version="1.0" encoding="utf-16"?><ArrayOfProfile><Profile><ProfileName>Base Profile</ProfileName><Executeables /><Settings>' +
-    (($want.Keys | ForEach-Object { "<ProfileSetting><SettingNameInfo>$($want[$_][0])</SettingNameInfo><SettingID>$_</SettingID><SettingValue>$($want[$_][1])</SettingValue><ValueType>Dword</ValueType></ProfileSetting>" }) -join '') +
-    '</Settings></Profile></ArrayOfProfile>'
-$read = if ($T) { $T.Readback } else {
-    $nip = Join-Path $env:TEMP "pckit-nvidia-$PID.nip"; [IO.File]::WriteAllText($nip, $x, [Text.Encoding]::Unicode)
-    $p = Start-Process $tool -ArgumentList '-silentImport', '-mergeImport', "`"$nip`"" -PassThru -WindowStyle Minimized   # (hidden, it waits 90 s for its window)
-    if (-not $p.WaitForExit(90000)) { Stop-Process -Id $p.Id -Force }
-    [IO.File]::Delete($nip)
-    # read back from the driver itself (NVAPI's settings database, the global profile) - the tool's own export leaves
-    # the global profile out
+# the global profile's current values, read from the driver itself (NVAPI's settings database) - the tool's own export
+# leaves the global profile out. "id=value" lines; a negative value: not set / no driver
+function Read-NvNow {
     if (-not ('KitNvDrs' -as [type])) { Add-Type -TypeDefinition @"
 using System; using System.Runtime.InteropServices;
 public static class KitNvDrs {
@@ -65,7 +41,43 @@ public static class KitNvDrs {
 "@ }
     foreach ($id in $want.Keys) { "$id=$([KitNvDrs]::Get([uint32]$id))" }
 }
+$gpu = if ($T) { $T.Gpu } else { Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'NVIDIA' } | Select-Object -First 1 }
+if (-not $gpu) { return }
+$opt = if ($T) { $T.Option } else { $l = @(Get-Content $Options) -match '^\s*nvidiasettings\s*=' | Select-Object -First 1; if ($l) { ($l -split '=', 2)[1].Trim() } }
+if ($opt -eq 'off') { return }
+$drv = if ($T) { $T.Driver } else { "$($gpu.DriverVersion)" }
+# checked at every run - not only once per driver: the NVIDIA app, a game's own optimizer or a driver repair can reset the
+# global profile without a new driver (10/2: guarded like every other setting). Reading it is instant and changes nothing.
+$done = "$(Get-Content $State -TotalCount 1)".Trim() -eq $drv
+$now = if ($T) { if ($T.ContainsKey('Current')) { $T.Current } } else { @(Read-NvNow) }
+$set = $now -and -not ($want.Keys | Where-Object { "$_=$($want[$_][1])" -notin @($now) })
+if ($set) { if (-not $done) { $drv | Set-Content $State }; return }   # already as wanted
+if ($done -and -not $now) { return }   # applied for this driver, and it can't be read here: as before
+$wasReset = $done
+$game = if ($T) { $T.Game } else { & "$PSScriptRoot\game-check.ps1" }
+if ($game) { return }   # the driver reloads its profile: not under a game (next check)
+
+$tool = "$PSScriptRoot\tools\npi\nvidiaProfileInspector.exe"
+if (-not $T -and -not (Test-Path $tool)) {
+    $zip = Join-Path $env:TEMP "pckit-npi-$PID.zip"; $ProgressPreference = 'SilentlyContinue'
+    try { Invoke-WebRequest $npiUrl -OutFile $zip -UseBasicParsing -TimeoutSec 60 } catch { return }   # offline: next check
+    if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $npiSha) { [IO.File]::Delete($zip); 'NVIDIA settings: the Profile Inspector download did not match the checked version - not used'; return }
+    Expand-Archive $zip (Split-Path $tool) -Force; [IO.File]::Delete($zip)
+}
+# the .nip: a list of profiles; "Base Profile" is the global one
+$x = '<?xml version="1.0" encoding="utf-16"?><ArrayOfProfile><Profile><ProfileName>Base Profile</ProfileName><Executeables /><Settings>' +
+    (($want.Keys | ForEach-Object { "<ProfileSetting><SettingNameInfo>$($want[$_][0])</SettingNameInfo><SettingID>$_</SettingID><SettingValue>$($want[$_][1])</SettingValue><ValueType>Dword</ValueType></ProfileSetting>" }) -join '') +
+    '</Settings></Profile></ArrayOfProfile>'
+$read = if ($T) { $T.Readback } else {
+    $nip = Join-Path $env:TEMP "pckit-nvidia-$PID.nip"; [IO.File]::WriteAllText($nip, $x, [Text.Encoding]::Unicode)
+    $p = Start-Process $tool -ArgumentList '-silentImport', '-mergeImport', "`"$nip`"" -PassThru -WindowStyle Minimized   # (hidden, it waits 90 s for its window)
+    if (-not $p.WaitForExit(90000)) { Stop-Process -Id $p.Id -Force }
+    [IO.File]::Delete($nip)
+    # read back from the driver itself (NVAPI's settings database, the global profile) - the tool's own export leaves
+    # the global profile out
+    Read-NvNow
+}
 if ($Do) { & $Do "import $($want.Keys -join ',')" }
 $ok = -not ($want.Keys | Where-Object { "$_=$($want[$_][1])" -notin @($read) })
-if ($ok) { $drv | Set-Content $State; "NVIDIA: low-latency mode on and an unlimited shader cache, for every game (driver $drv)" }
+if ($ok) { $drv | Set-Content $State; if ($wasReset) { "NVIDIA: the game settings had been reset (low latency, shader cache) - put back" } else { "NVIDIA: low-latency mode on and an unlimited shader cache, for every game (driver $drv)" } }
 else { "NVIDIA settings FAILED to apply (driver $drv) - read back: $(@($read) -join ', ')" }

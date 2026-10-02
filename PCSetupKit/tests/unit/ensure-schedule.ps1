@@ -1,11 +1,12 @@
 ﻿# ensure-schedule.ps1: the background maintenance also runs daily (PCs that stay on for days), added to existing
 # installs through the task's exact XML - with the scheduled-task commands mocked.
 . "$PSScriptRoot\..\lib.ps1"
-$mocked = 'Get-ScheduledTask', 'Export-ScheduledTask', 'Register-ScheduledTask'
+$mocked = 'Get-ScheduledTask', 'Export-ScheduledTask', 'Register-ScheduledTask', 'Enable-ScheduledTask'
 if (-not (Test-Tripwire "$Src\ensure-schedule.ps1" $mocked)) { Finish }
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
-$global:ES = @{ Others = @{} }
-function Get-ScheduledTask { param($TaskName) if ($TaskName -like 'PC Setup Kit *' -or $TaskName -eq 'Messiah Night Restart') { if ($global:ES.Others[$TaskName]) { [pscustomobject]@{ TaskName = $TaskName } }; return }; if ($global:ES.Xml) { [pscustomobject]@{ TaskName = $TaskName } } }
+$global:ES = @{ Others = @{}; Disabled = @(); Enabled = @() }
+function Enable-ScheduledTask { param($TaskPath, $TaskName) if ($global:ES.EnableFail) { throw 'Access is denied' }; $global:ES.Enabled += $TaskName }
+function Get-ScheduledTask { param($TaskName) if (-not $TaskName) { return @(@($global:ES.Disabled) | Where-Object { $_ } | ForEach-Object { [pscustomobject]@{ TaskName = $_; TaskPath = '\'; State = 'Disabled' } }) }; if ($TaskName -like 'PC Setup Kit *' -or $TaskName -eq 'Messiah Night Restart') { if ($global:ES.Others[$TaskName]) { [pscustomobject]@{ TaskName = $TaskName } }; return }; if ($global:ES.Xml) { [pscustomobject]@{ TaskName = $TaskName } } }
 function Export-ScheduledTask { param($TaskName) $global:ES.Xml }
 function Register-ScheduledTask { param($TaskName, $Xml, [switch]$Force) if ($global:ES.Fail) { throw 'Access is denied' }; if ($TaskName -like 'PC Setup Kit *' -or $TaskName -eq 'Messiah Night Restart') { $global:ES.Others[$TaskName] = $Xml; return }; $global:ES.Xml = $Xml; $global:ES.Registered++ }
 if (-not (Assert-Mocks $mocked)) { Finish }
@@ -39,4 +40,12 @@ $ES.Fail = $false; $ES.Xml = $null; $ES.Others = @{ 'PC Setup Kit Update Guard' 
 Check 'no maintenance task on this PC: does nothing' ($o.Count -eq 0) ($o -join ' / ')
 $o = @(& "$Src\ensure-schedule.ps1")
 Check 'inside the test suite without -Force: does nothing' ($o.Count -eq 0) ''
+Section 'a kit task switched off is switched on again'
+$global:ES.Disabled = @('Messiah Tray', 'PC Setup Kit Update Guard', 'Some Other App Updater'); $global:ES.Enabled = @(); $o = ES
+Check 'the kit''s own tasks back on, said; somebody else''s task left alone' (($global:ES.Enabled -contains 'Messiah Tray') -and ($global:ES.Enabled -contains 'PC Setup Kit Update Guard') -and ($global:ES.Enabled -notcontains 'Some Other App Updater') -and ($o -match 'Messiah Tray had been switched off - on again')) ($o -join ' / ')
+$global:ES.Disabled = @('Messiah Tray'); $global:ES.EnableFail = $true; $o = ES; $global:ES.EnableFail = $false; $global:ES.Disabled = @()
+Check '... not allowed: said, tried again next run' ([bool]($o -match "couldn't switch the task Messiah Tray back on")) ($o -join ' / ')
+$global:ES.Enabled = @(); $o = ES
+Check '... none switched off: nothing done' (-not $global:ES.Enabled) ''
+
 Finish

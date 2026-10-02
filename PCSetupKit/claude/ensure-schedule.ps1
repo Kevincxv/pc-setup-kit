@@ -4,12 +4,20 @@
 # The task is changed through its exact XML (handing PowerShell's principal object back fails when the user name
 # equals the computer name). Prints a line only when it changed something.
 # -Force: tests (mocked scheduled-task commands); otherwise it never runs inside the test suite.
-param([string]$TaskName = 'Claude Background Maintenance', [string]$GuardTask = 'PC Setup Kit Update Guard', [string]$CheckTask = 'PC Setup Kit Update Check', [string]$NightTask = 'Messiah Night Restart', [switch]$Force)
+param([string]$TaskName = 'Claude Background Maintenance', [string]$GuardTask = 'PC Setup Kit Update Guard', [string]$CheckTask = 'PC Setup Kit Update Check', [string]$NightTask = 'Messiah Night Restart', [string]$TrayTask = 'Messiah Tray', [switch]$Force)
 if ($env:PCKIT_IN_TESTS -and -not $Force) { return }
 $ErrorActionPreference = 'Continue'
 # The update guard: 2 minutes after Windows Update installed something (WindowsUpdateClient 19) or a driver was installed
 # (UserPnp 20001), after-update.ps1 puts back what the update undid - instead of waiting for the next login. As the
 # owner (the settings are theirs), elevated, hidden, one run per burst of events.
+# every kit task that was switched off goes back on - by a "cleaner" app, an update or a click in Task Scheduler (no Settings
+# switch works by disabling a task, so this never overrides the owner). Run by the maintenance AND the 4-hourly check:
+# each repairs the other's task (10/2)
+$kitTasks = @($TaskName, $GuardTask, $CheckTask, $NightTask, $TrayTask)
+foreach ($t in @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -in $kitTasks -and $_.State -eq 'Disabled' })) {
+    try { Enable-ScheduledTask -TaskPath $t.TaskPath -TaskName $t.TaskName -ErrorAction Stop | Out-Null; "Schedule: the task $($t.TaskName) had been switched off - on again" }
+    catch { "Schedule: couldn't switch the task $($t.TaskName) back on ($($_.Exception.Message)) - next run" }
+}
 if ((Test-Path "$PSScriptRoot\after-update.ps1") -and -not (Get-ScheduledTask -TaskName $GuardTask -ErrorAction SilentlyContinue)) {
     $sub = "&lt;QueryList&gt;&lt;Query Id='0' Path='System'&gt;&lt;Select Path='System'&gt;*[System[(Provider[@Name='Microsoft-Windows-WindowsUpdateClient'] and EventID=19) or (Provider[@Name='Microsoft-Windows-UserPnp'] and EventID=20001)]]&lt;/Select&gt;&lt;/Query&gt;&lt;/QueryList&gt;"
     $gx = @"
