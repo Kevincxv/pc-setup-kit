@@ -1,9 +1,9 @@
 # The app's icon (tray, window, Start menu, desktop): drawn here instead of shipped as a binary, so the kit stays plain
-# text. A rounded square with a violet-to-cyan gradient and a white shield with a check (it looks after the PC).
+# text. A dark rounded tile with a bold geometric M in a violet-to-cyan gradient under a thin halo (v2, 10/2; v1 was a shield).
 # Every size is drawn on its own grid (sharp at 16 px), stored as PNG frames in one .ico. Prints the path.
 # -Png <dir>: also save each size as a .png (to look at it).
 param([string]$Path = "$env:USERPROFILE\Documents\Messiah Tray\app.ico", [string]$Png)
-$version = 1   # bump when the drawing changes: tray-app.ps1 redraws the icon when this is newer than the file's
+$version = 2   # bump when the drawing changes: tray-app.ps1 redraws the icon when this is newer than the file's
 Add-Type -AssemblyName System.Drawing
 
 function New-Frame([int]$s) {
@@ -11,40 +11,44 @@ function New-Frame([int]$s) {
     $g = [Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = 'AntiAlias'; $g.PixelOffsetMode = 'HighQuality'; $g.InterpolationMode = 'HighQualityBicubic'
     $g.Clear([Drawing.Color]::Transparent)
-    # rounded square (small sizes use the whole grid: every pixel counts)
+    $u = $s / 32.0   # drawn on a 32-unit grid
+    $violet = [Drawing.Color]::FromArgb(255, 139, 92, 255); $cyan = [Drawing.Color]::FromArgb(255, 34, 211, 238)
+    # the tile: dark, almost black, a little violet at the top (small sizes use the whole grid: every pixel counts)
     $m = if ($s -le 24) { 0 } else { [Math]::Round($s / 32.0) }
-    $w = $s - 2 * $m; $r = $w * 0.26
+    $w = $s - 2 * $m; $r = $w * 0.25
     $p = New-Object Drawing.Drawing2D.GraphicsPath
     $p.AddArc($m, $m, 2 * $r, 2 * $r, 180, 90); $p.AddArc($m + $w - 2 * $r, $m, 2 * $r, 2 * $r, 270, 90)
     $p.AddArc($m + $w - 2 * $r, $m + $w - 2 * $r, 2 * $r, 2 * $r, 0, 90); $p.AddArc($m, $m + $w - 2 * $r, 2 * $r, 2 * $r, 90, 90); $p.CloseFigure()
-    $bg = New-Object Drawing.Drawing2D.LinearGradientBrush ((New-Object Drawing.PointF $m, $m), (New-Object Drawing.PointF ($m + $w), ($m + $w)),
-        [Drawing.Color]::FromArgb(255, 124, 92, 255), [Drawing.Color]::FromArgb(255, 34, 196, 238))
+    $bg = New-Object Drawing.Drawing2D.LinearGradientBrush ((New-Object Drawing.PointF 0, $m), (New-Object Drawing.PointF 0, ($m + $w)),
+        [Drawing.Color]::FromArgb(255, 30, 22, 58), [Drawing.Color]::FromArgb(255, 9, 9, 16))
     $g.FillPath($bg, $p)
-    # soft light from the top (depth, Fluent style) - only where it shows
+    # a hairline rim in the gradient (where there's room): the tile stays visible on a dark taskbar
     if ($s -ge 32) {
-        $hl = New-Object Drawing.Drawing2D.LinearGradientBrush ((New-Object Drawing.PointF 0, ($m - 1)), (New-Object Drawing.PointF 0, ($m + $w + 1)),
-            [Drawing.Color]::White, [Drawing.Color]::White)
-        $blend = New-Object Drawing.Drawing2D.ColorBlend 3   # fades out by the middle, no hard edge
-        $blend.Colors = [Drawing.Color[]]@([Drawing.Color]::FromArgb(60, 255, 255, 255), [Drawing.Color]::FromArgb(0, 255, 255, 255), [Drawing.Color]::FromArgb(0, 255, 255, 255))
-        $blend.Positions = [single[]]@(0, 0.55, 1); $hl.InterpolationColors = $blend
-        $g.FillPath($hl, $p)
+        $rim = New-Object Drawing.Drawing2D.LinearGradientBrush ((New-Object Drawing.PointF $m, $m), (New-Object Drawing.PointF ($m + $w), ($m + $w)),
+            [Drawing.Color]::FromArgb(150, $violet), [Drawing.Color]::FromArgb(150, $cyan))
+        $g.DrawPath((New-Object Drawing.Pen $rim, ([Math]::Max(1.0, 0.7 * $u))), $p)
     }
-    # shield: flat top with rounded shoulders, sides curving into a point
-    $u = $s / 32.0   # drawn on a 32-unit grid
-    $cx = $s / 2.0; $top = 7.0 * $u; $half = 8.6 * $u; $mid = 17.0 * $u; $tip = 26.2 * $u
-    $sh = New-Object Drawing.Drawing2D.GraphicsPath
-    $sh.AddBezier($cx, $top, ($cx + $half * 0.45), ($top + 1.4 * $u), ($cx + $half * 0.8), ($top + 1.3 * $u), ($cx + $half), ($top + 0.9 * $u))
-    $sh.AddLine(($cx + $half), ($top + 0.9 * $u), ($cx + $half), $mid - 3 * $u)
-    $sh.AddBezier(($cx + $half), ($mid - 3 * $u), ($cx + $half), ($mid + 4.5 * $u), ($cx + 3.5 * $u), ($tip - 1.8 * $u), $cx, $tip)
-    $sh.AddBezier($cx, $tip, ($cx - 3.5 * $u), ($tip - 1.8 * $u), ($cx - $half), ($mid + 4.5 * $u), ($cx - $half), ($mid - 3 * $u))
-    $sh.AddLine(($cx - $half), ($mid - 3 * $u), ($cx - $half), ($top + 0.9 * $u))
-    $sh.AddBezier(($cx - $half), ($top + 0.9 * $u), ($cx - $half * 0.8), ($top + 1.3 * $u), ($cx - $half * 0.45), ($top + 1.4 * $u), $cx, $top)
-    $sh.CloseFigure()
-    $g.FillPath([Drawing.Brushes]::White, $sh)
-    # check mark cut into the shield in the gradient's middle color
-    $pen = New-Object Drawing.Pen ([Drawing.Color]::FromArgb(255, 84, 132, 247)), ([Math]::Max(1.6, 2.6 * $u))
-    $pen.StartCap = 'Round'; $pen.EndCap = 'Round'; $pen.LineJoin = 'Round'
-    $g.DrawLines($pen, [Drawing.PointF[]]@((New-Object Drawing.PointF ($cx - 4.2 * $u), (16.6 * $u)), (New-Object Drawing.PointF ($cx - 1.2 * $u), (19.6 * $u)), (New-Object Drawing.PointF ($cx + 4.6 * $u), (13.2 * $u))))
+    $grad = New-Object Drawing.Drawing2D.LinearGradientBrush ((New-Object Drawing.PointF (6 * $u), (8 * $u)), (New-Object Drawing.PointF (26 * $u), (26 * $u)), $violet, $cyan)
+    # the M: two peaks, mitred - bigger at 16-20 px, where the halo has no room
+    $small = $s -le 20
+    $y0 = if ($small) { 8.0 } else { 12.2 }; $y1 = if ($small) { 25.0 } else { 24.6 }; $vy = if ($small) { 18.2 } else { 19.6 }
+    $x0 = if ($small) { 6.0 } else { 7.4 }; $x1 = 32 - $x0
+    $pts = [Drawing.PointF[]]@((New-Object Drawing.PointF ($x0 * $u), ($y1 * $u)), (New-Object Drawing.PointF ($x0 * $u), ($y0 * $u)),
+        (New-Object Drawing.PointF (16 * $u), ($vy * $u)), (New-Object Drawing.PointF ($x1 * $u), ($y0 * $u)), (New-Object Drawing.PointF ($x1 * $u), ($y1 * $u)))
+    $mw = if ($small) { 4.2 * $u } else { 3.5 * $u }
+    if ($s -ge 40) {   # a soft light behind it (a radial fade - no edges)
+        $gl = New-Object Drawing.Drawing2D.GraphicsPath; $gl.AddEllipse((3 * $u), (9 * $u), (26 * $u), (19 * $u))
+        $rb = New-Object Drawing.Drawing2D.PathGradientBrush $gl; $rb.CenterColor = [Drawing.Color]::FromArgb(70, 99, 102, 241); $rb.SurroundColors = [Drawing.Color[]]@([Drawing.Color]::FromArgb(0, 99, 102, 241))
+        $g.SetClip($p); $g.FillPath($rb, $gl); $g.ResetClip()
+    }
+    $pen = New-Object Drawing.Pen $grad, $mw; $pen.LineJoin = 'Miter'; $pen.MiterLimit = 3; $pen.StartCap = 'Flat'; $pen.EndCap = 'Flat'
+    $g.DrawLines($pen, $pts)
+    # the halo above it
+    if (-not $small) {
+        $hx = 9.6 * $u; $hy = 4.4 * $u; $hw = 12.8 * $u; $hh = 3.8 * $u
+        $hp = New-Object Drawing.Drawing2D.LinearGradientBrush ((New-Object Drawing.PointF $hx, 0), (New-Object Drawing.PointF ($hx + $hw), 0), $cyan, $violet)
+        $g.DrawEllipse((New-Object Drawing.Pen $hp, ([Math]::Max(1.1, 1.15 * $u))), $hx, $hy, $hw, $hh)
+    }
     $g.Dispose()
     $bmp
 }

@@ -550,8 +550,18 @@ try {
                 $tiles = New-Object Windows.Controls.Primitives.UniformGrid -Property @{ Columns = 4; Margin = '0,0,-12,0' }; $script:tileGrid = $tiles
                 $lastPerf = Get-HealthHistory 'perf-history.json' | Select-Object -Last 1
                 $hh1 = Get-HealthHistory | Select-Object -Last 1
+                # Guarded: how many of Messiah's changes are kept in place (the tweak guard's record of them) and when it last
+                # checked them - every 4 hours, at login and right after updates (guard-state.json, written by each pass)
+                $bkj = try { Get-Content 'C:\PCSetupKit\tweaks-backup.json' -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $null }
+                $nKept = @(if ($bkj -is [Management.Automation.PSCustomObject]) { $bkj.PSObject.Properties.Name | Where-Object { $_ -match '^(reg|service|task|app|cap|feature|startup|power|nic|plan|reserved|edge)\|' } }).Count
+                $gs = try { Get-Content "$cl\guard-state.json" -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $null }
+                $gAt = $null; if ($gs -is [Management.Automation.PSCustomObject] -and $gs.at) { $tmp = [datetime]::MinValue; if ([datetime]::TryParse("$($gs.at)", [ref]$tmp)) { $gAt = $tmp } }
+                $guardOld = $gAt -and $gAt -lt (Get-Date).AddDays(-2)   # no pass in 2 days: something's wrong (it says so)
+                $guardVal = if ($nKept) { "$nKept in place" } else { 'Ready' }
+                $guardSub = if (-not $gAt) { 'Checked every 4 hours' } elseif ($guardOld) { "Last checked $(Format-When $gAt -Short) - it runs again soon" }
+                    elseif ([int]$gs.fixed -gt 0) { "$([int]$gs.fixed) put back $(Format-When $gAt -Short)" } else { "Checked $(Format-When $gAt -Short) - all in place" }
                 $tileDefs = @(
-                    @('E9D9', 'Last check', $(if ($whenAt) { Format-When $whenAt -Short } else { 'Not yet' }), 'At every login and once a day', 'info', 'Maintenance'),
+                    @('EA18', 'Guarded', $guardVal, $guardSub, $(if ($guardOld) { 'warn' } else { 'info' }), 'Settings'),
                     @('E7FC', 'Last game', $(if ($lastPerf) { "$([int]$lastPerf.fps) fps" } else { 'Nothing yet' }), $(if ($lastPerf) { "$($lastPerf.game), 1% low $([int]$lastPerf.low1) fps" } else { 'Measured while you play' }), 'info', 'History'),
                     @('EDA2', 'Free space on C:', $(if ($hh1 -and $null -ne $hh1.freeGB) { "$([int]$hh1.freeGB) GB" } else { '-' }), 'Cleaned up every week', $(if ($hh1 -and $null -ne $hh1.freeGB -and $hh1.freeGB -lt 30) { 'warn' } else { 'info' }), 'History'),
                     @('E99A', 'AI assistant', $(if ($ai) { 'On' } else { 'Off' }), $(if ($ai) { 'Claude, signed in with your account' } else { 'Optional - switch on in Settings' }), 'info', $(if ($ai) { 'Sessions' } else { 'Settings' })))
@@ -663,7 +673,8 @@ try {
                 # --- Gaming options (kit-options.txt; gaming-check.ps1 / nvidia-settings.ps1 apply them at the next check)
                 [void]$out.Add((New-Section 'Gaming'))
                 $opts = foreach ($o in @(@('defenderexclusions', 'off', 'Microsoft Defender skips my game folders', 'Less stutter while games load and build their shaders. A small security trade-off: files in those folders are no longer scanned. Off by default.'),
-                        @('nvidiasettings', 'on', 'NVIDIA driver settings for games', 'Low-latency mode on and an unlimited shader cache (less stutter), set in the driver for every game. Off: no longer applied (the driver keeps the last values until changed in the NVIDIA Control Panel).'))) {
+                        @('nvidiasettings', 'on', 'NVIDIA driver settings for games', 'Low-latency mode on and an unlimited shader cache (less stutter), set in the driver for every game, and put back if anything resets them. Off: no longer applied (the driver keeps the last values until changed in the NVIDIA Control Panel).'),
+                        @('autorollback', 'on', 'Undo a graphics driver that crashes', 'A new graphics driver that causes freezes or blue screens in its first two weeks - when the one before didn''t - is swapped back to the one before by itself, and held back until a newer version comes. Off: you get a warning with a one-click button instead.'))) {
                     New-SwitchRow $o[2] $o[3] ((Get-Opt $o[0] $o[1]) -eq 'on') { Set-Opt $this.Tag $(if ($this.IsChecked) { 'on' } else { 'off' }); Say 'Saved - applied at the next check (or click Run maintenance now).' } $o[0]
                 }
                 [void]$out.Add((New-Card 'Games' 'E7FC' @($opts) $null))

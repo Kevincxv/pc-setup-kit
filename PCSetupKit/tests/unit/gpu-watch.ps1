@@ -38,5 +38,46 @@ Check 'no new reset: nothing' (-not $o) ($o -join ' / ')
 Clear-Path $st
 [void](GW '3.0' -at $now.AddDays(-30)); [void](GW '4.0' -at $now.AddDays(-3))
 $o = GW '4.0' @(Ev $now.AddHours(-3))
-Check 'resets that began right after a driver update: that driver named, with how to go back' ("$o" -match 'it began after driver 4\.0 was installed on .+go back to the previous graphics driver \(one click in the app') ($o -join ' / ')
+Check 'resets that began right after a driver update: that driver named, with how to go back' ("$o" -match 'it began after driver 4\.0 was installed on .+Messiah goes back to the previous driver by itself \(or one click now') ($o -join ' / ')
+
+Section 'a new driver that crashes: back to the previous one by itself'
+function GWR([string]$drv, [object[]]$ev = @(), [object[]]$bs = @(), [datetime]$at, [string]$res = 'Graphics driver: back on 1.0 (from 2026-01-01); 9.0 won''t be installed again') {
+    $global:rolled = 0; $r = $res; @(& $gw -Since $at.AddDays(-1) -State $st -Now $at -Root $root -TestDriver $drv -TestEvents $ev -TestGame '' -TestBsods $bs -Rollback ([scriptblock]::Create("`$global:rolled++; '$($r.Replace("'", "''"))'")) -Options "$Work\opts.txt")
+}
+Clear-Path $st; '' | Set-Content "$Work\opts.txt"
+$d0 = $now.AddDays(-5)
+[void](GWR '8.0' -at $d0.AddDays(-20)); [void](GWR '9.0' -at $d0)   # 9.0 came 5 days ago, 8.0 before it had nothing
+$o = GWR '9.0' -ev @((Ev $d0.AddDays(1)), (Ev $d0.AddDays(2)), (Ev $d0.AddDays(3))) -at $d0.AddDays(3).AddMinutes(5)
+Check '3 driver resets in the new driver''s first days, none before: went back by itself, said why' ($global:rolled -eq 1 -and "$o" -match 'Graphics driver: 9\.0 caused 3 driver reset\(s\) since it was installed .+ went back to the previous driver by itself') ($o -join ' / ')
+$o = GWR '9.0' -ev @((Ev $d0.AddDays(3).AddHours(2))) -at $d0.AddDays(3).AddHours(3)
+Check '... once per driver version (never a loop)' ($global:rolled -eq 0) ($o -join ' / ')
+Clear-Path $st
+[void](GWR '8.0' -at $d0.AddDays(-20)); [void](GWR '9.0' -at $d0)
+$o = GWR '9.0' -bs @((Ev $d0.AddDays(1)), (Ev $d0.AddDays(2))) -at $d0.AddDays(2).AddMinutes(5)
+Check '2 graphics blue screens (VIDEO_TDR_FAILURE and the like) after it: went back too' ($global:rolled -eq 1 -and "$o" -match '2 blue screen\(s\)') ($o -join ' / ')
+Clear-Path $st
+[void](GWR '8.0' -ev @((Ev $d0.AddDays(-3))) -at $d0.AddDays(-2)); [void](GWR '9.0' -at $d0)
+$o = GWR '9.0' -ev @((Ev $d0.AddDays(1)), (Ev $d0.AddDays(2)), (Ev $d0.AddDays(3))) -at $d0.AddDays(3).AddMinutes(5)
+Check '... not when the old driver crashed too (then the driver isn''t the cause: overclock, cables, heat)' ($global:rolled -eq 0) ($o -join ' / ')
+Clear-Path $st
+[void](GWR '8.0' -at $d0.AddDays(-20)); [void](GWR '9.0' -at $d0)
+$o = GWR '9.0' -ev @((Ev $d0.AddDays(1))) -at $d0.AddDays(1).AddMinutes(5)
+Check '... not for one reset (it waits for a pattern)' ($global:rolled -eq 0) ($o -join ' / ')
+Clear-Path $st
+[void](GWR '8.0' -at $now.AddDays(-40)); [void](GWR '9.0' -at $now.AddDays(-20))
+$o = GWR '9.0' -ev @((Ev $now.AddDays(-1)), (Ev $now.AddHours(-20)), (Ev $now.AddHours(-10))) -at $now
+Check '... not for a driver in use for weeks without trouble (past its first 14 days)' ($global:rolled -eq 0) ($o -join ' / ')
+Clear-Path $st
+[void](GWR '8.0' -at $d0.AddDays(-20)); [void](GWR '9.0' -at $d0)
+$o = GWR '9.0' -ev @((Ev $d0.AddDays(1)), (Ev $d0.AddDays(2)), (Ev $d0.AddDays(3))) -at $d0.AddDays(3).AddMinutes(5) -res 'Close TestGame first - the screen goes black for a few seconds while the driver switches'
+$o2 = GWR '9.0' -at $d0.AddDays(3).AddHours(1)
+Check 'a game running: tried again at the next check' ($global:rolled -eq 1 -and "$o2" -match 'went back to the previous driver by itself') (($o + $o2) -join ' / ')
+Clear-Path $st
+[void](GWR '8.0' -at $d0.AddDays(-20)); [void](GWR '9.0' -at $d0)
+$o = GWR '9.0' -ev @((Ev $d0.AddDays(1)), (Ev $d0.AddDays(2)), (Ev $d0.AddDays(3))) -at $d0.AddDays(3).AddMinutes(5) -res "The version before 9.0 isn't on this PC any more"
+Check 'not possible (the old version is gone): a WARNING to-do saying why' ([bool]($o -match '^WARNING: graphics driver 9\.0 caused .+ wasn''t possible: The version before')) ($o -join ' / ')
+Clear-Path $st; 'autorollback=off' | Set-Content "$Work\opts.txt"
+[void](GWR '8.0' -at $d0.AddDays(-20)); [void](GWR '9.0' -at $d0)
+$o = GWR '9.0' -ev @((Ev $d0.AddDays(1)), (Ev $d0.AddDays(2)), (Ev $d0.AddDays(3))) -at $d0.AddDays(3).AddMinutes(5)
+Check 'switched off (autorollback=off): only the warning, no rollback' ($global:rolled -eq 0) ($o -join ' / ')
 Finish

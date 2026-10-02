@@ -40,6 +40,7 @@ if (Test-Path "$PSScriptRoot\trends.ps1") { & "$PSScriptRoot\trends.ps1" }
 $fixed = @()
 if (Test-Path 'C:\PCSetupKit\tweaks.ps1') { $fixed += & 'C:\PCSetupKit\tweaks.ps1' }
 if (Test-Path "$PSScriptRoot\tweaks-local.ps1") { $fixed += & "$PSScriptRoot\tweaks-local.ps1" }
+try { @{ at = (Get-Date).ToString('o'); fixed = @($fixed).Count } | ConvertTo-Json | Set-Content "$PSScriptRoot\guard-state.json" -Encoding UTF8 } catch { }   # (the app's Guarded tile)
 if ($fixed -and (Test-Path "$PSScriptRoot\setup-maint-running.txt")) { "Tweaks: the rest of setup's changes applied ($($fixed.Count)): $(($fixed | Select-Object -Unique) -join ', ')" }   # (the first maintenance: what setup left for it - not reverted)
 elseif ($fixed) { "Tweaks: Windows had reverted $($fixed.Count) - re-applied: $(($fixed | Select-Object -Unique) -join ', ')" } else { 'Tweaks: all still applied' }
 

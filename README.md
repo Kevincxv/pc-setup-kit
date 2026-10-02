@@ -1,3 +1,5 @@
+<img src="docs/img/logo.png" alt="Messiah" width="96" align="right">
+
 # Messiah — PC Setup Kit
 
 **One click turns a Windows 11 PC into a clean, fast gaming PC that then looks after itself.**

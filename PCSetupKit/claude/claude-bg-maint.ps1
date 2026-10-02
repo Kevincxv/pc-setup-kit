@@ -167,5 +167,6 @@ if ($Unattended -and $ai) {
 # once a week: what the maintenance did, as one short note in the corner (weekly-summary.ps1; not from the test suite)
 if (-not $env:PCKIT_IN_TESTS -and (Test-Path "$dir\weekly-summary.ps1")) { [void](& "$dir\weekly-summary.ps1") }
 # last (it changes the task this run belongs to): the daily run for PCs that stay on for days (ensure-schedule.ps1)
+if (Test-Path "$dir\kit-repair.ps1") { $kr = @(& "$dir\kit-repair.ps1"); if ($kr) { Add-Content $report $kr -Encoding UTF8 } }   # Messiah's own files intact (10/2)
 if (Test-Path "$dir\ensure-schedule.ps1") { $es = @(& "$dir\ensure-schedule.ps1"); if ($es) { Add-Content $report $es -Encoding UTF8 } }
 $mutex.ReleaseMutex()

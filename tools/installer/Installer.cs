@@ -13,19 +13,22 @@ using System.Reflection;
 
 static class Installer {
     const string Url = "https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1";
-    static int Main() {
+    static int Main(string[] args) {
+        // winget's silent install (/silent, /quiet, /S, --silent): no question - install.ps1 -Yes
+        bool silent = Array.Exists(args, a => { var x = a.ToLowerInvariant().TrimStart('/', '-'); return x == "silent" || x == "quiet" || x == "s" || x == "q"; });
         Console.Title = "Messiah - installer";
         Console.WriteLine();
         Console.WriteLine("  Messiah: starting the installer.");
-        Console.WriteLine("  It asks for administrator rights, shows what it will do and waits for you to type YES.");
+        Console.WriteLine(silent ? "  It asks for administrator rights and sets this PC up (silent install: no question)." : "  It asks for administrator rights, shows what it will do and waits for you to type YES.");
         Console.WriteLine();
         var psi = new ProcessStartInfo("powershell.exe",
-            "-NoProfile -ExecutionPolicy Bypass -Command \"irm " + Url + " | iex\"") { UseShellExecute = false };
+            silent ? "-NoProfile -ExecutionPolicy Bypass -Command \"& ([scriptblock]::Create((irm " + Url + "))) -Yes\""
+                   : "-NoProfile -ExecutionPolicy Bypass -Command \"irm " + Url + " | iex\"") { UseShellExecute = false };
         try {
             using (var p = Process.Start(psi)) { p.WaitForExit(); return p.ExitCode; }
         } catch (Exception e) {
             Console.WriteLine("  Couldn't start PowerShell: " + e.Message);
-            Console.WriteLine("  Press Enter to close."); Console.ReadLine();
+            if (!silent) { Console.WriteLine("  Press Enter to close."); Console.ReadLine(); }
             return 1;
         }
     }

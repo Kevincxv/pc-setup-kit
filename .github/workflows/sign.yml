@@ -43,6 +43,15 @@ jobs:
           github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
           wait-for-completion: true
           output-artifact-directory: signed
+      - name: Attach the unsigned build as Messiah-Setup.exe (winget's download - the kit's own name stays for the signed one)
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          Copy-Item tools/installer/out/Install-Messiah.exe Messiah-Setup.exe
+          gh release upload $env:TAG Messiah-Setup.exe --clobber -R $env:GITHUB_REPOSITORY
       - name: Check the signature, then attach it to the release
         if: env.HAS_SIGNPATH == 'true' && github.event_name == 'release'
         shell: powershell

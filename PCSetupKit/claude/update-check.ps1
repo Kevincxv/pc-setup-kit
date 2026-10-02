@@ -21,6 +21,7 @@ try {
     # (a Store app update, Microsoft switching a setting back remotely, another program). Silent unless it fixed something;
     # it writes its own report. Then the kit's tasks: one switched off is switched on again
     if (Test-Path "$Dir\after-update.ps1") { [void](& "$Dir\after-update.ps1" -Dir $Dir -Kit $Kit -Regular) }
+    if (Test-Path "$Dir\kit-repair.ps1") { $lines += @(& "$Dir\kit-repair.ps1" -Dir $Dir -KitDir $Kit) }   # Messiah's own files intact (10/2)
     if (Test-Path "$Dir\ensure-schedule.ps1") { $lines += @(& "$Dir\ensure-schedule.ps1") }
     $lines = @($lines | Where-Object { $_ })
     if ($lines) {

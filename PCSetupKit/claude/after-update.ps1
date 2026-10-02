@@ -18,6 +18,7 @@ foreach ($s in 'display-refresh.ps1', 'nvidia-settings.ps1') { if (Test-Path "$D
 # only what it fixed: its reminders are the login check's (10/2)
 if (Test-Path "$Dir\gaming-check.ps1") { $lines += @(& "$Dir\gaming-check.ps1" | Where-Object { "$_" -match '^Gaming: ' }) }
 $lines = @($lines | Where-Object { $_ })
+try { @{ at = (Get-Date).ToString('o'); fixed = @($fixed).Count } | ConvertTo-Json | Set-Content "$Dir\guard-state.json" -Encoding UTF8 } catch { }   # (the app's Guarded tile)
 if ($lines) {
     $h = New-Item "$Dir\maint-history" -ItemType Directory -Force
     @("Checked $($t0.ToString('g')) in $([int]((Get-Date) - $t0).TotalSeconds) s ($(if ($Regular) { 'regular check' } else { 'right after an update' }))") + $lines | Set-Content "$h\report-$($t0.ToString('yyyyMMdd-HHmmss'))-$(if ($Regular) { 'guard' } else { 'update' }).txt" -Encoding UTF8

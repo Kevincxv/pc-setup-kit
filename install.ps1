@@ -3,15 +3,18 @@
 # With the optional Claude part (Messiah):
 #   & ([scriptblock]::Create((irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1))) -WithClaude
 # Downloads the newest release, then runs PCSetupKit\setup.ps1 (tweaks, apps, zero maintenance - no AI needed).
-# -DownloadOnly <folder>: only download and unpack (used for testing).
-param([string]$DownloadOnly, [switch]$WithClaude)
+# -DownloadOnly <folder>: only download and unpack (used for testing). -Yes: no question (winget's silent install,
+# Messiah-Setup.exe /silent) - it still shows what it does, and waits until setup is done.
+param([string]$DownloadOnly, [switch]$WithClaude, [switch]$Yes)
 $ErrorActionPreference = 'Stop'
 $repo = 'Kevincxv/pc-setup-kit'
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $DownloadOnly -and -not $isAdmin) {
     Write-Host 'Asking for administrator rights...' -ForegroundColor Cyan
-    $cmd = "& ([scriptblock]::Create((irm https://github.com/$repo/releases/latest/download/install.ps1)))$(if ($WithClaude) { ' -WithClaude' })"
-    Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $cmd
+    $cmd = "& ([scriptblock]::Create((irm https://github.com/$repo/releases/latest/download/install.ps1)))$(if ($WithClaude) { ' -WithClaude' })$(if ($Yes) { ' -Yes' })"
+    # (-Yes: waits for the elevated run - winget counts the install as done when this ends)
+    $ep = Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $cmd -PassThru -Wait:$Yes
+    if ($Yes -and $ep) { exit $ep.ExitCode }
     return
 }
 if (-not $DownloadOnly) {
@@ -34,7 +37,8 @@ if (-not $DownloadOnly) {
   Everything can be removed later with C:\PCSetupKit\uninstall.ps1 (-RevertTweaks puts Windows settings back).
 
 '@ -ForegroundColor Yellow
-    if ((Read-Host 'Type YES to set up this PC') -ne 'YES') { 'Cancelled - nothing was changed.'; return }
+    if ($Yes) { Write-Host '  (-Yes: starting without asking)' -ForegroundColor Cyan }
+    elseif ((Read-Host 'Type YES to set up this PC') -ne 'YES') { 'Cancelled - nothing was changed.'; return }
 }
 
 $ProgressPreference = 'SilentlyContinue'
