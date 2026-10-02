@@ -9,7 +9,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 # the background maintenance running right now updates the kit itself: nothing to do. (Only looked at - holding its lock
 # would make a maintenance starting meanwhile skip its whole run.)
 $bm = $null; if (-not $env:PCKIT_IN_TESTS -and [Threading.Mutex]::TryOpenExisting('Global\ClaudeBgMaint', [ref]$bm)) { $bm.Dispose(); return }
-$mx = New-Object Threading.Mutex($false, 'Global\PCSetupKitUpdateCheck')
+$mx = New-Object Threading.Mutex($false, "Global\PCSetupKitUpdateCheck$(if ($env:PCKIT_IN_TESTS) { "-$PID" })")   # (tests: their own - never the real guard's, which may be running)
 if (-not $mx.WaitOne(0)) { return }
 try {
     if ((Test-Path "$Dir\game-check.ps1") -and (& "$Dir\game-check.ps1")) { return }   # next check
@@ -17,6 +17,7 @@ try {
     $t0 = Get-Date
     $lines = @(& "$Dir\kit-update.ps1")
     if ($lines -match '^PC Setup Kit updated') { $lines += @(& "$Dir\self-test.ps1") }   # (self-test sees the new version and runs)
+    if ($lines -match '^PC Setup Kit updated' -and -not $env:PCKIT_IN_TESTS -and (Test-Path "$Dir\tray-app.ps1")) { $lines += @(& "$Dir\tray-app.ps1") }   # the new icon, shortcuts at once (not at the next login)
     # the guard every 4 hours too (10/2): a PC that stays on for days still gets every setting put back - whatever undid it
     # (a Store app update, Microsoft switching a setting back remotely, another program). Silent unless it fixed something;
     # it writes its own report. Then the kit's tasks: one switched off is switched on again

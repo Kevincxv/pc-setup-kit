@@ -7,7 +7,7 @@
 param([string]$Dir = $PSScriptRoot, [string]$Kit = 'C:\PCSetupKit', [switch]$Now, [switch]$Regular)   # -Regular: the 4-hourly check's guard pass (update-check.ps1) - the same, for PCs left on for days   # -Now: the owner just changed a choice in the app (runs even while paused)
 $ErrorActionPreference = 'SilentlyContinue'
 if (-not $Now -and (Test-Path "$Dir\paused.ps1") -and (& "$Dir\paused.ps1")) { return }   # paused by the owner
-$mx = New-Object Threading.Mutex($false, 'Global\PCSetupKitAfterUpdate')
+$mx = New-Object Threading.Mutex($false, "Global\PCSetupKitAfterUpdate$(if ($env:PCKIT_IN_TESTS) { "-$PID" })")   # (tests: their own - never the real guard's, which may be running)
 if (-not $mx.WaitOne(0)) { return }   # a burst of update events: one run is enough
 $bm = $null; if (-not $Now -and -not $env:PCKIT_IN_TESTS -and [Threading.Mutex]::TryOpenExisting('Global\ClaudeBgMaint', [ref]$bm)) { $bm.Dispose(); return }   # the maintenance running now runs the guard itself
 $t0 = Get-Date
