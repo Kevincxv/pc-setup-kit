@@ -40,7 +40,7 @@ function Start-Test($f) {
     $psi.StandardOutputEncoding = [Console]::OutputEncoding; $psi.StandardErrorEncoding = [Console]::OutputEncoding
     $psi.EnvironmentVariables['TEMP'] = $tmp; $psi.EnvironmentVariables['TMP'] = $tmp   # its own TEMP: tests run side by side
     $p = [Diagnostics.Process]::Start($psi)
-    [pscustomobject]@{ File = $f; Proc = $p; Out = $p.StandardOutput.ReadToEndAsync(); Err = $p.StandardError.ReadToEndAsync(); Start = Get-Date; Sec = 0; Text = $null }
+    [pscustomobject]@{ File = $f; Proc = $p; Out = $p.StandardOutput.ReadToEndAsync(); Err = $p.StandardError.ReadToEndAsync(); Start = Get-Date; Sec = 0; Text = $null; Tmp = $tmp }
 }
 function Stop-Tree([int]$ProcId) {
     Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcId" | ForEach-Object { Stop-Tree $_.ProcessId }
@@ -50,6 +50,9 @@ function Complete($t) {
     $t.Sec = [int]((Get-Date) - $t.Start).TotalSeconds
     $t.Text = @(($t.Out.Result + $t.Err.Result) -split "`r?`n" | Where-Object { $_ -ne '' })
     $t | Add-Member ErrText ($t.Err.Result.Trim()) -Force
+    # a passing test's scratch TEMP goes right away (the suite runs many times a day: 9/30 they had piled up to 18 GB);
+    # a failing one stays for 2 days to look at
+    if (-not $t.TimedOut -and -not $t.ErrText -and ($t.Text -match '^RESULT .* fail=0 ')) { try { [IO.Directory]::Delete($t.Tmp, $true) } catch {} }
 }
 # Runs the files at most $Max at a time, longest first (last run's times); prints each test's output in name order
 function Invoke-Files($files, [int]$Max) {

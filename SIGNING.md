@@ -1,5 +1,9 @@
 # Code signing (free, SignPath Foundation)
 
+> **Status (Oct 2026): not signed.** SignPath Foundation turned down the application (new projects with few users
+> often are). Nothing else is free, so the installer stays unsigned and the install page explains "More info > Run
+> anyway". Everything below stays ready: re-apply later, and if approved, add the two secrets - no code changes needed.
+
 Goal: the install page's download is a signed `Install-Messiah.exe`, so Windows shows no "Windows protected your PC"
 warning. Everything on the kit's side is ready; only the owner's own steps below are left (they need your accounts).
 

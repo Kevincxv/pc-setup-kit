@@ -199,7 +199,14 @@ $tasks = '\Microsoft\Windows\Application Experience\MareBackup', '\Microsoft\Win
     '\Microsoft\Windows\Flighting\FeatureConfig\GovernedFeatureUsageProcessing', '\Microsoft\Windows\Maintenance\WinSAT',
     '\Microsoft\Windows\Maps\MapsToastTask', '\Microsoft\Windows\Maps\MapsUpdateTask', '\Microsoft\Windows\PerformanceTrace\ShowFeedbackToast',
     '\Microsoft\Windows\Shell\FamilySafetyRefreshTask', '\Microsoft\Windows\Shell\FamilySafetyMonitor',
-    '\Microsoft\Windows\Windows Error Reporting\QueueReporting', '\Microsoft\Windows\WwanSvc\NotificationTask'
+    '\Microsoft\Windows\Windows Error Reporting\QueueReporting', '\Microsoft\Windows\WwanSvc\NotificationTask',
+    # found still on by the 10/2 audit: more telemetry (device census, usage insights, "sustainability" reporting), the
+    # settings-experiment sync, and the model downloads for Click to Do - which the kit turns off anyway
+    '\Microsoft\Windows\Device Information\Device', '\Microsoft\Windows\Device Information\Device User',
+    '\Microsoft\Windows\UsageAndQualityInsights\UsageAndQualityInsights-MaintenanceTask', '\Microsoft\Windows\Sustainability\SustainabilityTelemetry',
+    '\Microsoft\Windows\Sustainability\PowerGridForecastTask', '\Microsoft\Windows\Flighting\OneSettings\RefreshCache',
+    '\Microsoft\Windows\WindowsAI\ClickToDo\ModelCachingLimit', '\Microsoft\Windows\WindowsAI\ClickToDo\ModelCachingUpdate',
+    '\GoogleUserPEH\RunPlatformExperienceHelper_Daily'   # (Chrome's "tips" pop-ups; Chrome's own updates are a separate task and stay)
 foreach ($t in Get-ScheduledTask | Where-Object { $_.State -ne 'Disabled' -and ($_.TaskPath + $_.TaskName) -in $tasks }) {
     Save-Original "task|$($t.TaskPath)$($t.TaskName)" @{ Enabled = $true }; $t | Disable-ScheduledTask | Out-Null; $changes.Add("task $($t.TaskName) off")
 }
@@ -347,6 +354,14 @@ elseif ($od) {
     }
     Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name OneDrive
     $changes.Add('OneDrive removed')
+}
+# OneDrive's first-sign-in installer also sits in Windows' own service accounts (LocalService, NetworkService, the default
+# profile): it'd install OneDrive for them - gone too (the 10/2 audit; tiny11 does the same)
+if (Want 'onedrive') {
+    foreach ($h in 'S-1-5-19', 'S-1-5-20', '.DEFAULT') {
+        $rk = "Registry::HKEY_USERS\$h\Software\Microsoft\Windows\CurrentVersion\Run"
+        if ($null -ne (Get-ItemProperty -Path $rk -Name OneDriveSetup).OneDriveSetup) { Remove-ItemProperty -Path $rk -Name OneDriveSetup; $changes.Add("OneDrive setup entry removed ($h)") }
+    }
 }
 
 Trace 'Start-up clutter'

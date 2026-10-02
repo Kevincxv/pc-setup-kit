@@ -57,23 +57,23 @@
     </div>
     <ol>
       <li>Open the downloaded file. If your browser asks, choose <strong>Keep</strong>.</li>
-      <li>If Windows shows <strong>"Windows protected your PC"</strong>, click <strong>More info</strong>, then <strong>Run anyway</strong>. This shows up because the file isn't code-signed yet: the project has applied for free code signing by the <a href="https://signpath.org">SignPath Foundation</a> (<a href="code-signing.html">code signing policy</a>).</li>
+      <li>If Windows shows <strong>"Windows protected your PC"</strong>, click <strong>More info</strong>, then <strong>Run anyway</strong>. This shows up because the file isn't code-signed (a certificate costs money every year; this project is free). Everything it runs is the open-source code on <a href="https://github.com/Kevincxv/pc-setup-kit">GitHub</a>.</li>
       <li>Click <strong>Yes</strong> when it asks for administrator rights, read what it will do, then type <code>YES</code>.</li>
       <li>Wait 15-30 minutes. It tweaks Windows, installs the apps, optimizes the PC, then the app opens with a welcome page showing what it did.</li>
     </ol>
-    <div class="note">Afterwards the <strong>Messiah</strong> app (Start menu and desktop, the icon in the hidden tray next to the clock, or Ctrl+Alt+M) shows what the PC is doing and anything that needs you. Every change it makes can be switched off in its Settings, and it can uninstall itself from there. It never restarts your PC by itself.</div>
+    <div class="note">Afterwards the <strong>Messiah</strong> app (Start menu and desktop, the icon in the hidden tray next to the clock, or Ctrl+Alt+M) shows what the PC is doing and anything that needs you. Every change it makes can be switched off in its Settings, and it can uninstall itself from there. It never restarts while you're using the PC; pending updates can finish with a restart at night (a switch in Settings).</div>
   </div>
 
   <div class="card">
     <h2>Installing Windows from scratch</h2>
-    <p style="margin:0 0 12px">For a new PC, or to wipe and reinstall one: a USB stick (8 GB or bigger) that installs Windows 11 and sets the PC up by itself.</p>
+    <p style="margin:0 0 12px">For a new PC, or to wipe and reinstall one: a USB stick (8 GB or bigger) that installs a slimmed-down Windows 11 and sets the PC up by itself. Built like tiny11: no Edge, Teams, Outlook, OneDrive, Xbox app or other preinstalled apps, and a clean Start menu - but Windows can still install every update and repair itself.</p>
     <div class="btns">
       <a class="btn" href="Make%20install%20USB.cmd" download>
-        <strong>Make an install USB</strong><span>Windows 11 from Microsoft + the kit; erases the stick</span>
+        <strong>Make an install USB</strong><span>Slimmed-down Windows 11 + the kit; erases the stick</span>
       </a>
     </div>
     <ol>
-      <li>On any Windows PC, open the downloaded file and pick the USB stick. It downloads Windows 11 from Microsoft (about 7 GB) and puts the kit on the stick: 20-40 minutes. (Already have the kit? The app's <strong>Maintenance</strong> page has the same button, and it can put your settings on the stick too.)</li>
+      <li>On any Windows PC, open the downloaded file and pick the USB stick. It downloads Windows 11 from Microsoft (about 7 GB), slims it down and puts the kit on the stick: 20-40 minutes. (Already have the kit? The app's <strong>Maintenance</strong> page has the same button, and it can put your settings on the stick too.)</li>
       <li>Plug the stick into the new PC, turn it on and press the boot-menu key (often <strong>F8</strong>, <strong>F11</strong> or <strong>F12</strong>). Pick the USB.</li>
       <li>Choose the language, then the drive to install on. That's the one screen to be careful on: delete the old partitions only on the drive you want wiped.</li>
       <li>After a few restarts, pick a username and password (no Microsoft account needed). At the desktop a <strong>"Setting up this PC"</strong> window shows the progress. Keep the stick in until it says it's finished.</li>
@@ -91,7 +91,7 @@
   <div class="card">
     <h2>What it does</h2>
     <ul>
-      <li>Removes Windows bloat and ads, turns off telemetry and the built-in AI features, applies gaming tweaks.</li>
+      <li>Removes Windows bloat and ads (Copilot, Widgets, Teams, OneDrive, old Windows parts and ~50 preinstalled apps), turns off telemetry and the built-in AI features, applies gaming tweaks.</li>
       <li class="warn">Turns memory integrity (VBS) off for gaming performance, which is a small security trade-off.</li>
       <li>Installs Git, Steam, Discord, Chrome, WinDbg and AutoHotkey, plus the NVIDIA App on NVIDIA cards.</li>
       <li>At every login and once a day, in the background: driver and app updates, cleanup, crash checks and a self-test. It holds off while you play.</li>
@@ -107,7 +107,7 @@
     <p style="margin:16px 0 0">Remove it any time with <code>C:\PCSetupKit\uninstall.ps1</code> (add <code>-RevertTweaks</code> to put the Windows settings back).</p>
   </div>
 
-  <footer>Source, releases and the fresh-Windows USB install: <a href="https://github.com/Kevincxv/pc-setup-kit">github.com/Kevincxv/pc-setup-kit</a> · <a href="code-signing.html">Code signing policy</a> · MIT license</footer>
+  <footer>Source, releases and the fresh-Windows USB install: <a href="https://github.com/Kevincxv/pc-setup-kit">github.com/Kevincxv/pc-setup-kit</a> · MIT license</footer>
 </main>
 <script>
   document.querySelectorAll('.copy').forEach(function (b) {

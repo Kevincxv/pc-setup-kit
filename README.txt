@@ -8,10 +8,11 @@ WHAT YOU NEED
 
 MAKE THE USB - the easy way (once, on any PC)
    Open https://kevincxv.github.io/pc-setup-kit/ and click "Make an install USB" (or, on a PC with the kit, the app's
-   Maintenance page > Make an install USB). Pick the stick; it downloads Windows 11 from Microsoft and adds the kit.
-   20-40 minutes, nothing else to do. Then skip to INSTALL ON THE NEW PC.
+   Maintenance page > Make an install USB). Pick the stick; it downloads Windows 11 from Microsoft, slims it down like
+   tiny11 (no Edge, Teams, Outlook, OneDrive, Xbox app or other preinstalled apps, a clean Start menu - Windows still
+   installs every update) and adds the kit. 20-40 minutes, nothing else to do. Then skip to INSTALL ON THE NEW PC.
 
-MAKE THE USB - by hand (the same result)
+MAKE THE USB - by hand (the same setup, but Windows isn't slimmed down first - setup removes the bloat afterwards)
 1. Download Microsoft's "Media Creation Tool" for Windows 11:
    https://www.microsoft.com/software-download/windows11  ->  "Create Windows 11 Installation Media"
 2. Run it and choose "USB flash drive". Wait for it to finish.
@@ -31,8 +32,9 @@ INSTALL ON THE NEW PC
    No Microsoft account is needed; the ad and privacy screens are skipped.
 5. At the first desktop a "Setting up this PC" window shows the progress. KEEP THE USB PLUGGED IN until it says it's finished
    (15-30 minutes, depending on internet speed). It:
-     - removes Windows bloat (Copilot, Widgets, Teams, Outlook, OneDrive, news/ads, Xbox Game Bar...) - each change can
-       be switched off later in the app (Settings > What the kit changes), which puts it back
+     - removes Windows bloat (Copilot, Widgets, Teams, Outlook, OneDrive, news/ads, Xbox Game Bar, old Windows parts
+       like Internet Explorer and WordPad...) - each change can be switched off later in the app (Settings > What
+       Messiah changes), which puts it back
      - turns off telemetry, ads, Bing search, Recall/AI features, background tasks
      - gaming tweaks: Ultimate Performance power plan, Game Mode on, hardware GPU scheduling, Game DVR off,
        memory integrity (VBS) off, mouse acceleration off, no power-saving on controllers/Ethernet
@@ -62,13 +64,17 @@ PCs set up from the kit update themselves from https://github.com/Kevincxv/pc-se
 at the next login).
 
 NOTES
-- Everything is official Microsoft Windows; updates keep working. The kit only changes settings and removes apps.
+- Everything is official Microsoft Windows; updates keep working. The kit changes settings and removes apps and
+  optional parts (on the USB, before Windows is installed) - never what Windows needs to update and repair itself.
 - Undo: most changes are listed in C:\PCSetupKit\setup.log; uninstall.ps1 -RevertTweaks puts the settings back.
-- The kit NEVER shuts down or restarts the PC. It does every fix right away; anything that needs a restart (Windows
-  updates, drivers, a memory test) finishes by itself the next time the owner turns the PC off - whenever suits
-  them - and the check after that confirms it worked.
+- The kit never restarts the PC while it's in use. Anything that needs a restart (Windows updates, drivers, a memory
+  test) finishes the next time the owner turns the PC off, or with a restart at night once nobody has used the PC for
+  an hour (5-minute warning; a switch in Settings) - and the check after that confirms it worked.
 - It never changes BIOS settings and never uninstalls the owner's apps; it explains those steps instead.
-- Edge stays installed (Windows and many apps need its web engine) but is kept out of the way.
+- Edge: on an existing PC it stays installed (other apps use its web engine) but hidden - no icon, pin or prompts.
+  The install USB leaves it out entirely.
+- The installer isn't code-signed (a certificate costs money every year): Windows says "Windows protected your PC" -
+  click More info > Run anyway.
 - Security note: memory integrity (VBS) is turned off for gaming performance.
 - Messiah (optional) runs with permission prompts skipped: it acts without asking (it does ask before uninstalling
   the owner's apps or BIOS steps). Only add it for friends who are OK with that; its hidden maintenance uses their

@@ -222,6 +222,14 @@ Section 'where it is, for setup''s time limit'
 Fresh; Clear-Path $bk; $env:PCKIT_TWEAKS_TRACE = "$Work\trace.txt"; Clear-Path $env:PCKIT_TWEAKS_TRACE; [void](Run); $tr = @(Get-Content $env:PCKIT_TWEAKS_TRACE -ErrorAction SilentlyContinue); $env:PCKIT_TWEAKS_TRACE = $null
 Check 'each section is noted as it starts (a hang names itself), the end too' (($tr -match ' Services$') -and ($tr -match ' Preinstalled apps$') -and ($tr[-1] -match ' done$')) ($tr -join ' / ')
 
+Section 'OneDrive''s installer in Windows'' service accounts (the 10/2 audit)'
+Fresh; Clear-Path $bk; '' | Set-Content $opt; $TW.Reg['Registry::HKEY_USERS\S-1-5-19\Software\Microsoft\Windows\CurrentVersion\Run|OneDriveSetup'] = 'C:\Windows\System32\OneDriveSetup.exe /thfirstsetup'; $o = Run
+Check 'its first-sign-in entry is removed there, said' (-not $TW.Reg.ContainsKey('Registry::HKEY_USERS\S-1-5-19\Software\Microsoft\Windows\CurrentVersion\Run|OneDriveSetup') -and ($o -contains 'OneDrive setup entry removed (S-1-5-19)')) ($o -join ' / ')
+$TW.Reg['Registry::HKEY_USERS\S-1-5-19\Software\Microsoft\Windows\CurrentVersion\Run|OneDriveSetup'] = 'x'; 'tweak.onedrive=off' | Set-Content $opt; [void](Run)
+Check '... not when the owner keeps OneDrive' ($TW.Reg.ContainsKey('Registry::HKEY_USERS\S-1-5-19\Software\Microsoft\Windows\CurrentVersion\Run|OneDriveSetup')) ''
+'' | Set-Content $opt
+Fresh; Clear-Path $bk; $TW.Tasks += @{ P = '\Microsoft\Windows\Sustainability\'; N = 'SustainabilityTelemetry'; S = 'Ready' }, @{ P = '\GoogleUserPEH\'; N = 'RunPlatformExperienceHelper_Daily'; S = 'Ready' }, @{ P = '\GoogleSystem\GoogleUpdater\'; N = 'GoogleUpdaterTaskSystem'; S = 'Ready' }; $o = Run
+Check 'the telemetry tasks the audit found are off, and Chrome''s "tips" helper - Chrome''s own updater stays' (($o -contains 'task SustainabilityTelemetry off') -and ($o -contains 'task RunPlatformExperienceHelper_Daily off') -and -not ($o -match 'GoogleUpdaterTaskSystem')) ($o -join ' / ')
 Section 'Edge kept out of the way (it stays installed: Windows and apps need it)'
 $er = "$Work\edge"; $env:PCKIT_EDGE_ROOT = $er; $uc = 'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice|ProgId'
 $pol = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System|DefaultAssociationsConfiguration'

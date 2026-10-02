@@ -1,97 +1,136 @@
-# PC Setup Kit
+# Messiah — PC Setup Kit
 
-Turns a Windows 11 PC into a tuned, debloated gaming PC **that then maintains itself** - drivers, updates, crash
-detection, cleanup and scheduled checks - with plain scripts. **No AI and no account needed:** one command (or one USB
-install) and it's done. You only do physical things (dusting, BIOS clicks), and only when the tray tells you how.
+**One click turns a Windows 11 PC into a clean, fast gaming PC that then looks after itself.**
+No bloat, no ads, no telemetry, tuned for games — and after that, drivers, updates, crash checks and cleanup all happen
+on their own. No account and no AI needed.
 
-Optional: **Messiah**, a Claude Code setup on top, for people who want an AI assistant with admin rights on their PC.
+**Install page:** https://kevincxv.github.io/pc-setup-kit/
 
-> **Read this first**
-> - Memory integrity (VBS) is turned **off** for gaming performance (a small security trade-off).
-> - The kit never shuts down or restarts your PC; anything that needs a restart finishes the next time you turn it off.
-> - With the optional Messiah: it runs Claude Code **without permission prompts**, as administrator, and needs
->   **your own Claude account** (Pro or higher). Only add it if you're OK with that.
+---
 
-## Install on an existing Windows 11 PC
+## Two ways to use it
 
-**Easiest:** open the install page, **https://kevincxv.github.io/pc-setup-kit/**, and click the download button. Open the
-file; if Windows says "Windows protected your PC", click **More info > Run anyway** (the file isn't signed by a paid
-certificate). Afterwards the tray icon next to the clock and **PC Setup Kit Status** in the Start menu show what the PC
-is doing.
+| | **Already have Windows 11** | **New PC, or a clean reinstall** |
+|---|---|---|
+| What | Cleans up and tunes the Windows you have | A USB stick that installs a slimmed-down Windows 11 and sets the PC up by itself |
+| How | Install page > **Download the installer** | Install page > **Make an install USB** (needs an 8 GB+ stick; it gets erased) |
+| Time | 15–30 minutes, hands-off | 20–40 minutes to make the stick, then about 20 minutes on the new PC |
+| Your files | Kept | The drive you pick is wiped |
 
-Or open **PowerShell** and run (it asks for administrator rights by itself):
+---
+
+## What it does
+
+**Removes the bloat**
+- Preinstalled apps and ads: Copilot, Widgets, Teams, Outlook, News, Weather, Clipchamp, Solitaire, TikTok, Spotify and ~50 more.
+- Telemetry, ads in Start and Settings, Bing in search, Recall and the other built-in AI features, background tasks that report usage.
+- OneDrive, old Windows parts (Internet Explorer's engine, the old Media Player, WordPad, Steps Recorder…), PowerShell 2.0, and ~7 GB of reserved storage.
+- Edge's desktop icon, taskbar pin and "make Edge your default" prompts.
+
+**On the install USB it goes further — tiny11 as the base.** Windows on the stick comes without all of the above *and*
+without Edge, WebView2, the Xbox app, text-to-speech, OCR, handwriting and face sign-in, with a clean Start menu
+(Windows' own tools only — no placeholders that install Outlook or WhatsApp when clicked). Unlike tiny11 "core",
+Windows can still install every update and repair itself.
+
+**Tunes for games**
+- Ultimate Performance power plan, Game Mode, hardware GPU scheduling, no background game recording, no mouse acceleration.
+- Every monitor at its native resolution and highest refresh rate — also one you plug in later.
+- Lower input lag in borderless games, variable refresh rate, NVIDIA low-latency mode and a bigger shader cache.
+- No power-saving on controllers and wired network. Laptops stay on Balanced, at full speed when plugged in.
+- Installs Steam, Discord, Chrome, Git, WinDbg and AutoHotkey (plus the NVIDIA App on NVIDIA cards).
+
+**Looks after itself** — hidden, after every login, and never while you're playing
+- Drivers (NVIDIA and AMD graphics too; Dell, HP and Lenovo through the maker's own tool) and app updates.
+- Crash detection with automatic diagnosis of blue screens.
+- Puts back anything a Windows update undid, two minutes after the update.
+- Monthly cleanup and restore point, SSD TRIM, antivirus and clock checks.
+- Measures your games' frame rate and temperatures while you play, and watches ping and packet loss — so "the last
+  update made my games slower" gets noticed.
+- Backs up your settings (wallpaper, dark mode, game settings) every week, so a reinstall brings them back.
+- Updates itself, but only to versions that passed a full test install first.
+
+**You stay in control**
+- The **Messiah** app (Start menu, the tray icon next to the clock, or **Ctrl+Alt+M**) shows what the PC is doing and
+  anything that needs you. Usually nothing does.
+- Every change has its own switch in **Settings > What Messiah changes**. Switching one off puts it back as it was.
+- Things only you can do (a BIOS setting, dusting the PC) come as plain step-by-step to-dos, and disappear once done.
+- One-click undo of the last update or the last graphics driver, and a full uninstall.
+
+**Optional AI assistant.** A switch in Settings adds Claude (your own Claude account, Pro or higher): it handles the
+maintenance with judgment and you can ask it anything about your PC.
+
+---
+
+## Install on a PC that already has Windows 11
+
+1. Open **https://kevincxv.github.io/pc-setup-kit/** and click **Download the installer**. Open the file.
+2. If Windows shows **"Windows protected your PC"**, click **More info**, then **Run anyway** (see the FAQ below).
+3. Click **Yes** for administrator rights, read what it will do, and type `YES`.
+4. Wait 15–30 minutes. The Messiah app then opens with what it did.
+
+Prefer a command? In PowerShell:
 
 ```powershell
 irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1 | iex
 ```
 
-It shows what it will do and asks you to type `YES`. Setup takes 15-30 minutes: tweaks, apps, then it optimizes the
-PC (monitors, drivers, app updates, checks, benchmark), then the app - **Messiah** - opens on a welcome page with what
-was done (the full report: `Documents\PC Setup Kit report.txt`).
+## Install Windows from scratch (USB)
 
-It's one app with or without AI: the AI assistant (Claude, your own account) is a switch in its Settings. To have it on
-from the start:
+1. On any Windows PC, open the install page and click **Make an install USB**. Pick the stick. It downloads Windows 11
+   from Microsoft, slims it down and adds the kit.
+2. Plug the stick into the new PC, turn it on and press the boot-menu key (often **F8**, **F11** or **F12**). Pick the USB.
+3. Choose the language and the drive to install on. **This is the one screen to be careful on** — only delete the
+   partitions on the drive you want wiped.
+4. Pick a username and password (no Microsoft account needed). At the desktop, a **"Setting up this PC"** window shows
+   the progress. Keep the stick in until it says it's finished.
 
-```powershell
-& ([scriptblock]::Create((irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1))) -WithClaude
-```
+Have a Windows license ready: new PCs usually have one built in; otherwise you'll need a product key.
 
-## Install on a fresh Windows (USB)
+---
 
-Download the latest release (**Releases** on the right > Source code (zip)) and follow `README.txt`:
-Microsoft's Media Creation Tool USB plus `autounattend.xml` and the `PCSetupKit` folder on the USB root.
+## Good to know before you install
 
-## What you get
+- **Memory integrity (VBS) is turned off** for gaming performance. That's a small security trade-off; it's a switch in Settings.
+- **Restarts:** it never restarts while you're using the PC. Pending Windows updates can finish with a restart at night,
+  when nobody has used the PC for an hour (5-minute warning, a switch in Settings).
+- **USB installs:** drive encryption isn't turned on automatically (you can turn it on in Settings), and PCs without
+  TPM 2.0 or Secure Boot can install too — Microsoft doesn't officially support Windows 11 on those.
+- **It never changes BIOS settings** and never uninstalls apps you installed yourself.
 
-- **Windows cleanup**: bloat apps, ads, telemetry, Copilot/Recall/AI features, Bing in search, background tasks.
-- **Gaming tweaks**: Ultimate Performance power plan, Game Mode, GPU scheduling, no Game DVR, no mouse acceleration,
-  no power-saving on controllers/Ethernet, every monitor at its native resolution and highest refresh rate (also one plugged in later).
-- **Zero maintenance**, hidden in the background after each login: drivers, app updates, crash detection with
-  automatic dump diagnosis, antivirus/clock/TRIM checks, monthly cleanup and restore point, a benchmark every 3 months,
-  dusting reminder every 6 months, full re-optimize yearly. It waits while you're gaming.
-- **More gaming settings**: Windows' "optimizations for windowed games" and variable refresh rate, NVIDIA low-latency
-  mode and an unlimited shader cache (once per driver), no Windows Update restarts while you're signed in, the page
-  file kept on, laptops kept on Balanced with full speed when plugged in. AMD dual-CCD X3D CPUs keep the Xbox Game Bar
-  and AMD's V-Cache optimizer (they need them to put games on the right cores). Reminders for Resizable BAR off, games
-  on a hard drive and the hypervisor running. Optional: Defender skips the game folders (the app's Settings).
-- **Games, measured while you play**: a minute of each game's real frame rate (average and 1% lows, via Intel's
-  PresentMon) plus the graphics card's temperature and throttling - so "the last driver or Windows update made my games
-  slower" and "it runs hot while gaming" get noticed and named. Graphics driver resets (a freeze or black screen for a
-  moment) are counted too, and old shader caches are cleared once after each driver update.
-- **Network**: ping, jitter, packet loss and DNS speed over time (no speed tests, no data use); a slow router DNS on a
-  wired connection is switched to a fast public one by itself.
-- **Settings backup**: weekly, the look (wallpaper, dark mode, accent colour, taskbar, mouse, Start pins), game
-  settings and the kit's own memory go to a second drive (or the kit USB, or Documents). Reinstalling Windows with the
-  kit on the same PC brings them back by themselves - never onto a different PC.
-- **Decisions by fixed rules**: safe things are fixed right away (monitor refresh rate, leftovers of deleted programs,
-  Windows version upgrades before end of support, a memory test after repeated blue screens); things only you can do
-  (BIOS settings, cleaning, cables) become plain step-by-step items in the tray - and disappear once fixed.
-- **Tray icon** (next to the clock) and **the app**: status, what needs you, what's scheduled, and a **History** page (start-up time, disk space, temperatures, frame rates, ping over time); small alerts appear when
-  something needs you (never over a game). **Optimize this PC now** re-runs the optimization anytime.
-- **Automatic updates of the kit itself**: a new release installs within 4 hours (and at every login), without a restart, only once it passed every test and fresh install. Its self-test runs right away; a release that fails on a PC goes back to the version before by itself. Each release is checked to be accepted by the updaters of the last 10 releases, so PCs that fell behind catch up in one step.
-- **Your choice, per change**: the app's Settings > "What the kit changes" lists every change with a plain explanation and a switch (memory integrity, OneDrive, Xbox Game Bar, telemetry, power plan, mouse acceleration, ...). Turning one off puts back what it changed and the guard keeps to it after updates.
-- **Easy to live with**: a note after each kit update saying what's new, a weekly one-line summary, Pause maintenance (tray menu) for a stream or a tournament, "Remind me in a week" and a direct "fix it" button on to-do items, Repair / Undo the last update, back up or restore your settings by hand, and Ctrl+Alt+P (Ctrl+Alt+M with Messiah) to open the app from anywhere.- **Settings stay optimized**: 2 minutes after every Windows Update or driver install, everything an update can undo (settings, services, removed apps, the power plan, OneDrive, monitors, NVIDIA settings) is put back.
-- **Self-testing**: weekly and after every update, the kit's test suite checks the maintenance scripts on the PC
-  itself (in a sandbox - nothing changes).
-- **Hands-off extras**: on Dell, HP and Lenovo Think* PCs the maker's own tool installs BIOS, firmware and drivers
-  weekly; AMD Radeon cards get AMD's newest driver (like NVIDIA's); pending updates finish with a restart at night while
-  nobody uses the PC (a switch; 5-minute warning, Cancel restart in the tray); an unused hypervisor is turned off;
-  junk that came with the PC is removed (trial antivirus: one click); your files are copied to a second drive by itself
-  once you pick it.
-- **One-click fixes**: go back to the previous graphics driver (Maintenance page; the newer one is held back), uninstall
-  from Settings, big Windows upgrades wait 45 days (security updates don't), and on laptops with two graphics chips
-  every game is set to the fast one.
-- **AI assistant** (optional, a switch in Settings): a Claude Code session always ready in the tray, hidden Claude runs that handle the
-  maintenance with judgment, and a daily self-improvement pass.
+## FAQ
+
+**Why does Windows say "Windows protected your PC"?**
+The installer isn't code-signed — a signing certificate costs money every year, and this project is free. Click
+**More info > Run anyway**. Everything it runs is the open-source code in this repository.
+
+**Do I need an account or AI?** No. Everything works without either. The AI assistant is optional.
+
+**What does it keep on purpose?** Windows Update, Windows Security (Defender) and Windows' repair tools — so the PC
+stays patched. The Xbox Game Bar on AMD Ryzen 9 X3D CPUs (AMD's driver needs it to put games on the fast cores).
+On an existing PC, Edge stays installed but hidden, because other apps use its engine.
+
+**Can I get something back?** Yes — switch it off in Settings, or reinstall it from the Microsoft Store or
+Settings > Optional features.
 
 ## Remove it
 
+In the app: **Settings > Uninstall**. Or in PowerShell:
+
 ```powershell
-C:\PCSetupKit\uninstall.ps1                 # removes the maintenance, tray, shortcuts (and Messiah if installed)
+C:\PCSetupKit\uninstall.ps1                 # removes Messiah and its maintenance
 C:\PCSetupKit\uninstall.ps1 -RevertTweaks   # ...and puts the Windows settings back
 ```
 
-Nothing is deleted outright: removed files are moved to `%USERPROFILE%\.claude\pc-setup-kit-removed-<date>`.
-Installed apps (and with Messiah, your Claude conversations and account) stay.
+Nothing is deleted outright: removed files go to `%USERPROFILE%\.claude\pc-setup-kit-removed-<date>`.
 
-License: MIT. Code signing policy: https://kevincxv.github.io/pc-setup-kit/code-signing.html
+---
+
+## For developers
+
+- `PCSetupKit\` — the kit: `setup.ps1`, `tweaks.ps1`, `uninstall.ps1`, the maintenance scripts in `claude\`, the app
+  (`claude\dashboard.ps1`) and the tray.
+- `PCSetupKit\tests\` — over 1,000 tests (`run-tests.ps1`), run on every push, plus a real fresh install on GitHub, in
+  Windows Sandbox and from a USB stick in a virtual PC (`tests\vm`) before a release goes out.
+- Releases become **Latest** only after every check passes; installed PCs then update within 4 hours.
+
+License: MIT.
