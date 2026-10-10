@@ -60,7 +60,7 @@ function Get-KitStatus([string]$ClaudeVersion) {
     $st = $null; try { $st = Get-Content "$cl\self-test.json" -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch {}
     $std = [datetime]::MinValue
     if ($st -and [datetime]::TryParse("$($st.date)", [ref]$std)) {
-        Ln "Self-test:         $(if ($st.ok) { "passed $($std.ToString('d')) ($($st.result))" } else { "FAILED $($std.ToString('d')) ($($st.result)$(if ($st.failed) { " in $($st.failed -join ', ')" }))" }); next $($std.AddDays(7).ToString('d')) or after a kit update" $(if ($st.ok) { 'info' } else { 'warn' })
+        Ln "Self-test:         $(if ($st.ok) { "passed $($std.ToString('d')) ($($st.result))" } else { "FAILED $($std.ToString('d')) ($($st.result)$(if ($st.failed) { " in $($st.failed -join ', ')" }))" }); next $(if ($std.AddDays(7) -lt (Get-Date)) { 'at the next login' } else { $std.AddDays(7).ToString('d') }) or after a kit update" $(if ($st.ok) { 'info' } else { 'warn' })
     } else { Ln 'Self-test:         at the next login (tests the maintenance scripts, weekly)' }
     $kv = Get-Content 'C:\PCSetupKit\kit-version.txt' -TotalCount 1 -ErrorAction SilentlyContinue
     if ($kv) { Ln "Kit version:       $kv (updates itself)" 'dim' }

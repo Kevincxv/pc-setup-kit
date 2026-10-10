@@ -71,9 +71,12 @@ if ($hasAhk) {
     if (-not $have -or $have.Length -ne $from.Length -or $have.VersionInfo.FileVersion -ne $from.VersionInfo.FileVersion) {
         # the running tray holds the old copy: stop it first (the task starts it again below)
         Get-CimInstance Win32_Process -Filter "Name='$name.exe'" -ErrorAction SilentlyContinue | Where-Object ExecutablePath -eq $exe | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $changed = $true }
-        try { Copy-Item $Ahk $exe -Force -ErrorAction Stop; "Tray: runs as $name.exe$(if ($have) { " (AutoHotkey $($from.VersionInfo.FileVersion))" } else { ' - its own icon in the tray' })"; $changed = $true }
-        catch {
-            "Tray: couldn't copy AutoHotkey to $name.exe ($($_.Exception.Message)) - will retry"
+        # a killed process lets go of its file a moment later: try for up to 10 s
+        $err = $null
+        for ($i = 0; $i -lt 20; $i++) { try { Copy-Item $Ahk $exe -Force -ErrorAction Stop; $err = $null; break } catch { $err = $_; Start-Sleep -Milliseconds 500 } }
+        if (-not $err) { "Tray: runs as $name.exe$(if ($have) { " (AutoHotkey $($from.VersionInfo.FileVersion))" } else { ' - its own icon in the tray' })"; $changed = $true }
+        else {
+            "Tray: couldn't copy AutoHotkey to $name.exe ($($err.Exception.Message)) - will retry"
             if ($have -and -not $NoRestart) { Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue }   # the old copy still works: never leave the tray off
             return
         }

@@ -25,11 +25,35 @@ if ($bsods -and (Test-Path "$PSScriptRoot\driver-guard.ps1")) { & "$PSScriptRoot
 $whea = (Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WHEA-Logger'; StartTime = $since }).Count
 if ($whea) { "WARNING: $whea hardware error(s) logged (WHEA) - possible RAM/CPU instability" }
 if (-not $bsods -and -not $hard -and -not $whea) { 'Crashes: none since last check' }
+# CPU slowed down by the firmware (heat or power limit; event 37). A laptop on battery does this on purpose.
+# (Windows logs one event per CPU thread: events in the same minute are one slowdown, not 16 on a 16-thread CPU)
+$slow = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Kernel-Processor-Power'; Id = 37; StartTime = $since } |
+    Group-Object { $_.TimeCreated.ToString('yyyyMMddHHmm') })
+$onBattery = @(Get-CimInstance Win32_Battery | Where-Object BatteryStatus -eq 1).Count -gt 0
+if ($slow.Count -ge 3 -and -not $onBattery) { "Reminder: the CPU was slowed down by its firmware $($slow.Count) times since the last check (too hot or power-limited) - check the CPU cooler and case airflow" }
 # Diagnose new crash dumps automatically (names the driver/module responsible)
 $dumps = @(Get-ChildItem 'C:\Windows\Minidump\*.dmp', 'C:\Windows\MEMORY.DMP' | Where-Object LastWriteTime -gt $since | Sort-Object LastWriteTime -Descending)
 # MEMORY.DMP is the same crash as the minidump written with it; analyzing both repeats the line and is slow
 $dumps = @($dumps | Where-Object { $d = $_; $d.Name -ne 'MEMORY.DMP' -or -not ($dumps | Where-Object { $_.Name -ne 'MEMORY.DMP' -and [Math]::Abs(($_.LastWriteTime - $d.LastWriteTime).TotalMinutes) -lt 10 }) } | Select-Object -First 2)
 foreach ($d in $dumps) { "WARNING: crash dump $($d.Name) - $(& "$PSScriptRoot\crash-analyze.ps1" -Dump $d.FullName)" }
+# RAM stick test ('ram-stick-test' in maint-state.json, started by /maintain, for 60 days): every start and crash goes to
+# .claude\ram-test.log with the sticks fitted, so blue screens are counted per stick setup. (A crash is logged at the next
+# start, but the sticks can't change in between: the PC restarts by itself.)
+$ramTest = try { [datetime](Get-Content "$env:USERPROFILE\.claude\maint-state.json" -Raw | ConvertFrom-Json).'ram-stick-test' } catch { $null }
+if ($ramTest -and $ramTest -gt (Get-Date).AddDays(-60)) {
+    $sticks = @(Get-CimInstance Win32_PhysicalMemory)
+    $setup = "$($sticks.Count) stick(s), $([math]::Round(($sticks | Measure-Object Capacity -Sum).Sum / 1GB)) GB in $(@($sticks | ForEach-Object { "$($_.BankLabel)".Trim() }) -join ' + ')"
+    $rlog = "$env:USERPROFILE\.claude\ram-test.log"
+    $entries = @(Get-Content $rlog)
+    $new = @(@($bsods) + @($hard) | Where-Object { $_ } | ForEach-Object { "$($_.TimeCreated.ToString('yyyy-MM-dd HH:mm')) | crash | $setup" })
+    $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('yyyy-MM-dd HH:mm')
+    if (-not ($entries -like "$boot | start | *")) { $new += "$boot | start | $setup" }
+    if ($new) { Add-Content $rlog $new }
+    $all = @($entries) + $new
+    $cur = @(for ($i = $all.Count - 1; $i -ge 0 -and $all[$i] -like "* | $setup"; $i--) { $all[$i] })
+    # said once a stick was taken out or moved (not while the PC still has its starting setup)
+    if ($all[0] -notlike "* | $setup") { "RAM test: $setup - $(@($cur -like '* | start | *').Count) start(s), $(@($cur -like '* | crash | *').Count) crash(es) on this setup so far" }
+}
 # graphics driver resets (a freeze / black screen in a game, no blue screen) and old shader caches after a driver update
 if (Test-Path "$PSScriptRoot\gpu-watch.ps1") { & "$PSScriptRoot\gpu-watch.ps1" -Since $since }
 
@@ -137,6 +161,14 @@ foreach ($pd in Get-PhysicalDisk | Where-Object BusType -ne 'USB') {
     if ($r.Wear -ge 80) { "WARNING: $($pd.FriendlyName) wear at $($r.Wear)% - plan a replacement" }
     if ($r.Temperature -ge 70) { "WARNING: $($pd.FriendlyName) is hot ($($r.Temperature) C)" }
 }
+# read/write errors (bad block, failed or retried I/O, NVMe controller error) often come before SMART says anything.
+# Only internal drives count: a USB stick pulled out mid-copy logs the same events. (\Device\HarddiskN is the same in every language)
+$internal = @{}; foreach ($pd in Get-PhysicalDisk | Where-Object BusType -ne 'USB') { $internal["$($pd.DeviceId)"] = $pd.FriendlyName }
+$ioErr = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'disk'; Id = 7, 51, 153, 154; StartTime = $since } |
+    ForEach-Object { if ("$($_.Message) $($_.Properties[0].Value)" -match 'Harddisk(\d+)\\DR' -and $internal.ContainsKey($Matches[1])) { $internal[$Matches[1]] } })
+$nvme = @(Get-PhysicalDisk | Where-Object BusType -eq 'NVMe' | ForEach-Object FriendlyName) -join ' / '
+if ($nvme) { $ioErr += @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'stornvme'; Id = 11; StartTime = $since } | ForEach-Object { $nvme }) }
+foreach ($g in $ioErr | Group-Object) { "WARNING: $($g.Name) logged $($g.Count) read/write error(s) since the last check - can be a failing drive or a loose cable: back up your files" }
 
 # --- New auto-start items (Run keys, Startup folders, non-Windows scheduled tasks) since the last check ---
 # Baseline in .claude\startup-baseline.txt; the first run only records it. Each new item is mentioned once.
@@ -182,4 +214,16 @@ if (-not (Test-Path "$PSScriptRoot\files-backup.ps1") -and -not $fh -and -not $b
     foreach ($d in Get-Disk | Where-Object { $_.Number -ne $sys -and $_.BusType -ne 'File Backed Virtual' -and $_.Size -ge 64GB }) {
         "Reminder: $($d.FriendlyName) ($([int]($d.Size / 1GB)) GB) is connected and nothing is backed up"
     }
+}
+# Restore points and the recovery environment are the undo for a bad driver or update (driver-check makes a restore
+# point first). Some updates and "debloat" tools turn them off: back on, said
+$sp = "$((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SPP\Clients' -ErrorAction SilentlyContinue).'{09F7EDC5-294E-4180-AF6A-FB0E6A0E9513}')"
+if ($sp -notlike "*($($env:SystemDrive -replace ':', '%3A'))*") {
+    try { Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop; 'Backups: restore points were off - turned back on' }
+    catch { "WARNING: restore points are off and could not be turned back on ($($_.Exception.Message))" }
+}
+if ((reagentc /info 2>$null | Out-String) -match 'Windows RE status:\s+Disabled') {   # (English Windows only: the text is translated)
+    reagentc /enable 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { 'Backups: the Windows recovery tools were off - turned back on' }
+    else { 'WARNING: the Windows recovery tools (Startup Repair, Reset this PC) are off and could not be turned back on' }
 }

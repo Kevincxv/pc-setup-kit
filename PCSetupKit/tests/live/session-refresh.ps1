@@ -83,9 +83,16 @@ try {
     (Get-Item "$proj\$id4.jsonl").LastWriteTime = (Get-Date).AddMinutes(-3)
     $o = & $rs -Log $testLog -Exe (Touch-New) -OnlyPid $s4 -IdleMinutes 10 -WhatIf
     Check 'used 3 minutes ago: skipped' ($o -match 'skip .*active') ($o -join ' / ')
-    $o = & $rs -Log $testLog -Exe (Touch-New) -OnlyPid $mine -WhatIf
-    Check 'this session (on screen, or hidden but in use): skipped' ($o -match 'skip .*(window is open|conversation id unknown|active)') ($o -join ' / ')
-    Check 'this session is still alive' ([bool](Get-Process -Id $mine[0] -ErrorAction SilentlyContinue))
+    # (only when the tests run inside a Messiah session - the way the kit's Claude publishes. Started from any other window,
+    # the open sessions are really idle, and restarting them is right: 10/10 a publish from a separate Claude Code window)
+    $up = @(); $q = $PID; while ($q -and $up.Count -lt 40) { $up += $q; $q = (Get-CimInstance Win32_Process -Filter "ProcessId=$q").ParentProcessId; if ($q -in $up) { break } }
+    $inMine = @($mine | Where-Object { $_ -in $up })
+    if (-not $inMine) { Skip 'this session (on screen, or hidden but in use): skipped' 'the tests are not running inside a Messiah session' }
+    else {
+        $o = & $rs -Log $testLog -Exe (Touch-New) -OnlyPid $inMine -WhatIf
+        Check 'this session (on screen, or hidden but in use): skipped' ($o -match 'skip .*(window is open|conversation id unknown|active)') ($o -join ' / ')
+        Check 'this session is still alive' ([bool](Get-Process -Id $inMine[0] -ErrorAction SilentlyContinue))
+    }
 }
 catch { Check 'the test ran to the end' $false "$($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))" }   # a crash halfway is a failure, not a pass
 finally {

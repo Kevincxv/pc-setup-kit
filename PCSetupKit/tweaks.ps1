@@ -33,7 +33,10 @@ function Save-Original($Key, $Data) { if (-not $bk.ContainsKey($Key)) { $bk[$Key
 # every run like everything else, so a choice holds after updates too. Groups: see $script:group below.
 $optFile = if ($env:PCKIT_TWEAK_OPTIONS) { $env:PCKIT_TWEAK_OPTIONS } else { "$env:USERPROFILE\.claude\kit-options.txt" }
 $off = @(Get-Content $optFile | Where-Object { $_ -match '^\s*tweak\.([\w-]+)\s*=\s*off\s*$' } | ForEach-Object { $Matches[1] })
-function Want([string]$Group) { -not $Group -or $Group -notin $off }
+# Opt-in groups are off until the owner turns them on ("tweak.<group>=on"): bigger changes not everyone wants
+$on = @(Get-Content $optFile | Where-Object { $_ -match '^\s*tweak\.([\w-]+)\s*=\s*on\s*$' } | ForEach-Object { $Matches[1] })
+$optIn = @('edge-remove')
+function Want([string]$Group) { if ($Group -in $optIn) { return $Group -in $on }; -not $Group -or $Group -notin $off }
 $group = $null   # the group the next settings belong to (none: always applied)
 # once per group turned off (reinstalling an app, turning hibernation back on): 'undone|<group>' in the backup file,
 # cleared when the group is turned on again
@@ -117,6 +120,13 @@ Set-Reg $ADV ShowTaskViewButton 0
 Set-Reg $ADV Start_IrisRecommendations 0
 Set-Reg $ADV Start_TrackDocs 0
 Set-Reg $ADV Start_AccountNotifications 0
+# "End task" in a program's taskbar right-click menu: a frozen game closes without Task Manager
+$group = 'end-task'
+Set-Reg "$ADV\TaskbarDeveloperSettings" TaskbarEndTask 1
+# File Explorer shows every folder the same way instead of guessing a type from what's inside (the guess reads the files
+# first, which makes big folders - game installs, downloads - slow to open)
+$group = 'folder-types'
+Set-Reg 'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags\AllFolders\Shell' FolderType 'NotSpecified' String
 # the Sticky Keys / Filter Keys / Toggle Keys prompts (Shift five times, holding Shift, Num Lock) that throw a game out of
 # fullscreen - only their keyboard shortcuts; the features stay in Settings > Accessibility
 $group = 'sticky-keys'
@@ -142,8 +152,11 @@ Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard' EnableVirtualizatio
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity' Enabled 0
 $group = $null
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' DisableWpbtExecution 1          # blocks motherboard "auto driver installer" bloat
+Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Device Metadata' PreventDeviceMetadataFromNetwork 1   # no maker "companion app" downloads for a plugged-in device (drivers still come)
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl' CrashDumpEnabled 7                  # keep crash dumps for diagnosis
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl' AlwaysKeepMemoryDump 1
+Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl' DisplayParameters 1                 # a blue screen names its error and driver on screen
+Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' LongPathsEnabled 1                    # paths over 260 characters (deep game mod and tool folders)
 # Windows 11 "Optimizations for windowed games" (DX10/11 borderless games get the low-latency flip model) and
 # variable refresh rate for games that don't ask for it - one string of "key=value;" pairs, other keys kept
 $group = 'windowed-games'
@@ -215,8 +228,11 @@ $tasks = '\Microsoft\Windows\Application Experience\MareBackup', '\Microsoft\Win
     '\Microsoft\Windows\Sustainability\PowerGridForecastTask', '\Microsoft\Windows\Flighting\OneSettings\RefreshCache',
     '\Microsoft\Windows\WindowsAI\ClickToDo\ModelCachingLimit', '\Microsoft\Windows\WindowsAI\ClickToDo\ModelCachingUpdate',
     '\GoogleUserPEH\RunPlatformExperienceHelper_Daily'   # (Chrome's "tips" pop-ups; Chrome's own updates are a separate task and stay)
+# some are protected even from admins (Access is denied: UsageAndQualityInsights and the Click to Do ones on 26200) -
+# skip those quietly; reporting them "off" made the guard say "Windows had reverted" them at every run (10/2)
 foreach ($t in Get-ScheduledTask | Where-Object { $_.State -ne 'Disabled' -and ($_.TaskPath + $_.TaskName) -in $tasks }) {
-    Save-Original "task|$($t.TaskPath)$($t.TaskName)" @{ Enabled = $true }; $t | Disable-ScheduledTask | Out-Null; $changes.Add("task $($t.TaskName) off")
+    try { $t | Disable-ScheduledTask -ErrorAction Stop | Out-Null } catch { continue }
+    Save-Original "task|$($t.TaskPath)$($t.TaskName)" @{ Enabled = $true }; $changes.Add("task $($t.TaskName) off")
 }
 foreach ($t in Get-ScheduledTask | Where-Object { $_.TaskName -match 'AsrAPPShop|ArmouryCrate.*Update|MSI.*LiveUpdate' -and $_.TaskPath -eq '\' }) {
     Unregister-ScheduledTask -TaskName $t.TaskName -Confirm:$false; $changes.Add("motherboard installer task $($t.TaskName) removed")
@@ -436,6 +452,63 @@ elseif (Want 'edge') {
         $exe = if ($er) { "$er\msedge.exe" } else { "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" }
         if ($bk.ContainsKey('edge|desktop') -and (Test-Path $exe)) { $s = (New-Object -ComObject WScript.Shell).CreateShortcut($edgeIcons[0]); $s.TargetPath = $exe; $s.Save() }
     } 'Edge back as it was (your choice)'
+}
+# Edge removed altogether (opt-in, "tweak.edge-remove=on"). Only the browser: WebView2 - Edge's engine that apps such as
+# game launchers show their pages with - stays and keeps updating. Edge's own uninstaller only runs once the old built-in
+# Edge's file exists (winutil's way: an empty one); profiles (bookmarks, passwords) are kept. Edge Update's "don't install
+# Edge" policy keeps it from coming back, and should Windows put it back anyway, the next check removes it again.
+$group = 'edge-remove'
+Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate' 'Install{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}' 0   # (Edge's own id; WebView2's is another)
+if ($edgeFiles) {
+    $edgeExe = if ($er) { "$er\msedge.exe" } else { "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" }
+    $edgeStub = if ($er) { "$er\SystemApps\MicrosoftEdge.exe" } else { "$env:SystemRoot\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe" }
+    if (Want 'edge-remove') {
+        Redo 'edge-remove'
+        $edgeSetup = @(Get-ChildItem $(if ($er) { "$er\Installer\setup.exe" } else { "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\*\Installer\setup.exe" }) -ErrorAction SilentlyContinue | Select-Object -Last 1)
+        if ((Test-Path -LiteralPath $edgeExe) -and $edgeSetup) {
+            if (-not (Test-Path -LiteralPath $edgeStub)) { New-Item $edgeStub -ItemType File -Force | Out-Null }
+            Start-Process $edgeSetup[0].FullName -ArgumentList '--uninstall', '--system-level', '--force-uninstall' -Wait -WindowStyle Hidden
+            Save-Original 'edge|removed' @{ Date = (Get-Date).ToString('d') }
+            $changes.Add($(if (Test-Path -LiteralPath $edgeExe) { 'Edge: its uninstaller did not remove it (next check tries again)' } else { 'Edge removed (WebView2 kept)' }))
+        }
+    } elseif ($bk.ContainsKey('edge|removed') -and -not (Test-Path -LiteralPath $edgeExe)) {
+        # turned off again: Edge comes back (from winget, as winutil does it)
+        Undo-Once 'edge-remove' { winget install --id Microsoft.Edge --exact --source winget --silent --accept-package-agreements --accept-source-agreements | Out-Null } 'Edge installed again (your choice)'
+    }
+}
+$group = $null
+
+Trace 'Registry backup'
+# --- Windows stopped keeping copies of the registry in 2018 (C:\Windows\System32\config\RegBack stays empty): with this
+# its own idle task saves them again - a way back for a PC that won't start after a bad driver or update. (From winutil.) ---
+Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Configuration Manager' EnablePeriodicBackup 1
+
+Trace 'Vendor auto-installers'
+# --- Razer Synapse and Logitech's download assistant: Windows installs them by itself when one of their mice or headsets
+# is plugged in (the hardware works without them). An empty folder where their installers unpack, locked against writing,
+# stops that - drivers still come from Windows Update (unlike winutil's version, which also turns off driver downloads).
+# A folder that already has something in it (the app installed on purpose) is left alone. (From winutil, 10/10.) ---
+$group = 'vendor-installers'
+$vr = $env:PCKIT_VENDOR_ROOT   # (tests: their own folder; none set in a test: nothing touched)
+$vendorDirs = if ($vr) { "$vr\Razer", "$vr\LogiDownloadAssistant" } elseif (-not $env:PCKIT_IN_TESTS) { "$env:SystemRoot\Installer\Razer", "$env:ProgramFiles\LogiDownloadAssistant" }
+$everyone = New-Object Security.Principal.SecurityIdentifier 'S-1-1-0'
+foreach ($vd in $vendorDirs) {
+    $vn = Split-Path $vd -Leaf
+    $acl = if (Test-Path -LiteralPath $vd) { Get-Acl -LiteralPath $vd }
+    $deny = @($acl.Access | Where-Object { $_.AccessControlType -eq 'Deny' -and $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]) -eq $everyone } catch { $false }) })
+    if (Want 'vendor-installers') {
+        if ($deny -or ($acl -and (Get-ChildItem -LiteralPath $vd -Force))) { continue }
+        if (-not $acl) { New-Item $vd -ItemType Directory -Force | Out-Null; $acl = Get-Acl -LiteralPath $vd }
+        $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($everyone, 'Write', 'Deny')))
+        Set-Acl -LiteralPath $vd $acl
+        Save-Original "vendor|$vn" @{ Path = $vd }; $changes.Add("$vn auto-installer blocked")
+    } elseif ($deny -and $bk.ContainsKey("vendor|$vn")) {
+        # the owner's choice: their installer may unpack again
+        foreach ($r in $deny) { [void]$acl.RemoveAccessRule($r) }
+        Set-Acl -LiteralPath $vd $acl
+        if (-not (Get-ChildItem -LiteralPath $vd -Force)) { Remove-Item -LiteralPath $vd }
+        $changes.Add("$vn auto-installer allowed again (your choice)")
+    }
 }
 $group = $null
 

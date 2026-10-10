@@ -4,13 +4,16 @@
 # /maintain run does this with judgment). Prints one line per action for the report.
 # Never restarts the PC, never touches BIOS settings, never deletes anything (leftovers are only disabled).
 # Test overrides: -Lines (the report instead of maint-report.txt), -Board 'Maker|Model', -Now, -JedecDefault.
-param([string[]]$Lines, [string]$Board, [datetime]$Now = (Get-Date), [string]$Dir = $PSScriptRoot)
+# -WinDir / -PendingKeys: where Windows Update keeps its download cache, and what says a restart is pending (tests: a sandbox).
+param([string[]]$Lines, [string]$Board, [datetime]$Now = (Get-Date), [string]$Dir = $PSScriptRoot, [string]$WinDir = $env:SystemRoot,
+    [string[]]$PendingKeys = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending'))
 $ErrorActionPreference = 'Continue'
 if (-not $Lines) { $Lines = @(Get-Content "$Dir\maint-report.txt" -Encoding UTF8 -ErrorAction SilentlyContinue) }
 $stFile = "$Dir\actions-state.json"
 $st = @{ crashes = @(); expires = @{}; appFails = @{}; memtest = $null; disabled = @() }
 try { $j = Get-Content $stFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
     foreach ($k in 'crashes', 'disabled') { if ($j.$k) { $st[$k] = @($j.$k) } }
+    foreach ($k in 'wuFails', 'wuReset') { if ($j.$k) { $st[$k] = $j.$k } }
     foreach ($k in 'expires', 'appFails') { if ($j.$k) { $j.$k.PSObject.Properties | ForEach-Object { $st[$k][$_.Name] = $_.Value } } }
     if ($j.memtest) { $st.memtest = @{}; $j.memtest.PSObject.Properties | ForEach-Object { $st.memtest[$_.Name] = $_.Value } } } catch {}   # (a hashtable: .Result gets added later)
 function Todo([string]$Id, [string]$Text, [int]$Days) { & "$Dir\todo.ps1" -Dir $Dir -Id $Id -Text $Text; if ($Days) { $st.expires[$Id] = $Now.AddDays($Days).ToString('o') } }
@@ -143,6 +146,25 @@ if (($l = Line '^WARNING: leftovers pointing at deleted programs: (.+)$') -and $
 if (Line '^Restore point FAILED') {
     try { Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop; 'Restore points: turned System Protection on for C: (the monthly restore point works from next month)' }
     catch { "Restore points: couldn't turn System Protection on ($($_.Exception.Message))" }
+}
+
+# --- Windows Update's check failing login after login: a damaged download cache is the usual cause. After 3 failed checks
+# in a row it is reset (Windows builds a new one; the old one is renamed, not deleted) - at most once a month, and never
+# while a restart is pending (an installed update waits in it). (From winutil's "Windows Update - Reset", 10/10.) ---
+if ($Lines -match '^\[Drivers\]') {
+    $st.wuFails = if (Line '^Other drivers: Windows Update check failed') { [int]$st.wuFails + 1 } else { 0 }
+    $lastReset = if ($st.wuReset) { [datetime]$st.wuReset }
+    $pending = @($PendingKeys | Where-Object { Test-Path $_ }).Count -gt 0
+    if ($st.wuFails -ge 3 -and -not $pending -and (-not $lastReset -or $lastReset -lt $Now.AddDays(-30))) {
+        $svcs = 'wuauserv', 'bits', 'cryptsvc'; $tag = $Now.ToString('yyyyMMdd')
+        try {
+            Stop-Service $svcs -Force -ErrorAction Stop
+            foreach ($f in "$WinDir\SoftwareDistribution", "$WinDir\System32\catroot2") { if (Test-Path $f) { Rename-Item $f "$(Split-Path $f -Leaf).old-$tag" -ErrorAction Stop } }
+            $st.wuReset = $Now.ToString('o'); $st.wuFails = 0
+            "Windows Update: its check failed 3 times in a row - reset its download cache (the old one is kept as SoftwareDistribution.old-$tag)"
+        } catch { "Windows Update: its check keeps failing and resetting its download cache didn't work ($($_.Exception.Message))" }
+        finally { Start-Service ($svcs[2..0]) -ErrorAction SilentlyContinue }
+    }
 }
 
 # --- Windows near its end of support: ask Windows Update for the newest version (installs like any update) ---

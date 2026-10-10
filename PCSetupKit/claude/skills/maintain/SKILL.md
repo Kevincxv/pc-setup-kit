@@ -51,11 +51,17 @@ resumes it (the tray for interactive sessions, maint-requests.txt for hidden run
      never trigger the restart yourself); ask them to restart at a time they don't need the PC for a few hours.
   4. Driver Verifier on non-Microsoft drivers (`verifier /standard /all` style, only with the owner present, and tell
      them how to turn it off from Safe Mode) - catches the driver that corrupts memory.
-  5. Hardware: reseat RAM/GPU, check PSU; test one RAM stick at a time.
+  5. Hardware: reseat RAM/GPU, check PSU; test one RAM stick at a time. Set `ram-stick-test` (now) in
+     maint-state.json: for 60 days health-check writes every start and crash with the sticks fitted to
+     `.claude\ram-test.log` and reports "RAM test: ... start(s), ... crash(es) on this setup" once a stick is out. Read
+     that log for the per-stick verdict (identical sticks look the same, so ask the owner which one is in after a swap).
   Record which step each crash reached in the maintenance memory note so the ladder continues across runs.
 - **Leftovers pointing at deleted programs** (services/tasks): confirm the program is really gone, then remove the
   service (`sc.exe delete`) / task (`Unregister-ScheduledTask`). Leave anything owned by Microsoft alone.
 - **App or driver update failed / timed out**: find out why (logs, winget output) and fix or hide it.
+- **"Other drivers: Windows Update check failed"** in 3+ reports in a row (see maint-history): with no restart pending,
+  reset its download cache the way maint-actions.ps1 does - stop wuauserv/bits/cryptsvc, rename (never delete)
+  `SoftwareDistribution` and `System32\catroot2` to `*.old-<date>`, start the services again. At most once a month.
 - **Windows version near end of support**: web-search Microsoft's Windows 11 release information for the newest version
   that is generally available; set `HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate` `ProductVersion`="Windows 11",
   `TargetReleaseVersion`=1, `TargetReleaseVersionInfo`=<that version>; scan Windows Update and install it (usually a small

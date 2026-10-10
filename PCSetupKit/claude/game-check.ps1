@@ -3,7 +3,7 @@
 # Signals: Windows' own "fullscreen D3D/busy" state, a foreground window covering its whole monitor (borderless games),
 # or a known game running in the background (alt-tabbed). Games seen fullscreen are remembered in .claude\games.txt
 # (browsers/video players are not, so fullscreen YouTube only pauses maintenance while it's actually fullscreen).
-param([switch]$Explain, [switch]$NoLearn)
+param([switch]$Explain, [switch]$NoLearn, [hashtable]$T)   # -T: tests give the window in front (@{ Name; Covers; State })
 $ErrorActionPreference = 'SilentlyContinue'
 $games = "$PSScriptRoot\games.txt"
 if (-not ('GameCheck.W' -as [type])) {
@@ -22,9 +22,12 @@ public struct MONITORINFO { public int cbSize; public RECT rcMonitor, rcWork; pu
 # Never learned as games: shells, browsers, video players, office/presentation apps
 $notGames = 'explorer', 'ApplicationFrameHost', 'ShellExperienceHost', 'StartMenuExperienceHost', 'SearchHost', 'LockApp', 'chrome', 'msedge', 'firefox',
     'opera', 'brave', 'vivaldi', 'vlc', 'mpc-hc64', 'mpc-be64', 'PotPlayerMini64', 'mpv', 'Video.UI', 'Microsoft.Media.Player', 'POWERPNT', 'Teams',
-    'Discord', 'steamwebhelper', 'powershell', 'WindowsTerminal', 'conhost', 'AutoHotkey64', 'Messiah', 'PC Setup Kit', 'obs64'
+    'Discord', 'steamwebhelper', 'powershell', 'WindowsTerminal', 'conhost', 'AutoHotkey64', 'Messiah', 'PC Setup Kit', 'obs64',
+    # game launchers: open next to their game, or hidden in the tray all day - never the game itself
+    'steam', 'EpicGamesLauncher', 'Battle.net', 'EADesktop', 'GalaxyClient', 'upc', 'RiotClientServices', 'Better2k', 'SaveTheGame', 'revival-client', 'Slums 2K Launcher'
 
-$fg = [GameCheck.W]::GetForegroundWindow(); $fgName = $null; $why = $null
+$fgName = $null; $why = $null; $own = $false; $covers = $false; $state = 0
+$fg = if ($T) { [IntPtr]::Zero } else { [GameCheck.W]::GetForegroundWindow() }
 if ($fg -ne [IntPtr]::Zero) {
     $procId = 0; [void][GameCheck.W]::GetWindowThreadProcessId($fg, [ref]$procId); $fgName = (Get-Process -Id $procId).ProcessName
     $cls = New-Object Text.StringBuilder 64; [void][GameCheck.W]::GetClassName($fg, $cls, 64)
@@ -32,10 +35,16 @@ if ($fg -ne [IntPtr]::Zero) {
     $mi = New-Object GameCheck.W+MONITORINFO; $mi.cbSize = 40; [void][GameCheck.W]::GetMonitorInfo([GameCheck.W]::MonitorFromWindow($fg, 2), [ref]$mi)
     $covers = $r.Left -le $mi.rcMonitor.Left -and $r.Top -le $mi.rcMonitor.Top -and $r.Right -ge $mi.rcMonitor.Right -and $r.Bottom -ge $mi.rcMonitor.Bottom
     $state = 0; [void][GameCheck.W]::SHQueryUserNotificationState([ref]$state)   # 2 busy/fullscreen, 3 D3D fullscreen, 4 presentation
-    if ($cls.ToString() -notmatch '^(Progman|WorkerW|Shell_TrayWnd|Shell_SecondaryTrayWnd)$' -and ($covers -or $state -in 2, 3, 4)) { $why = "fullscreen (state $state)" }
+    if ($cls.ToString() -match '^(Progman|WorkerW|Shell_TrayWnd|Shell_SecondaryTrayWnd)$') { $covers = $false; $state = 0 }   # the desktop itself
 }
-$known = @(Get-Content $games -ErrorAction SilentlyContinue | ForEach-Object { ($_ -split '#')[0].Trim() } | Where-Object { $_ })
-if ($why -and $fgName -and $fgName -notin $notGames) {
+if ($T) { $fgName = $T.Name; $covers = [bool]$T.Covers; $state = [int]$T.State }
+# States 2 (busy) and 4 (presentation) say a fullscreen app is open somewhere, not that it's the window in front: only a
+# window covering its monitor, or Direct3D exclusive fullscreen (3: the app in front), is learned as a game. (10/10 the
+# 2K20 launcher, in front of the borderless game, was learned - and then held all maintenance while it sat in the tray.)
+if ($covers -or $state -in 2, 3, 4) { $why = "fullscreen (state $state)"; $own = $covers -or $state -eq 3 }
+# (a launcher learned by an older version is ignored)
+$known = @(Get-Content $games -ErrorAction SilentlyContinue | ForEach-Object { ($_ -split '#')[0].Trim() } | Where-Object { $_ -and $_ -notin $notGames })
+if ($why -and $own -and $fgName -and $fgName -notin $notGames) {
     if (-not $NoLearn -and $fgName -notin $known) { Add-Content $games "$fgName    # learned $(Get-Date -Format d) (seen fullscreen)"; $known += $fgName }
     if ($Explain) { "$fgName - $why" } else { $fgName }; return
 }

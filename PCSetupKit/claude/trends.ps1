@@ -18,7 +18,7 @@ $dp = 'Microsoft-Windows-Diagnostics-Performance/Operational'
 $b = Get-WinEvent -FilterHashtable @{ LogName = $dp; Id = 100 } -MaxEvents 1
 $bd = @{}; if ($b) { ([xml]$b.ToXml()).Event.EventData.Data | ForEach-Object { $bd[$_.Name] = $_.'#text' } }
 if ($bd.BootTime) { $e.bootAt = $b.TimeCreated.ToString('o'); $e.boot = [Math]::Round([int]$bd.BootTime / 1000, 1) }
-$free = (Get-PSDrive C).Free; if ($free) { $e.freeGB = [Math]::Round($free / 1GB, 1) }
+$drv = Get-PSDrive C; $free = $drv.Free; if ($free) { $e.freeGB = [Math]::Round($free / 1GB, 1); if ($drv.Used) { $e.sizeGB = [Math]::Round(($drv.Used + $free) / 1GB) } }
 $rc = Get-Partition -DriveLetter C | Get-Disk | Get-StorageReliabilityCounter
 if ($null -ne $rc.Wear) { $e.ssdWear = [int]$rc.Wear }; if ($rc.Temperature) { $e.ssdTemp = [int]$rc.Temperature }
 $g = "$(& nvidia-smi --query-gpu=temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>$null | Select-Object -First 1)" -split ',\s*'
@@ -47,7 +47,14 @@ if ($e.boot -and $boots.Count -ge 6) {
 $past = $h | Where-Object { $_.freeGB -and [datetime]$_.date -lt $Now.AddDays(-7) -and [datetime]$_.date -gt $Now.AddDays(-28) } | Select-Object -First 1
 if ($e.freeGB -and $past) {
     $perDay = ([double]$past.freeGB - $e.freeGB) / ($Now - [datetime]$past.date).TotalDays
-    if ($perDay -gt 0.5) {
+    # one big drop between two checks (a game installed) is not a pace - unless space is already short
+    $since = @($h | Where-Object { $_.freeGB -and [datetime]$_.date -ge [datetime]$past.date } | Sort-Object { [datetime]$_.date } | ForEach-Object { [double]$_.freeGB }) + $e.freeGB
+    $step = (@(for ($i = 1; $i -lt $since.Count; $i++) { $since[$i - 1] - $since[$i] }) + 0 | Measure-Object -Maximum).Maximum
+    $oneInstall = $e.freeGB -ge 100 -and $step -ge 0.75 * ([double]$past.freeGB - $e.freeGB)
+    # a quarter of the drive (and 100+ GB) still free: a week of game installs is no pace to project (10/10: "nearly full
+    # in about 27 days" with 1149 GB of 2 TB free, after several big games in a week)
+    $roomy = $e.sizeGB -and $e.freeGB -ge [Math]::Max(100, 0.25 * $e.sizeGB)
+    if ($perDay -gt 0.5 -and -not $oneInstall -and -not $roomy) {
         $days = [int](($e.freeGB - 10) / $perDay)   # "full" = under 10 GB (Windows updates and games need room)
         if ($days -lt 30) { "$(if ($days -lt 14) { 'WARNING' } else { 'Reminder' }): C: is filling up - $($e.freeGB) GB free, about $([Math]::Round($perDay * 7)) GB less each week; nearly full in about $([Math]::Max(0, $days)) days" }
     }

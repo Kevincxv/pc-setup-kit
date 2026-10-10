@@ -9,7 +9,8 @@ Copy-Item "$Src\health-check.ps1" $d
 'if (Test-Path "$PSScriptRoot\reverted.flag") { ''iGPU disabled again'' }' | Set-Content "$d\tweaks-local.ps1"
 '' | Set-Content "$d\restart-check.ps1"
 $mocked = 'Get-WinEvent', 'Get-ChildItem', 'Get-CimInstance', 'Get-MpComputerStatus', 'Start-Process', 'w32tm', 'winget', 'Get-PnpDevice', 'Get-PnpDeviceProperty',
-    'Get-PSDrive', 'Get-PhysicalDisk', 'Get-StorageReliabilityCounter', 'Get-ScheduledTask', 'Get-NetAdapter', 'Get-Disk', 'Get-Partition'
+    'Get-PSDrive', 'Get-PhysicalDisk', 'Get-StorageReliabilityCounter', 'Get-ScheduledTask', 'Get-NetAdapter', 'Get-Disk', 'Get-Partition',
+    'Get-ItemProperty', 'Enable-ComputerRestore', 'reagentc'
 if (-not (Test-Tripwire "$d\health-check.ps1" $mocked -Guarded 'C:\PCSetupKit\tweaks.ps1')) { Finish }   # (Test-Path mock hides the real tweak guard)
 
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
@@ -30,6 +31,7 @@ function Healthy {
         Nics = @([pscustomobject]@{ Name = 'Ethernet'; Status = 'Up'; MediaType = '802.3'; ReceiveLinkSpeed = 1e9; LinkSpeed = '1 Gbps'; InterfaceDescription = 'Realtek Gaming 2.5GbE' })
         AllDisks = @([pscustomobject]@{ Number = 0; FriendlyName = 'TestNVMe'; BusType = 'NVMe'; Size = 2TB })
         Tasks = @([pscustomobject]@{ TaskName = 'Messiah Tray'; TaskPath = '\'; State = 'Ready' })
+        Sp = '\\?\Volume{1}\:(C%3A)'; SpFail = $false; Re = 'Windows RE status:         Enabled'
     }
     $global:HCcalls = New-Object System.Collections.Generic.List[string]
 }
@@ -38,7 +40,8 @@ function Get-WinEvent { param($FilterHashtable, $MaxEvents, $ErrorAction)
     @($M.Events | Where-Object { (-not $f.Id -or $_.Id -in @($f.Id)) -and (-not $f.ProviderName -or $_.ProviderName -eq $f.ProviderName) -and (-not $f.StartTime -or $_.TimeCreated -ge $f.StartTime) }) }
 function Get-ChildItem { if ((@($args | ForEach-Object { $_ }) -join ' ') -match 'Minidump|MEMORY\.DMP') { return $M.Dumps }; Microsoft.PowerShell.Management\Get-ChildItem @args }
 function Test-Path { $a = @($args | ForEach-Object { $_ }) -join ' '; if ($a -match 'PCSetupKit\\tweaks\.ps1') { return $false }; if ($a -match 'RebootPending|RebootRequired') { return $M.Reboot }; Microsoft.PowerShell.Management\Test-Path @args }
-function Get-CimInstance { if ("$args" -match 'Win32_PhysicalMemory') { return $M.Ram }; if ("$args" -match 'Win32_BIOS') { return $M.Bios }; CimCmdlets\Get-CimInstance @args }
+function Get-CimInstance { if ("$args" -match 'Win32_PhysicalMemory') { return $M.Ram }; if ("$args" -match 'Win32_BIOS') { return $M.Bios }; if ("$args" -match 'Win32_Battery') { return $M.Battery }
+    if ("$args" -match 'Win32_OperatingSystem' -and $M.Boot) { return [pscustomobject]@{ LastBootUpTime = $M.Boot } }; CimCmdlets\Get-CimInstance @args }
 function Get-MpComputerStatus { $M.Mp }
 function Start-Process { $global:HCcalls.Add("Start-Process $args") }
 function w32tm { if ("$args" -match 'resync') { $global:HCcalls.Add('w32tm resync') } else { $M.W32 } }
@@ -52,6 +55,9 @@ function Get-NetAdapter { $M.Nics }
 function Get-Disk { $M.AllDisks }
 function Get-Partition { [pscustomobject]@{ DiskNumber = 0 } }
 function Get-ScheduledTask { $M.Tasks }
+function Get-ItemProperty { if ("$args" -match 'SPP\\Clients') { [pscustomobject]@{ '{09F7EDC5-294E-4180-AF6A-FB0E6A0E9513}' = $M.Sp } } }
+function Enable-ComputerRestore { param($Drive) $global:HCcalls.Add("Enable-ComputerRestore $Drive"); if ($M.SpFail) { throw 'The service cannot be started' } }
+function reagentc { if ("$args" -match 'enable') { $global:HCcalls.Add('reagentc /enable'); $global:LASTEXITCODE = 0 } else { $M.Re } }
 function HC { $u = $env:USERPROFILE; $env:USERPROFILE = $H; try { @(& "$d\health-check.ps1" | Where-Object { $_ -notmatch 'Hz but supports' }) } finally { $env:USERPROFILE = $u } }   # (monitor Hz = the real screens)
 
 if (-not (Assert-Mocks $mocked)) { Finish }
@@ -78,7 +84,54 @@ Check 'a hard reset without bugcheck is reported, one with a bugcheck code is no
 Check 'hardware errors (WHEA) counted' ([bool]($o -match 'WARNING: 2 hardware error')) ($o -join ' / ')
 Check 'the dump is analyzed once (MEMORY.DMP of the same crash skipped)' (@(Get-Content "$d\analyzed.log").Count -eq 1 -and ($o -match 'crash dump 092726-1-01.dmp - code 0x109')) ((Get-Content "$d\analyzed.log") -join ', ')
 $o = HC
+Check 'no read/write error line without disk errors' (-not ($o -match 'read/write error')) ($o -join ' / ')
 Check 'the next check does not report the same crashes again' (($o -contains 'Crashes: none since last check') -and -not ($o -match 'crash dump')) ($o -join ' / ')
+
+Section 'RAM stick test'
+function Stick($bank) { [pscustomobject]@{ ConfiguredClockSpeed = 6000; Speed = 4800; PartNumber = 'TESTKIT-6000  '; Capacity = 16GB; BankLabel = $bank } }
+Healthy; $M.Ram = @((Stick 'P0 CHANNEL A'), (Stick 'P0 CHANNEL B')); $M.Boot = $now.AddHours(-30)
+Clear-Path "$d\ram-test.log"; Clear-Path "$d\health-check.last"; $o = HC
+Check 'no test running: no log, no line' (-not (Test-Path "$d\ram-test.log") -and -not ($o -match 'RAM test')) ($o -join ' / ')
+@{ 'ram-stick-test' = $now.AddDays(-1).ToString('o') } | ConvertTo-Json | Set-Content "$d\maint-state.json"
+$o = HC; $o2 = HC
+Check 'test running, both sticks still in: the start is logged once, nothing said' ((@(Get-Content "$d\ram-test.log") -join '/') -eq "$($M.Boot.ToString('yyyy-MM-dd HH:mm')) | start | 2 stick(s), 32 GB in P0 CHANNEL A + P0 CHANNEL B" -and -not ($o + $o2 -match 'RAM test')) ((Get-Content "$d\ram-test.log") -join ' / ')
+$M.Ram = @((Stick 'P0 CHANNEL A')); $M.Boot = $now.AddHours(-5); $o = HC
+Check 'one stick taken out: the line counts its starts' ([bool]($o -match 'RAM test: 1 stick\(s\), 16 GB in P0 CHANNEL A - 1 start\(s\), 0 crash\(es\)')) ($o -join ' / ')
+$M.Boot = $now.AddMinutes(-31); $M.Events = @($M.Events) + @(Ev 1001 30 'The computer has rebooted from a bugcheck.  The bugcheck was: 0x00000109 (0x...)' 'Microsoft-Windows-WER-SystemErrorReporting')
+Clear-Path "$d\health-check.last"; $o = HC
+Check '... a blue screen on it is counted with the restart after it' ([bool]($o -match 'RAM test: 1 stick\(s\), 16 GB in P0 CHANNEL A - 2 start\(s\), 1 crash\(es\)')) ($o -join ' / ')
+$o = HC
+Check '... and not counted twice at the next check' ([bool]($o -match '2 start\(s\), 1 crash\(es\)')) ($o -join ' / ')
+$M.Ram = @((Stick 'P0 CHANNEL A'), (Stick 'P0 CHANNEL B')); $M.Boot = $now.AddMinutes(-2); $o = HC
+Check 'both sticks back in: quiet again' (-not ($o -match 'RAM test')) ($o -join ' / ')
+Clear-Path "$d\maint-state.json"; Clear-Path "$d\ram-test.log"
+
+Section 'CPU slowed down by the firmware'
+Healthy; $cpu = 'Microsoft-Windows-Kernel-Processor-Power'
+$M.Events = @($M.Events) + @((Ev 37 10 '' $cpu), (Ev 37 11 '' $cpu), (Ev 37 12 '' $cpu), (Ev 55 13 '' $cpu))
+Clear-Path "$d\health-check.last"; $o = HC
+Check '3 slowdowns since the last check are mentioned (other CPU power events not counted)' ([bool]($o -match 'Reminder: the CPU was slowed down by its firmware 3 times')) ($o -join ' / ')
+$o = HC
+Check '... not again at the next check' (-not ($o -match 'CPU was slowed')) ($o -join ' / ')
+$M.Battery = @([pscustomobject]@{ BatteryStatus = 1 }); Clear-Path "$d\health-check.last"; $o = HC
+Check '... a laptop on battery slows down on purpose: quiet' (-not ($o -match 'CPU was slowed')) ($o -join ' / ')
+Healthy; $M.Events = @($M.Events) + @((Ev 37 10 '' $cpu)); Clear-Path "$d\health-check.last"; $o = HC
+Check '... a single slowdown is not mentioned' (-not ($o -match 'CPU was slowed')) ($o -join ' / ')
+# one slowdown is logged once per CPU thread (16 events at the same moment on a 16-thread CPU): still one
+Healthy; $M.Events = @($M.Events) + @(1..16 | ForEach-Object { Ev 37 10 '' $cpu }); Clear-Path "$d\health-check.last"; $o = HC
+Check '... one slowdown logged by every CPU thread counts once (not mentioned)' (-not ($o -match 'CPU was slowed')) ($o -join ' / ')
+
+Section 'disk read/write errors'
+Healthy
+$M.Disks = @([pscustomobject]@{ DeviceId = 0; FriendlyName = 'TestNVMe'; BusType = 'NVMe'; HealthStatus = 'Healthy'; OperationalStatus = 'OK' },
+    [pscustomobject]@{ DeviceId = 1; FriendlyName = 'KitUSB'; BusType = 'USB'; HealthStatus = 'Healthy'; OperationalStatus = 'OK' })
+$M.Events = @($M.Events) + @((Ev 7 10 'The device, \Device\Harddisk0\DR0, has a bad block.' 'disk'), (Ev 153 11 'Gerät \Device\Harddisk0\DR0 wiederholt' 'disk'),
+    (Ev 51 12 '' 'disk' '\Device\Harddisk1\DR1'), (Ev 11 13 'The driver detected a controller error on \Device\RaidPort0.' 'stornvme'))
+Clear-Path "$d\health-check.last"; $o = HC
+Check 'errors on an internal drive are counted (any language, NVMe controller errors too)' ([bool]($o -match 'WARNING: TestNVMe logged 3 read/write error')) ($o -join ' / ')
+Check 'errors on a USB stick are not reported' (-not ($o -match 'KitUSB')) ($o -join ' / ')
+$o = HC
+Check 'the next check does not report the same disk errors again' (-not ($o -match 'read/write error')) ($o -join ' / ')
 
 Section 'security, clock, app updates'
 Healthy; $M.Mp = [pscustomobject]@{ RealTimeProtectionEnabled = $false; QuickScanAge = 9 }; $M.Events = @($M.Events | Where-Object ProviderName -ne 'Microsoft-Windows-Time-Service')   # no sync in 10 days
@@ -156,6 +209,10 @@ Healthy; $M.AllDisks += [pscustomobject]@{ Number = 1; FriendlyName = 'WD Elemen
 Check 'external 4 TB drive and no backups -> offer to set them up' ([bool]($o -match 'Reminder: WD Elements \(4096 GB\) is connected and nothing is backed up')) ($o -join ' / ')
 $M.Tasks += [pscustomobject]@{ TaskName = 'Nightly Backup'; TaskPath = '\'; State = 'Ready' }; $o = HC
 Check '... not when a backup task exists' (-not ($o -match 'nothing is backed up')) ''
+Healthy; $M.Sp = ''; $M.Re = 'Windows RE status:         Disabled'; $o = HC
+Check 'restore points and recovery tools turned off (an update, a debloat tool) -> both back on, said' (($global:HCcalls -contains "Enable-ComputerRestore $env:SystemDrive\") -and ($global:HCcalls -contains 'reagentc /enable') -and ($o -contains 'Backups: restore points were off - turned back on') -and ($o -contains 'Backups: the Windows recovery tools were off - turned back on')) (($global:HCcalls -join ', ') + ' / ' + ($o -join ' / '))
+Healthy; $M.Sp = ''; $M.SpFail = $true; $o = HC
+Check '... restore points that can''t be turned on -> a WARNING' ([bool]($o -match '^WARNING: restore points are off and could not')) ($o -join ' / ')
 
 Section 'robustness'
 # $Error sees every error, also one a script writes straight to the host (2>&1 missed it - this check once passed with

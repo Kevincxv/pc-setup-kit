@@ -77,17 +77,17 @@ New-Item "$C\maint-history" -ItemType Directory -Force | Out-Null
 "$($now.ToString('yyyy-MM-dd')) 10:00|Maintenance started in the background. / The result shows here" | Set-Content "$C\notifications.log" -Encoding UTF8
 $r = Invoke-As $H "$C\dashboard.ps1" @('-Test'); $d = $r.Out
 Check '... History: 11 start-ups charted, now and usual values' (($d -match 'CHART: Start-up time \| 11 points, now 26 s, usual 26\.\d s|CHART: Start-up time \| 11 points, now 26 s, usual 26 s') -and ($d -match 'CHART: Free space on C: \| 11 points, now 500 GB')) $d
-Check '... "What maintenance did" lists what changed, not routine lines' (($d -match '9/20/2026 9:00 AM: Updated app: Vendor\.Tool') -and ($d -notmatch 'all still applied')) $d
+Check '... "What maintenance did" lists what changed, not routine lines' (($d -match '(?m)^\s+\S[^\r\n]*: Updated app: Vendor\.Tool') -and ($d -notmatch 'all still applied')) $d
 Check '... Notifications: past alerts with their time, and a Clear button' (($d -match 'CARD: Alerts\s+\S+ \S+ \d+, 10:00 AM: Maintenance started in the background') -and ($d -match 'BUTTONS: Clear')) $d
 Clear-Path "$C\health-history.json", "$C\maint-history", "$C\notifications.log"
 Check '... the overview leads with what needs the owner' (($d -match 'PAGE: Overview\s+CARD: -\s+1 thing needs you') -and ($d -match 'CARD: Needs you\s+\S+\s+Turn EXPO back on')) $d
 Check '... the overview has the main actions' ($d -match 'BUTTONS: Run maintenance now \| Optimize this PC') $d
-Check '... the maintenance page shows the last check; no Claude parts' (($d -match 'PAGE: Maintenance\s+CARD: Last background check\s+Checked 9/27/2026 12:00 PM') -and ($d -match 'BUTTONS: Run maintenance now \| Full report') -and ($d -notmatch '(?m)CARD: Messiah\s*$|Watch live|Hidden Claude|New session')) $d
+Check '... the maintenance page shows the last check; no Claude parts' (($d -match 'PAGE: Maintenance\s+CARD: Last background check\s+Checked \S[^\r\n]* \(took 18 s\)') -and ($d -match 'BUTTONS: Run maintenance now \| Full report') -and ($d -notmatch '(?m)CARD: Messiah\s*$|Watch live|Claude''s own checks|New session')) $d
 Check '... the schedule as a table; the setting to open at login' (($d -match 'CARD: Scheduled checks\s+App updates: ') -and ($d -match 'Open Messiah when I log in')) $d
 'claude=on' | Set-Content "$C\kit-options.txt"; Clear-Path "$C\maint-todo.txt"
 $r = Invoke-As $H "$C\dashboard.ps1" @('-Test') @{ FAKE_DIR = "$Work\fake" }
 $d = $r.Out
-Check 'with Claude: "Messiah" with a Sessions page (new / show / hide) and the live watch' ((-not $r.Err.Trim()) -and ($d -match '(?m)^WINDOW: Messiah\s*$') -and ($d -match 'PAGE: Sessions') -and ($d -match 'BUTTONS: New session \| Show sessions \| Hide sessions') -and ($d -match 'CARD: Hidden Claude maintenance') -and ($d -match 'Watch live')) ($r.Err + $d)
+Check 'with Claude: "Messiah" with a Sessions page (new / show / hide) and the live watch' ((-not $r.Err.Trim()) -and ($d -match '(?m)^WINDOW: Messiah\s*$') -and ($d -match 'PAGE: Sessions') -and ($d -match 'BUTTONS: New session \| Show sessions \| Hide sessions') -and ($d -match 'CARD: Claude''s own checks') -and ($d -match 'Watch live')) ($r.Err + $d)
 Check '... nothing to do: "All good"' ($d -match 'PAGE: Overview\s+CARD: -\s+All good - nothing needs you') $d
 Check '... the overview shows the sessions too' ($d -match 'CARD: Messiah\s+(No session open|\d+ sessions? running)') $d
 Finish

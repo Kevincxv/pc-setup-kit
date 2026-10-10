@@ -11,7 +11,12 @@ param([switch]$RevertTweaks, [switch]$RemoveClaudeCode, [switch]$Yes, [switch]$W
     [string]$BackupFile = 'C:\PCSetupKit\tweaks-backup.json', [switch]$RevertOnly)   # -RevertOnly: tests / revert without removing
 $ErrorActionPreference = 'Continue'
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"") + $(foreach ($k in $PSBoundParameters.Keys) { "-$k" })
+    # never from a test: the elevated relaunch gets the real profile instead of the test's sandbox (10/10 a test run
+    # started without admin rights uninstalled the real Messiah that way)
+    if ($env:PCKIT_IN_TESTS) { Write-Error 'uninstall.ps1 needs administrator rights - not relaunching from a test'; exit 1 }
+    # every parameter with its value: a switch by name, -BackupFile with its path
+    $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"") + $(foreach ($kv in $PSBoundParameters.GetEnumerator()) {
+            if ($kv.Value -is [switch]) { if ($kv.Value.IsPresent) { "-$($kv.Key)" } } else { "-$($kv.Key)"; "`"$($kv.Value)`"" } })
     Start-Process powershell -Verb RunAs -ArgumentList $a; exit
 }
 # Running from C:\PCSetupKit (which gets moved at the end): continue from a temporary copy instead
@@ -110,11 +115,16 @@ if ($RevertTweaks) {
             'app' { $apps += $k[1] }
             'startup' { Do-It "start-up item $($k[2]) back on" { if ($v.Existed) { Set-ItemProperty -Path $k[1] -Name $k[2] -Value ([Convert]::FromBase64String($v.Value)) -Type Binary } else { Remove-ItemProperty -Path $k[1] -Name $k[2] } } }
             'plan' { $plan = $v.Guid }   # put back below
-            'edge' { if ($k[1] -eq 'desktop' -and (Test-Path "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe")) { Do-It 'Edge desktop icon back' { $s = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:PUBLIC\Desktop\Microsoft Edge.lnk"); $s.TargetPath = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"; $s.Save() } } }   # (the pin and the default browser: the owner's to choose again)
+            'edge' { if ($k[1] -eq 'desktop' -and (Test-Path "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe")) { Do-It 'Edge desktop icon back' { $s = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:PUBLIC\Desktop\Microsoft Edge.lnk"); $s.TargetPath = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"; $s.Save() } }
+                if ($k[1] -eq 'removed' -and -not (Test-Path "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe")) { Do-It 'Edge installed again' { winget install --id Microsoft.Edge --exact --source winget --silent --accept-package-agreements --accept-source-agreements | Out-Null } } }   # (the pin and the default browser: the owner's to choose again)
             'cap' { Do-It "Windows part $(($k[1] -split '~')[0]) back" { Add-WindowsCapability -Online -Name $k[1] | Out-Null } }
             'feature' { Do-It "Windows feature $($k[1]) back on" { Enable-WindowsOptionalFeature -Online -FeatureName $k[1] -NoRestart -WarningAction SilentlyContinue | Out-Null } }
             'reserved' { Do-It 'reserved storage back on' { Set-WindowsReservedStorageState -State Enabled | Out-Null } }
             'pagefile' { }   # kept: no page file at all makes games crash when memory runs short
+            'vendor' { if ($v.Path -and (Test-Path -LiteralPath $v.Path)) { Do-It "$($k[1]) auto-installer allowed again" {
+                        $acl = Get-Acl -LiteralPath $v.Path; $all = New-Object Security.Principal.SecurityIdentifier 'S-1-1-0'
+                        foreach ($r in @($acl.Access | Where-Object { $_.AccessControlType -eq 'Deny' -and $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]) -eq $all } catch { $false }) })) { [void]$acl.RemoveAccessRule($r) }
+                        Set-Acl -LiteralPath $v.Path $acl; if (-not (Get-ChildItem -LiteralPath $v.Path -Force)) { Remove-Item -LiteralPath $v.Path } } } }
         }
     }
     if (-not $RevertOnly) {

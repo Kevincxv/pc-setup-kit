@@ -16,10 +16,14 @@ Check 'a listed game that is not running is not reported' ("$o" -notmatch 'ThisG
 [IO.File]::Delete("$gl\games.txt")
 $err = & { $ErrorActionPreference = 'Stop'; try { [void](& "$gl\game-check.ps1" -NoLearn); '' } catch { "$_" } }
 Check 'no games list yet (a new PC): no error, even under -ErrorAction Stop' (-not $err) $err
-"$((Get-Process -Id $PID).ProcessName)    # test: this PowerShell counts as a game" | Set-Content "$gl\games.txt"
+# (a copy of ping.exe stands in for the game: PowerShell itself is on the never-a-game list, which games.txt is checked against)
+$bgDir = "$Work\bggame"; New-Item $bgDir -ItemType Directory -Force | Out-Null; Copy-Item "$env:SystemRoot\System32\PING.EXE" "$bgDir\BgGame123.exe"
+$bgp = Start-Process "$bgDir\BgGame123.exe" -ArgumentList '-n', '30', '127.0.0.1' -WindowStyle Hidden -PassThru; Start-Sleep -Milliseconds 500
+'BgGame123    # test' | Set-Content "$gl\games.txt"
 $o = & "$gl\game-check.ps1" -Explain -NoLearn
 if ("$o" -match 'fullscreen') { Skip 'a listed game running in the background is reported' "something is fullscreen right now ($o), which correctly wins" }
-else { Check 'a listed game running in the background is reported' ("$o" -match 'known game running') "$o" }
+else { Check 'a listed game running in the background is reported' ("$o" -match '^BgGame123 - known game running') "$o" }
+Stop-Process -Id $bgp.Id -Force -ErrorAction SilentlyContinue; $bgp.WaitForExit(5000) | Out-Null
 # a game never seen fullscreen, running from a Steam library folder (a copy of ping.exe stands in for it)
 '' | Set-Content "$gl\games.txt"
 $fake = "$Work\Steam\steamapps\common\FakeGame"; New-Item $fake -ItemType Directory -Force | Out-Null; Copy-Item "$env:SystemRoot\System32\PING.EXE" "$fake\FakeGame123.exe"
@@ -30,6 +34,25 @@ else { Check 'a game running from a game library folder is reported' ("$o" -matc
 Stop-Process -Id $fp.Id -Force -ErrorAction SilentlyContinue; $fp.WaitForExit(5000) | Out-Null
 $o = & "$gl\game-check.ps1" -NoLearn
 Check '... and not once it has closed' ("$o" -notmatch 'FakeGame123') "$o"
+
+Section 'game-check.ps1: what is learned as a game (10/10: a launcher in front of a borderless game was learned)'
+function Learned { @(Get-Content "$gl\games.txt" -ErrorAction SilentlyContinue | ForEach-Object { ($_ -split '#')[0].Trim() } | Where-Object { $_ }) }
+'' | Set-Content "$gl\games.txt"
+$o = & "$gl\game-check.ps1" -T @{ Name = 'SomeLauncher123'; Covers = $false; State = 2 }
+Check 'a window in front of a fullscreen app (state 2, not covering its monitor): maintenance waits, the window is not learned' ($o -eq 'SomeLauncher123' -and 'SomeLauncher123' -notin (Learned)) "$o / $(Learned)"
+$o = & "$gl\game-check.ps1" -T @{ Name = 'BorderlessGame123'; Covers = $true; State = 2 }
+Check 'a window covering its whole monitor is learned' ($o -eq 'BorderlessGame123' -and 'BorderlessGame123' -in (Learned)) "$o / $(Learned)"
+$o = & "$gl\game-check.ps1" -T @{ Name = 'ExclusiveGame123'; Covers = $false; State = 3 }
+Check 'Direct3D exclusive fullscreen (state 3) is learned' ($o -eq 'ExclusiveGame123' -and 'ExclusiveGame123' -in (Learned)) "$o / $(Learned)"
+$o = & "$gl\game-check.ps1" -T @{ Name = 'Better2k'; Covers = $true; State = 2 }
+Check 'a game launcher is never learned, even covering the screen' ('Better2k' -notin (Learned)) "$(Learned)"
+# a launcher an older version learned, running hidden all day (ping.exe stands in for it): not a game
+'Better2k    # learned by an older version' | Set-Content "$gl\games.txt"
+$lp = "$Work\launcher"; New-Item $lp -ItemType Directory -Force | Out-Null; Copy-Item "$env:SystemRoot\System32\PING.EXE" "$lp\Better2k.exe"
+$bp = Start-Process "$lp\Better2k.exe" -ArgumentList '-n', '30', '127.0.0.1' -WindowStyle Hidden -PassThru; Start-Sleep -Milliseconds 500
+$o = & "$gl\game-check.ps1" -Explain -NoLearn -T @{ Name = 'explorer'; Covers = $false; State = 0 }
+Check 'a launcher learned by an older version no longer holds maintenance while it runs in the tray' ("$o" -notmatch 'Better2k') "$o"
+Stop-Process -Id $bp.Id -Force -ErrorAction SilentlyContinue; $bp.WaitForExit(5000) | Out-Null
 
 Section 'periodic: weekly app updates while a game runs'
 $d = "$Work\periodic"; New-Item $d -ItemType Directory -Force | Out-Null; Copy-Item "$Src\periodic-maint.ps1" $d; $stub | Set-Content "$d\game-check.ps1"; '-1' | Set-Content "$d\gamecalls.txt"

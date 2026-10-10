@@ -30,8 +30,19 @@ function Stop-Tree([int]$ProcId) {
     Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcId" | ForEach-Object { Stop-Tree $_.ProcessId }
     Stop-Process -Id $ProcId -Force -ErrorAction SilentlyContinue
 }
-function Restart-Tray { Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe' OR Name='Messiah.exe' OR Name='PC Setup Kit.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-    Start-ScheduledTask 'Messiah Tray' }
+function Get-Tray { @(Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe' OR Name='Messiah.exe' OR Name='PC Setup Kit.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk') }
+# The tray task ignores a start while Task Scheduler still counts the killed run as running (IgnoreNew): 10/10 the second
+# scenario's start was dropped that way and its session came up at the third. So: wait for the task to stop, start it,
+# and make sure the tray is really back (once more if not).
+function Restart-Tray {
+    Get-Tray | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+    for ($i = 0; $i -lt 30 -and (Get-ScheduledTask 'Messiah Tray').State -eq 'Running'; $i++) { Start-Sleep -Milliseconds 500 }
+    foreach ($try in 1, 2) {
+        Start-ScheduledTask 'Messiah Tray'
+        for ($i = 0; $i -lt 30 -and -not (Get-Tray); $i++) { Start-Sleep -Milliseconds 500 }
+        if (Get-Tray) { return }
+    }
+}
 # A small real session made headless with a cheap model; -KillAfter cuts it off mid-task like a shutdown would
 function New-TestSession([string]$Prompt, [int]$KillAfter) {
     $id = [guid]::NewGuid().ToString()
@@ -85,8 +96,11 @@ try {
         } else { '' | Set-Content $sessList }
         "boot=$($boot.ToString('o'))", "shutdown=$($shutdown.ToString('o'))", "ignorepids=$($keep -join ',')" | Set-Content $rf
 
+        # a session the tray started late for the scenario before (a busy PC) must not count as this one's (10/10 the
+        # "armed" session came after the 25 s wait and was taken for the "fresh" one): it goes first
+        Get-Launchers | Where-Object { $_.ProcessId -notin $keep } | ForEach-Object { Stop-Tree $_.ProcessId }
         Restart-Tray   # exactly what Windows runs at sign-in
-        $new = $null; $t = (Get-Date).AddSeconds(25)
+        $new = $null; $t = (Get-Date).AddSeconds(60)   # (a busy PC - tests just ran, Claude Code updating - can take over 25 s)
         while (-not $new -and (Get-Date) -lt $t) { Start-Sleep 1; $new = Get-Launchers | Where-Object { $_.ProcessId -notin $keep } | Select-Object -First 1 }
         Check 'tray started a session by itself (like at login)' $new
         if (-not $new) { continue }

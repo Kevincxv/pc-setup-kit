@@ -61,6 +61,17 @@ Check '... the copy matches the new AutoHotkey' ((Get-Item $exe).Length -eq (Get
 Check '... the task is kept, the tray started again' (($global:calls -notmatch '^register') -and ($global:calls -contains 'start Messiah Tray')) ($global:calls -join ', ')
 $global:procs = @()
 
+Section 'after an AutoHotkey update, the stopped tray still holds its file for a moment'
+Copy-Item $ahk1 $exe -Force
+$global:procs = @([pscustomobject]@{ Name = 'Messiah.exe'; ProcessId = 4242; ExecutablePath = $exe; CommandLine = "`"$exe`" `"$TD\Messiah Tray.ahk`"" })
+$held = "$Work\held.txt"
+$job = Start-Job { param($f, $m) $s = [IO.File]::Open($f, 'Open', 'Read', 'None'); 'x' | Set-Content $m; Start-Sleep 2; $s.Close() } -ArgumentList $exe, $held
+for ($i = 0; $i -lt 100 -and -not (Test-Path $held); $i++) { Start-Sleep -Milliseconds 100 }
+$o = Run-App $ahk2
+$job | Wait-Job -Timeout 10 | Remove-Job -Force
+Check 'the copy waits until the file is free, then replaces it' ((Get-Item $exe).Length -eq (Get-Item $ahk2).Length -and "$o" -match 'runs as Messiah\.exe' -and "$o" -notmatch "couldn't copy") "$o"
+$global:procs = @()
+
 Section 'an install from before (tray task on plain AutoHotkey)'
 $global:task = [pscustomobject]@{ Actions = @([pscustomobject]@{ Execute = $ahk2; Arguments = "`"$TD\Messiah Tray.ahk`"" }) }
 $o = Run-App $ahk2 -NoRestart

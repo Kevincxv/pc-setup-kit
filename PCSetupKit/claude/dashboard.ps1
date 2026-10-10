@@ -269,7 +269,30 @@ try {
         New-Object Windows.Controls.TextBlock -Property @{ Text = $t; TextWrapping = 'Wrap'; Foreground = $brush_; FontSize = $size; FontWeight = $weight; Margin = $margin }
     }
     function New-Glyph($g, $size = 16, $brush_ = $brush.Text) {
-        New-Object Windows.Controls.TextBlock -Property @{ Text = [string][char][int]"0x$g"; FontFamily = $icons; FontSize = $size; Foreground = $brush_; VerticalAlignment = 'Center' }
+        New-Object Windows.Controls.TextBlock -Property @{ Text = [string][char][int]"0x$g"; FontFamily = $icons; FontSize = $size; Foreground = $brush_; VerticalAlignment = 'Center'; Tag = 'icon' }
+    }
+    # report lines in plain words: "10/10/2026 9:01 AM" -> "today 9:01 AM", "in 48s" -> "(took 48 s)"
+    function Format-Line([string]$t) {
+        $t = [regex]::Replace($t, '\b\d{1,2}/\d{1,2}/\d{4}(?: \d{1,2}:\d\d(?::\d\d)?(?: [AP]M)?)?', {
+                param($m) $d = [datetime]::MinValue
+                if ([datetime]::TryParse($m.Value, [ref]$d)) { if ($m.Value -match ':') { Format-When $d } else { Format-When $d -DateOnly } } else { $m.Value } })
+        $t -replace ' in (\d+)s\b', ' (took $1 s)'
+    }
+    # a line with its status as an icon (warning, reminder, all fine) instead of colored text: easier to read, the
+    # "WARNING:" / "Reminder:" words become the icon
+    function New-Line($text, $level) {
+        $text = Format-Line (($text -replace '^- ', "$([char]0x2022)  ") -replace '\s{2,}', '  ')
+        $glyph = $null; $gb = $null
+        if ($text -match '^(WARNING|FAILED)\b:?\s*' -or $level -eq 'warn') { $glyph = 'E7BA'; $gb = $brush.Warn; $text = $text -replace '^WARNING:\s*', '' }
+        elseif ($text -match '^Reminder:\s*') { $glyph = 'E946'; $gb = $brush.Accent; $text = $text -replace '^Reminder:\s*', '' }
+        elseif ($level -eq 'ok') { $glyph = 'E73E'; $gb = $brush.Ok }
+        if ($text.Length) { $text = $text.Substring(0, 1).ToUpper() + $text.Substring(1) }
+        $size = if ($level -eq 'dim') { 12 } else { 14 }
+        $tb = New-Text $text $(if ($level -eq 'dim') { $brush.Sub } else { $brush.Text }) $size 'Normal' '0'
+        if (-not $glyph) { $tb.Margin = '0,2,0,2'; return $tb }
+        $row = New-Object Windows.Controls.DockPanel -Property @{ Margin = '0,3,0,3' }
+        $g = New-Glyph $glyph 14 $gb; $g.VerticalAlignment = 'Top'; $g.Margin = '0,2,10,0'; [Windows.Controls.DockPanel]::SetDock($g, 'Left')
+        [void]$row.Children.Add($g); [void]$row.Children.Add($tb); $row
     }
     function New-Btn($glyph, $text, [scriptblock]$do, [switch]$Accent, [switch]$Small) {   # -Small: inside a list row
         $sp = New-Object Windows.Controls.StackPanel -Property @{ Orientation = 'Horizontal' }
@@ -291,8 +314,7 @@ try {
         }
         foreach ($l in $lines) {
             if ($l -is [Windows.UIElement]) { [void]$sp.Children.Add($l); continue }
-            $t = ($l.Text -replace '^- ', "$([char]0x2022)  ") -replace '\s{2,}', '  '
-            [void]$sp.Children.Add((New-Text $t $(if ($Calm -and $l.Level -eq 'warn') { $brush.Text } else { $levelBrush[$l.Level] }) $(if ($l.Level -eq 'dim') { 12 } else { 14 })))
+            [void]$sp.Children.Add((New-Line $l.Text $(if ($Calm -and $l.Level -eq 'warn') { 'info' } else { $l.Level })))
         }
         if ($buttons) {
             $wp = New-Object Windows.Controls.WrapPanel -Property @{ Margin = '0,12,0,-8' }
@@ -302,10 +324,13 @@ try {
         $card.Child = $sp; $card
     }
     # "today 10:35 AM", "yesterday 9:02 PM", "Mon 8:15 AM" (this week), "Sep 20" (older); -Short: without "today"
-    function Format-When([datetime]$d, [switch]$Short) {
+    # -DateOnly: a day without a time ("today", "tomorrow", "Mon", "Sep 20")
+    function Format-When([datetime]$d, [switch]$Short, [switch]$DateOnly) {
         $days = ((Get-Date).Date - $d.Date).Days
-        if ($days -eq 0) { if ($Short) { $d.ToString('h:mm tt') } else { "today $($d.ToString('h:mm tt'))" } }
-        elseif ($days -eq 1) { "yesterday $($d.ToString('h:mm tt'))" } elseif ($days -lt 7 -and $days -gt 0) { $d.ToString('ddd h:mm tt') } else { $d.ToString('MMM d') }
+        $at = if ($DateOnly) { '' } else { " $($d.ToString('h:mm tt'))" }
+        if ($days -eq 0) { if ($Short -and -not $DateOnly) { $d.ToString('h:mm tt') } else { "today$at" } }
+        elseif ($days -eq 1) { "yesterday$at" } elseif ($days -eq -1) { "tomorrow$at" }
+        elseif ($days -lt 7 -and $days -gt 0) { "$($d.ToString('ddd'))$at" } else { $d.ToString('MMM d') }
     }
     function Update-Columns { if ($script:tileGrid -and $ui.Scroll.ActualWidth -gt 0) { $script:tileGrid.Columns = [Math]::Max(2, [Math]::Min(4, [int][Math]::Floor(($ui.Scroll.ActualWidth - 20) / 190))) } }
     function New-Section($t) { New-Text $t $brush.Text 14 'SemiBold' '2,10,0,8' }   # a heading between groups of cards
@@ -329,7 +354,11 @@ try {
         $s.Style = $win.FindResource('Switch'); [Windows.Controls.DockPanel]::SetDock($s, 'Right')
         $s.Add_Click($do)
         $l = New-Object Windows.Controls.StackPanel
-        [void]$l.Children.Add((New-Text $title $brush.Text 14 'Normal' '0')); [void]$l.Children.Add((New-Text $sub $brush.Sub 12 'Normal' '0,2,0,0'))
+        [void]$l.Children.Add((New-Text $title $brush.Text 14 'Normal' '0'))
+        # what it does, then what "off" means on a line of its own (one long sentence is hard to scan)
+        $parts = $sub -split '(?<=\.|\))\s+(?=Off(?: again)?: )', 2
+        [void]$l.Children.Add((New-Text $parts[0] $brush.Sub 12 'Normal' '0,2,0,0'))
+        if ($parts.Count -gt 1) { [void]$l.Children.Add((New-Text $parts[1] $brush.Sub 12 'Normal' '0,1,0,0')) }
         [void]$r.Children.Add($s); [void]$r.Children.Add($l); $r
     }
     # to-do items with their own buttons: the place to fix it where there is one, and "Remind me in a week" (todo.ps1
@@ -380,7 +409,7 @@ try {
         foreach ($p in $pairs) {
             [void]$g.RowDefinitions.Add((New-Object Windows.Controls.RowDefinition -Property @{ Height = 'Auto' }))
             $a = New-Text $p[0] $brush.Sub 14 'Normal' '0,4,24,4'; [Windows.Controls.Grid]::SetRow($a, $i)
-            $b = New-Text $p[1] $levelBrush[$p[2]] 14 'Normal' '0,4,0,4'; [Windows.Controls.Grid]::SetRow($b, $i); [Windows.Controls.Grid]::SetColumn($b, 1)
+            $b = New-Text (Format-Line $p[1]) $levelBrush[$p[2]] 14 'Normal' '0,4,0,4'; [Windows.Controls.Grid]::SetRow($b, $i); [Windows.Controls.Grid]::SetColumn($b, 1)
             [void]$g.Children.Add($a); [void]$g.Children.Add($b); $i++
         }
         $g
@@ -586,7 +615,7 @@ try {
             }
             'Maintenance' {
                 [void]$out.Add((New-Card 'Last background check' 'E9D9' $last.Lines @((New-Btn 'E768' 'Run maintenance now' $act.RunMaint -Accent), (New-Btn 'E8A5' 'Full report' $act.Report))))
-                if ($hidden) { [void]$out.Add((New-Card 'Hidden Claude maintenance' 'E90F' (@($hidden.Lines) + @(@{ Text = 'About 2 minutes after each login: /maintain when something needs judgment, then /self-improve at most once a day.'; Level = 'dim' })) @((New-Btn 'E890' 'Watch live' $act.WatchLive), (New-Btn 'E8F1' 'Self-improvement journal' $act.Journal), (New-Btn 'E8B7' 'Run logs' $act.Logs)))) }
+                if ($hidden) { [void]$out.Add((New-Card "Claude's own checks" 'E90F' (@($hidden.Lines | ForEach-Object { @{ Text = ($_.Text -replace '\(improve\)', '(looked for improvements)' -replace '\(maintain\)', '(maintenance)' -replace '^Self-improvement:', 'Improving Messiah:'); Level = $_.Level } }) + @(@{ Text = 'About 2 minutes after each login, Claude handles anything in the report that needs judgment, then looks for ways to make Messiah better (at most once a day).'; Level = 'dim' })) @((New-Btn 'E890' 'Watch live' $act.WatchLive), (New-Btn 'E8F1' 'Self-improvement journal' $act.Journal), (New-Btn 'E8B7' 'Run logs' $act.Logs)))) }
                 [void]$out.Add((New-Card 'Needs you' 'E7BA' @(New-TodoLines $needs.Lines) @(New-Btn 'E8A5' 'Open the to-do list' $act.Todo) -Calm))
                 $kvf = Get-Item 'C:\PCSetupKit\kit-version.txt' -ErrorAction SilentlyContinue
                 $prev = Get-Content "$env:ProgramData\PCSetupKit\previous\version.txt" -TotalCount 1 -ErrorAction SilentlyContinue
@@ -662,7 +691,7 @@ try {
                 $aiRow = New-SwitchRow 'AI assistant (Claude)' $(if ($ai) { 'On: Messiah sessions (Claude Code with admin rights) with your Claude account, and Claude''s own maintenance checks. Off: its sessions close; Claude Code and your conversations stay.' } else { 'Sign in with your own Claude account (Claude Code comes with Claude''s Pro and Max plans) and Claude looks after the PC with you. Everything else works without it.' }) ([bool]$ai) {
                     if ($this.IsChecked) { if (-not (& $act.AiOn)) { $this.IsChecked = $false } } else { & $act.AiOff }
                 }
-                $openRow = New-SwitchRow "Open $name when I log in" "Off: $name starts in the hidden tray (^ next to the clock) and works on its own. On: this window also opens once per start-up (not while a game is fullscreen)." ((Get-Opt 'openatlogin' 'off') -eq 'on') {
+                $openRow = New-SwitchRow "Open $name when I log in" "This window opens once per start-up (not while a game is fullscreen). Off: $name starts quietly in the hidden tray (^ next to the clock) and works on its own." ((Get-Opt 'openatlogin' 'off') -eq 'on') {
                     Set-Opt 'openatlogin' $(if ($this.IsChecked) { 'on' } else { 'off' }); Say "Saved - $(if ($this.IsChecked) { "this window opens at login" } else { "$name starts in the hidden tray at login" })."
                 }
                 # (restart-night.ps1: on by default, except on the PC the kit is made on)
@@ -687,17 +716,21 @@ try {
                         @('game-recording', 'Background game recording off', 'Game DVR records every game in the background. Off: recording and clips work again.'),
                         @('windowed-games', 'Optimizations for windowed games and VRR', 'Lower input lag in borderless-window games, variable refresh rate where supported.'),
                         @('mouse-acceleration', 'Mouse acceleration off', 'The same hand movement always moves the cursor the same distance - better aim.'),
-                        @('sticky-keys', 'Sticky Keys pop-up off', 'Pressing Shift five times in a game no longer opens the Sticky Keys prompt and throws you out of fullscreen. The feature itself stays in Accessibility.'),
+                        @('end-task', '"End task" in the taskbar menu', 'Right-click a frozen game on the taskbar and close it - no Task Manager needed.'),
+                        @('sticky-keys', 'Sticky Keys pop-up off','Pressing Shift five times in a game no longer opens the Sticky Keys prompt and throws you out of fullscreen. The feature itself stays in Accessibility.'),
                         @('power-plan', 'Best power plan', 'Desktops: Ultimate Performance. Laptops: Balanced, full speed when plugged in. Off: your own plan.'),
                         @('hibernation', 'Hibernation off (desktops)', 'Frees disk space and gives a clean start every time. Laptops always keep it.'))
                     'Privacy and clutter' = @(
                         @('telemetry', 'Telemetry, ads and Windows AI off', 'No diagnostic data, ads, suggestions, Bing in search, Copilot or Recall.'),
                         @('bloat-apps', 'Preinstalled apps removed', 'News, Weather, Teams, Clipchamp, Solitaire, TikTok and the like. Off: Messiah stops removing them (reinstall any from the Microsoft Store).'),
                         @('onedrive', 'OneDrive removed', 'Off: OneDrive comes back and can sync again.'),
-                        @('edge', 'Edge kept out of the way', 'Edge stays installed (Windows and many apps need it), but no desktop icon, no taskbar pin, no prompts, and Chrome is your browser. Off: its icon and prompts come back.'),
+                        @('edge-remove', 'Remove Edge completely', 'Off unless you turn it on. Uninstalls the Edge browser and keeps it from coming back; WebView2 - the part apps and game launchers need - stays. Your Edge bookmarks stay on the PC. Off again: Edge is reinstalled.', 'off'),
+                        @('edge', 'Edge kept out of the way','Edge stays installed (Windows and many apps need it), but no desktop icon, no taskbar pin, no prompts, and Chrome is your browser. Off: its icon and prompts come back.'),
                         @('start-menu', 'Start menu recommendations and Task View off', 'A cleaner Start menu and taskbar.'),
                         @('legacy', 'Old Windows parts removed', 'Internet Explorer''s engine, the old Media Player, WordPad, Steps Recorder and the like; PowerShell 2.0 and Recall off; reserved storage (about 7 GB) freed. Never what updates need. Off: they come back.'),
-                        @('startup-clutter', 'Start-up clutter off', 'Vendor updaters and promo tools don''t start with Windows. Off: they start again.'),
+                        @('vendor-installers', 'Razer and Logitech apps don''t install by themselves', 'Plugging in one of their mice or headsets no longer makes Windows install Razer Synapse or Logitech''s download assistant (drivers still come). Off: they can install again.'),
+                        @('folder-types', 'File Explorer doesn''t guess folder types', 'Every folder opens the same way instead of Explorer reading the files first to pick a layout - big folders open faster. Off: the guessing (Pictures, Music views) comes back.'),
+                        @('startup-clutter', 'Start-up clutter off','Vendor updaters and promo tools don''t start with Windows. Off: they start again.'),
                         @('transparency', 'Transparency effects off', 'Slightly less work for the graphics card. Off: see-through Start menu and windows again.'))
                     'Windows Update'      = @(
                         @('restart-block', 'No Windows Update restarts while you''re signed in', 'Updates still install; the restart waits for yours.'),
@@ -706,7 +739,8 @@ try {
                 [void]$out.Add((New-Section 'What Messiah changes in Windows'))
                 foreach ($g in $tw.Keys) {
                     $rows2 = foreach ($o in $tw[$g]) {
-                        New-SwitchRow $o[1] $o[2] ((Get-Opt "tweak.$($o[0])" 'on') -ne 'off') {
+                        # (a 4th item: the default - 'off' for opt-in changes such as removing Edge)
+                        New-SwitchRow $o[1] $o[2] ((Get-Opt "tweak.$($o[0])" $(if ($o.Count -gt 3) { $o[3] } else { 'on' })) -ne 'off') {
                             Set-Opt "tweak.$($this.Tag)" $(if ($this.IsChecked) { 'on' } else { 'off' })
                             if (Send-Tray $cmd.ApplyTweaks) { Say 'Saved - applying it now (a few seconds; some changes need a restart).' } else { Say 'Saved - applied at the next check (or click Run maintenance now).' } } $o[0]
                     }
@@ -803,7 +837,7 @@ try {
                     if ($el -is [Windows.Controls.TextBlock]) { "  $($el.Text)" }
                     elseif ($el -is [Windows.Controls.WrapPanel]) { "  BUTTONS: $(@($el.Children | ForEach-Object { $_.ToolTip }) -join ' | ')" }
                     elseif ($el -is [Windows.Controls.Grid] -and $el.RowDefinitions.Count) { $t = @($el.Children | ForEach-Object Text); for ($i = 0; $i -lt $t.Count; $i += 2) { "  $($t[$i]): $($t[$i + 1])" } }
-                    else { $txt = @($el.Children | ForEach-Object { if ($_ -is [Windows.Controls.TextBlock]) { $_.Text } else { $_.Children | Where-Object { $_ -is [Windows.Controls.TextBlock] } | ForEach-Object Text } }) -join ' / '; "  $txt" }
+                    else { $txt = @($el.Children | ForEach-Object { if ($_ -is [Windows.Controls.TextBlock]) { $_ } else { $_.Children | Where-Object { $_ -is [Windows.Controls.TextBlock] } } } | Where-Object { "$($_.Tag)" -ne 'icon' } | ForEach-Object Text) -join ' / '; "  $txt" }   # (status icons left out)
                 }
             }
         }

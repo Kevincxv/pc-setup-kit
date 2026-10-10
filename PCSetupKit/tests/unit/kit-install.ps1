@@ -45,7 +45,12 @@ foreach ($f in @("$A\Microsoft\Windows\Start Menu\Programs\Messiah.lnk", "$H\Des
 $unText = Get-Content "$Kit\uninstall.ps1" -Raw
 $ia = $unText.IndexOf('    Write-Host "`n=== Stopping Messiah"'); $ib = $unText.IndexOf('    Write-Host "`n=== Shortcuts and tray icon"')
 $safe = ($unText.Substring(0, $ia) + $unText.Substring($ib)).Replace("'C:\PCSetupKit'", "'$kf'")
+# its elevated relaunch too: run without admin rights it would start again with the REAL profile (10/10 a test run did
+# exactly that and uninstalled the real Messiah), so the sandbox copy runs as it is, admin or not
+$ea = $safe.IndexOf('if (-not ([Security.Principal.WindowsPrincipal]'); $eb = $safe.IndexOf("`n}", $ea)
+if ($ea -ge 0 -and $eb -gt $ea) { $safe = $safe.Substring(0, $ea) + $safe.Substring($eb + 2) }
 Check 'sandbox copy cannot touch real processes, tasks or C:\PCSetupKit' (-not ($safe -match 'Stop-Process|Unregister-ScheduledTask') -and $safe -notmatch [regex]::Escape("Stash 'C:\PCSetupKit'")) ''
+Check '... and cannot relaunch itself elevated (that would leave the sandbox)' ($ea -ge 0 -and $safe -notmatch 'RunAs') ''
 Set-Content "$Work\uninstall-sandbox.ps1" $safe
 $r = Invoke-As $H "$Work\uninstall-sandbox.ps1" @('-Yes') @{ APPDATA = $A }
 $s = Get-Content "$cl\settings.json" -Raw | ConvertFrom-Json
@@ -56,6 +61,18 @@ Check 'the tray program, the app (window, icon, scripts, session shortcut) and a
 Check 'conversations, own skills and CLAUDE.md kept' ((Test-Path "$cl\projects\p\conv.jsonl") -and (Test-Path "$cl\skills\my-own-skill") -and (Test-Path "$cl\CLAUDE.md")) ''
 $st = Get-ChildItem $cl -Directory -Filter 'pc-setup-kit-removed-*'
 Check 'nothing deleted: everything is in the removed-files folder' (@(Get-ChildItem $st.FullName -Recurse -File).Count -ge 9) ''
+# the elevated relaunch passes every parameter on with its value (it used to pass only the names: -BackupFile lost its path)
+$relaunch = [regex]::Match($unText, '(?s)    \$a = @\(.*?\}\)\r?\n').Value
+. ([scriptblock]::Create("function Get-RelaunchArgs([switch]`$Yes, [switch]`$RevertTweaks, [string]`$BackupFile) {`n$relaunch`n`$a }"))
+$ra = @(Get-RelaunchArgs -Yes -BackupFile 'C:\x y\backup.json')
+$bi = [array]::IndexOf($ra, '-BackupFile')
+Check 'uninstall''s elevated relaunch keeps parameter values (-BackupFile <path>), switches by name' ($relaunch -and $bi -ge 0 -and $ra[$bi + 1] -eq '"C:\x y\backup.json"' -and $ra -contains '-Yes' -and $ra -notcontains '-RevertTweaks') ($ra -join ' ')
+# (only without admin rights: as admin the real uninstaller would run - it stops processes and removes tasks)
+if (Test-IsAdmin) { Skip '... and it refuses to relaunch from a test' 'testable only without administrator rights' }
+else {
+    $r = Invoke-As $H "$Kit\uninstall.ps1" @('-Yes') @{ PCKIT_IN_TESTS = '1' }
+    Check '... and it refuses to relaunch from a test (that relaunch would get the real profile)' ($r.Code -eq 1 -and "$($r.Err)" -match 'not relaunching from a test') "$($r.Code) $($r.Err)"
+}
 $o = & "$Kit\uninstall.ps1" -WhatIf 2>&1 | Out-String
 Check 'the real uninstaller dry run (-WhatIf) changes nothing and has no errors' ($o -match 'Nothing was changed' -and $o -notmatch 'Exception|FAILED') $o
 

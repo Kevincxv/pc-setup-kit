@@ -60,6 +60,17 @@ $o = Invoke-Gaming (Pc @{ Option = 'on' })
 Check '... next check: nothing more' (-not $o -and -not $acts) ($o -join ' / ')
 $o = Invoke-Gaming (Pc @{ Option = $null })
 Check 'turned off again: exactly the exclusions it added are removed' (($acts -join ',') -eq 'unexclude C:\Steam\steamapps' -and "$o" -match 'scans the game folders again') (($o + $acts) -join ' / ')
+Clear-Path $st
+$null = Invoke-Gaming (Pc @{ Option = 'on'; Live = @() })
+$o = Invoke-Gaming (Pc @{ Option = 'on'; Live = @('C:\Users\x\AppData\Local\SomeTool') })
+Check 'another app replaced Defender''s list (ours gone): added again, and said' (($acts -join ',') -eq 'exclude C:\Steam\steamapps' -and "$o" -match 'Defender now skips') (($o + $acts) -join ' / ')
+$o = Invoke-Gaming (Pc @{ Option = $null; Live = @() })
+Check '... turned off while already gone from Defender: nothing to remove' (-not $acts) (($o + $acts) -join ' / ')
+$sr = "$Work\steamroot"; $null = New-Item -ItemType Directory -Force "$sr\steamapps\common\SomeGame"
+Set-Content "$sr\steamapps\libraryfolders.vdf" "`"libraryfolders`"`n{`n`t`"0`"`n`t{`n`t`t`"path`"`t`t`"$($sr -replace '\\', '\\')`"`n`t}`n}"
+Clear-Path $st
+$o = Invoke-Gaming (Pc @{ Option = 'on'; SteamRoots = @("$Work\a game's bundled Steam", $sr) })
+Check 'Steam''s path in the registry points to a game folder: the real Steam library still found' ($acts -contains "exclude $sr\steamapps") (($o + $acts) -join ' / ')
 
 Section 'two graphics chips (gaming laptops): every game on the fast one'
 Clear-Path $st

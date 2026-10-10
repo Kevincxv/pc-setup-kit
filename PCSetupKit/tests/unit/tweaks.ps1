@@ -8,7 +8,8 @@ $mocked = 'Set-ItemProperty', 'New-Item', 'Get-ItemProperty', 'Set-Service', 'St
     'Get-ScheduledTask', 'Get-AppxPackage', 'Get-AppxProvisionedPackage', 'Remove-AppxPackage', 'Remove-AppxProvisionedPackage', 'Get-CimInstance', 'Set-CimInstance',
     'Get-NetAdapter', 'Get-NetAdapterAdvancedProperty', 'Set-NetAdapterAdvancedProperty', 'Get-Printer', 'Test-Path', 'powercfg', 'Get-Process', 'Stop-Process', 'Start-Process', 'Remove-ItemProperty', 'winget', 'Get-PhysicalDisk', 'Get-Partition',
     'Get-WindowsCapability', 'Remove-WindowsCapability', 'Add-WindowsCapability', 'Get-WindowsOptionalFeature', 'Disable-WindowsOptionalFeature', 'Enable-WindowsOptionalFeature', 'Get-WindowsReservedStorageState', 'Set-WindowsReservedStorageState'
-if (-not (Test-Tripwire "$Work\tweaks.ps1" $mocked)) { Finish }
+# (Get-Acl/Set-Acl: guarded - only on PCKIT_VENDOR_ROOT, the test's own folder; with none set in a test nothing is touched)
+if (-not (Test-Tripwire "$Work\tweaks.ps1" $mocked @('Get-Acl', 'Set-Acl'))) { Finish }
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
 
 $svcNames = 'DiagTrack', 'dmwappushservice', 'SysMain', 'MapsBroker', 'lfsvc', 'TrkWks', 'WSAIFabricSvc', 'PcaSvc', 'RetailDemo', 'StiSvc', 'PhoneSvc', 'diagsvc', 'Spooler'
@@ -34,7 +35,7 @@ function Get-Service { param($Name) if ($global:TW.Services.ContainsKey($Name)) 
 function Set-Service { param($Name, $StartupType) $global:TW.Services[$Name] = $StartupType; $global:TWlog.Add("service $Name $StartupType") }
 function Stop-Service { param($Name, [switch]$Force) $global:TWlog.Add("stop $Name") }
 function Get-ScheduledTask { param($TaskName) $global:TW.Tasks | ForEach-Object { [pscustomobject]@{ TaskPath = $_.P; TaskName = $_.N; State = $_.S } } }
-function Disable-ScheduledTask { $input | ForEach-Object { $n = $_.TaskName; ($global:TW.Tasks | Where-Object N -eq $n).S = 'Disabled'; $global:TWlog.Add("task off $n") } }
+function Disable-ScheduledTask { $input | ForEach-Object { $n = $_.TaskName; if (($global:TW.Tasks | Where-Object N -eq $n).D) { throw 'Access is denied.' }; ($global:TW.Tasks | Where-Object N -eq $n).S = 'Disabled'; $global:TWlog.Add("task off $n") } }
 function Unregister-ScheduledTask { param($TaskName, $Confirm) $global:TW.Tasks = @($global:TW.Tasks | Where-Object N -ne $TaskName); $global:TWlog.Add("task removed $TaskName") }
 function Get-AppxPackage { param([switch]$AllUsers, $Name) $n = if ($Name) { $Name } else { $args[0] }; if ($n -in $global:TW.Apps) { [pscustomobject]@{ Name = $n; PackageFullName = "$n`_1.0_x64" } } }
 function Remove-AppxPackage { param($Package, [switch]$AllUsers) $n = ($Package -split '_')[0]; $global:TW.Apps = @($global:TW.Apps | Where-Object { $_ -ne $n }); $global:TWlog.Add("app removed $n") }
@@ -67,7 +68,8 @@ function powercfg {
 }
 function Get-Process { param($Name) }
 function Stop-Process { $global:TWlog.Add('stop-process') }
-function Start-Process { param($FilePath, $ArgumentList, [switch]$Wait) $global:TWlog.Add("run $(Split-Path $FilePath -Leaf) $ArgumentList"); $TW.OneDrive = $false }
+function Start-Process { param($FilePath, $ArgumentList, [switch]$Wait, $WindowStyle) $global:TWlog.Add("run $(Split-Path $FilePath -Leaf) $ArgumentList"); $TW.OneDrive = $false
+    if ($FilePath -match 'Installer\\setup\.exe$' -and $TW.EdgeGoes) { [IO.File]::Delete("$env:PCKIT_EDGE_ROOT\msedge.exe") } }   # (Edge's uninstaller)
 function Remove-ItemProperty { param($Path, $Name) if ($Name -and $global:TW.Reg.ContainsKey("$Path|$Name")) { $global:TW.Reg.Remove("$Path|$Name") }; $global:TWlog.Add("remove $Path $Name") }
 function Get-Item { if ("$args" -match '^HKCU:.+CurrentVersion\\Run$') { return [pscustomobject]@{ Property = $global:TW.Run } }; if ("$args" -match '^HK.+CurrentVersion\\Run$') { return $null }; Microsoft.PowerShell.Management\Get-Item @args }
 function Get-WindowsCapability { param([switch]$Online, $Name) $global:TW.Caps.Keys | Where-Object { -not $Name -or $_ -eq $Name } | ForEach-Object { [pscustomobject]@{ Name = $_; State = $global:TW.Caps[$_] } } }
@@ -230,6 +232,8 @@ Check '... not when the owner keeps OneDrive' ($TW.Reg.ContainsKey('Registry::HK
 '' | Set-Content $opt
 Fresh; Clear-Path $bk; $TW.Tasks += @{ P = '\Microsoft\Windows\Sustainability\'; N = 'SustainabilityTelemetry'; S = 'Ready' }, @{ P = '\GoogleUserPEH\'; N = 'RunPlatformExperienceHelper_Daily'; S = 'Ready' }, @{ P = '\GoogleSystem\GoogleUpdater\'; N = 'GoogleUpdaterTaskSystem'; S = 'Ready' }; $o = Run
 Check 'the telemetry tasks the audit found are off, and Chrome''s "tips" helper - Chrome''s own updater stays' (($o -contains 'task SustainabilityTelemetry off') -and ($o -contains 'task RunPlatformExperienceHelper_Daily off') -and -not ($o -match 'GoogleUpdaterTaskSystem')) ($o -join ' / ')
+Fresh; Clear-Path $bk; $TW.Tasks += @{ P = '\Microsoft\Windows\WindowsAI\ClickToDo\'; N = 'ModelCachingLimit'; S = 'Ready'; D = $true }; $o = Run
+Check 'a task Windows won''t let admins change (Access is denied) is not reported "off" (10/2: "reverted" at every run)' (-not ($o -match 'ModelCachingLimit') -and ($o -contains 'task DmClient off')) ($o -join ' / ')
 Section 'a run stopped halfway (setup''s 20-minute limit) keeps what it changed'
 $tt = Get-Content "$Kit\tweaks.ps1" -Raw
 Check 'the originals are saved at every section, not only at the end (10/2: a stopped run on GitHub had saved none)' ($tt -match 'function Trace\(\[string\]\$Where\) \{ Save-Backup;' -and @([regex]::Matches($tt, '(?m)^Trace ''')).Count -ge 10) ''
@@ -252,8 +256,38 @@ Fresh; Clear-Path $bk; EdgeFresh; $TW.Reg[$uc] = 'MSEdgeHTM'; [void](Run)
 'tweak.edge=off' | Set-Content $opt; $o = Run
 Check 'switched off in Settings: its desktop icon and prompts come back' (($o -contains 'Edge back as it was (your choice)') -and (Test-Path "$er\public\Microsoft Edge.lnk") -and
     -not $TW.Reg.ContainsKey('HKLM:\SOFTWARE\Policies\Microsoft\Edge|HideFirstRunExperience')) ($o -join ' / ')
+Section 'Edge removed altogether (opt-in): only the browser, WebView2 stays'
+$eu = 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate|Install{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}'
+function EdgeSetup { New-Item "$er\Installer" -ItemType Directory -Force | Out-Null; '' | Set-Content "$er\Installer\setup.exe"; New-Item "$er\webview2" -ItemType Directory -Force | Out-Null }
+Fresh; Clear-Path $bk; '' | Set-Content $opt; EdgeFresh; EdgeSetup; $o = Run
+Check 'off unless the owner turns it on: Edge stays, no policy' ((Test-Path "$er\msedge.exe") -and -not ($TWlog -match 'setup\.exe') -and -not $TW.Reg.ContainsKey($eu)) ($o -join ' / ')
+'tweak.edge-remove=on' | Set-Content $opt; $TW.EdgeGoes = $true; $TWlog.Clear(); $o = Run
+Check 'turned on: Edge''s own uninstaller runs (system-wide, profiles kept) and Edge Update may not install it again' (($TWlog -match '^run setup\.exe --uninstall --system-level --force-uninstall$') -and -not ($TWlog -match 'delete-profile') -and $TW.Reg[$eu] -eq 0 -and $o -contains 'Edge removed (WebView2 kept)') (($o + $TWlog) -join ' / ')
+Check '... after the old built-in Edge''s file is there (what unlocks the uninstaller); WebView2 untouched' ((Test-Path "$er\SystemApps\MicrosoftEdge.exe") -and (Test-Path "$er\webview2")) ''
+$TWlog.Clear(); $o = Run
+Check '... done once: the next check changes nothing' (-not ($TWlog -match 'setup\.exe') -and -not ($o -match 'Edge')) ($o -join ' / ')
+'' | Set-Content "$er\msedge.exe"; $TWlog.Clear(); $o = Run
+Check '... Windows put it back: removed again' (($TWlog -match '^run setup\.exe --uninstall') -and $o -contains 'Edge removed (WebView2 kept)') ($o -join ' / ')
+'' | Set-Content $opt; $TWlog.Clear(); $o = Run
+Check 'turned off again: Edge reinstalled (winget) and the policy gone' (($TWlog -match '^winget install --id Microsoft\.Edge') -and $o -contains 'Edge installed again (your choice)' -and -not $TW.Reg.ContainsKey($eu)) (($o + $TWlog) -join ' / ')
+
 '' | Set-Content $opt; $env:PCKIT_EDGE_ROOT = ''
 Fresh; Clear-Path $bk; $o = Run
 Check 'in tests without a folder of their own, no icon or pin of this PC is touched' (-not ($o -match 'Edge desktop|unpinned')) ($o -join ' / ')
+
+Section 'Razer / Logitech auto-installers (from winutil): an empty, write-locked folder where their installers unpack'
+$vr = "$Work\vendor"; $env:PCKIT_VENDOR_ROOT = $vr; Clear-Path $vr; New-Item $vr -ItemType Directory -Force | Out-Null
+$all = New-Object Security.Principal.SecurityIdentifier 'S-1-1-0'
+function Locked($d) { [bool]((Test-Path $d) -and @((Get-Acl $d).Access | Where-Object { $_.AccessControlType -eq 'Deny' -and $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]) -eq $all })) }
+New-Item "$vr\LogiDownloadAssistant" -ItemType Directory -Force | Out-Null; '' | Set-Content "$vr\LogiDownloadAssistant\installed-on-purpose.exe"
+Fresh; Clear-Path $bk; '' | Set-Content $opt; $o = Run
+Check 'Razer''s installer folder is created and locked against writing' ((Locked "$vr\Razer") -and $o -contains 'Razer auto-installer blocked') ($o -join ' / ')
+Check '... a folder that already has an app in it is left alone' (-not (Locked "$vr\LogiDownloadAssistant") -and (Test-Path "$vr\LogiDownloadAssistant\installed-on-purpose.exe")) ''
+Check '... recorded for the uninstaller' ((Get-Content $bk -Raw | ConvertFrom-Json).'vendor|Razer'.Path -eq "$vr\Razer") ''
+$o = Run
+Check '... done once: the next check changes nothing' (-not ($o -match 'auto-installer')) ($o -join ' / ')
+'tweak.vendor-installers=off' | Set-Content $opt; $o = Run
+Check 'switched off in Settings: unlocked and the empty folder removed' (-not (Test-Path "$vr\Razer") -and $o -contains 'Razer auto-installer allowed again (your choice)') ($o -join ' / ')
+'' | Set-Content $opt; $env:PCKIT_VENDOR_ROOT = ''; Clear-Path $vr
 
 Finish

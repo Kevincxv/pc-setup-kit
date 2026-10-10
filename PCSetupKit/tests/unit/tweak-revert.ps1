@@ -21,16 +21,26 @@ try {
     Disable-ScheduledTask -TaskPath $tp -TaskName $tn | Out-Null
     $j = Get-Content $bkf -Raw | ConvertFrom-Json
     $j | Add-Member "task|$tp$tn" ([pscustomobject]@{ Enabled = $true }); $j | Add-Member 'app|Microsoft.BingWeather' ([pscustomobject]@{ Name = 'Microsoft.BingWeather'; Removed = 'x' })
+    # a vendor auto-installer folder locked the way tweaks.ps1 does it (a sandbox folder, not Razer's)
+    $vd = "$Work\TestVendorLock"; New-Item $vd -ItemType Directory -Force | Out-Null; $all = New-Object Security.Principal.SecurityIdentifier 'S-1-1-0'
+    $acl = Get-Acl $vd; $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($all, 'Write', 'Deny'))); Set-Acl $vd $acl
+    $j | Add-Member 'vendor|TestVendorLock' ([pscustomobject]@{ Path = $vd })
     $j | ConvertTo-Json -Depth 4 | Set-Content $bkf
-    $o = & "$Kit\uninstall.ps1" -RevertTweaks -RevertOnly -Yes -BackupFile $bkf 2>&1 | Out-String
+    # with a sandbox profile: the uninstaller also undoes the Defender exclusions and graphics-chip choices gaming-check.ps1
+    # made (from .claude\gaming-state.json) - run with the real profile, every test run took the owner's away (10/10)
+    $uh = "$Work\uhome"; New-Item "$uh\.claude" -ItemType Directory -Force | Out-Null
+    function Revert([string]$From) { $r = Invoke-As $uh "$Kit\uninstall.ps1" @('-RevertTweaks', '-RevertOnly', '-Yes', '-BackupFile', $From); "$($r.Out)$($r.Err)" }
+    $o = Revert $bkf
     $p = Get-ItemProperty $key
     Check 'ValueA back to 5, still a DWORD' ($p.ValueA -eq 5 -and (Get-Item $key).GetValueKind('ValueA') -eq 'DWord') "$($p.ValueA)"
     Check 'ValueS back to hello, still a String' ($p.ValueS -eq 'hello' -and (Get-Item $key).GetValueKind('ValueS') -eq 'String') "$($p.ValueS)"
     Check "ValueNew removed (it didn't exist before)" ($null -eq $p.ValueNew) "$($p.ValueNew)"
     Check 'scheduled task enabled again' ((Get-ScheduledTask -TaskPath $tp -TaskName $tn).State -ne 'Disabled') ''
     Check 'removed app listed for the Store' ($o -match 'Microsoft.BingWeather') ''
+    Check 'a locked vendor auto-installer folder is unlocked and (empty) removed' (-not (Test-Path $vd) -and $o -notmatch 'FAILED') $o
     Check 'revert-only touched no power plan or files' (-not ($o -match 'power plan|removed-files')) ''
-    $o = & "$Kit\uninstall.ps1" -RevertTweaks -RevertOnly -Yes -BackupFile "$Work\does-not-exist.json" 2>&1 | Out-String
+    Check '... nor this PC''s own Defender exclusions or graphics-chip choices (a sandbox profile has none)' ($o -notmatch 'Defender scans|graphics chip choice') $o
+    $o = Revert "$Work\does-not-exist.json"
     Check 'no backup file: explains, no error' (($o -match 'No backup of the original settings') -and -not ($o -match 'Exception|Cannot find')) $o
 }
 finally {

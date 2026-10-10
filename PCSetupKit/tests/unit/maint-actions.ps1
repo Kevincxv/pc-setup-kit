@@ -3,7 +3,8 @@
 . "$PSScriptRoot\..\lib.ps1"
 $D = "$Work\cl"; New-Item $D -ItemType Directory -Force | Out-Null
 Copy-Item "$Src\maint-actions.ps1", "$Src\todo.ps1", "$Src\bios-info.ps1" $D
-$mocked = 'bcdedit', 'Enable-ComputerRestore', 'Disable-ScheduledTask', 'Set-Service', 'Set-ItemProperty', 'New-Item', 'Invoke-WebRequest', 'Get-WinEvent', 'Get-CimInstance', 'Get-ItemProperty'
+$mocked = 'bcdedit', 'Enable-ComputerRestore', 'Disable-ScheduledTask', 'Set-Service', 'Set-ItemProperty', 'New-Item', 'Invoke-WebRequest', 'Get-WinEvent', 'Get-CimInstance', 'Get-ItemProperty',
+    'Stop-Service', 'Start-Service', 'Rename-Item'
 if (-not (Test-Tripwire "$D\maint-actions.ps1" $mocked)) { Finish }
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
 $global:MA = @{}
@@ -21,6 +22,9 @@ function Get-CimInstance { param($ClassName, $Filter) switch ($ClassName) {
         'Win32_BaseBoard' { [pscustomobject]@{ Manufacturer = 'ASUSTeK COMPUTER INC.'; Product = 'TEST X650-A' } }
         'Win32_Service' { if ($Filter -match "Name='([^']+)'") { $global:MA.Services[$Matches[1]] } } } }
 function Get-ItemProperty { param($Path) [pscustomobject]@{ DisplayVersion = $global:MA.CurVer } }
+function Stop-Service { param($Name, [switch]$Force) $global:MA.Calls.Add("stop $($Name -join ',')") }
+function Start-Service { param($Name) $global:MA.Calls.Add("start $($Name -join ',')") }
+function Rename-Item { param($Path, $NewName) $global:MA.Calls.Add("rename $(Split-Path $Path -Leaf) $NewName") }
 if (-not (Assert-Mocks $mocked)) { Finish }
 '"Monitor: Fast Monitor set to 165Hz (was 60Hz)"' | Set-Content "$D\display-refresh.ps1"
 'param([switch]$Benchmark, [switch]$FromMaintenance) "optimize benchmark=$Benchmark" | Add-Content "$PSScriptRoot\optimize-calls.txt"' | Set-Content "$D\optimize.ps1"
@@ -98,6 +102,22 @@ Check 'the task and the stopped third-party service are disabled (and said so)' 
 Check '... anything in the Windows folder or still running is left alone' (-not ($MA.Calls -match 'WinSvc|RunSvc')) ($MA.Calls -join ' / ')
 
 Section 'restore points failing (System Protection off)'
+Section 'Windows Update''s check failing again and again: its download cache is reset (from winutil)'
+$wd = "$Work\win"; New-Item "$wd\SoftwareDistribution", "$wd\System32\catroot2" -ItemType Directory -Force | Out-Null
+$pk = "$Work\reboot-pending"   # (a sandbox file stands in for Windows' "restart pending" key)
+function WU([string[]]$L, [datetime]$At = $now) { @(& "$D\maint-actions.ps1" -Lines $L -Now $At -Dir $D -WinDir $wd -PendingKeys $pk) }
+$wuFailed = '[Drivers]', 'Other drivers: Windows Update check failed - 0x80244022'
+Fresh; $o1 = WU $wuFailed; $o2 = WU $wuFailed
+Check 'two failed checks: nothing yet' (-not ($MA.Calls -match 'rename|stop') -and -not (($o1 + $o2) -match 'Windows Update:')) ($MA.Calls -join ' / ')
+$o = WU $wuFailed
+Check 'the third in a row: services stopped, cache and catroot2 renamed (not deleted), services started again' (($MA.Calls -match '^rename SoftwareDistribution SoftwareDistribution\.old-') -and ($MA.Calls -match '^rename catroot2 ') -and ($MA.Calls -match '^stop wuauserv,bits,cryptsvc') -and ($MA.Calls -match '^start cryptsvc,bits,wuauserv') -and ($o -match '^Windows Update: its check failed 3 times in a row - reset')) (($o + $MA.Calls) -join ' / ')
+$MA.Calls.Clear(); [void](WU $wuFailed); [void](WU $wuFailed); [void](WU $wuFailed)
+Check '... not again within a month' (-not ($MA.Calls -match 'rename')) ($MA.Calls -join ' / ')
+Fresh; [void](WU $wuFailed); [void](WU $wuFailed); [void](WU '[Drivers]', 'Other drivers: all up to date (Windows Update)'); [void](WU $wuFailed)
+Check 'a good check in between starts the count again' (-not ($MA.Calls -match 'rename')) ($MA.Calls -join ' / ')
+Fresh; '' | Set-Content $pk; [void](WU $wuFailed); [void](WU $wuFailed); $o = WU $wuFailed; Clear-Path $pk
+Check 'a restart pending (an update waits in the cache): left alone' (-not ($MA.Calls -match 'rename|stop')) ($MA.Calls -join ' / ')
+
 Fresh; $o = Act 'Restore point FAILED (is System Protection on for C:?)'
 Check 'System Protection switched on for C: (Windows'' own undo points), said so' (($MA.Calls -match '^restore on C:') -and ($o -match 'turned System Protection on')) (($MA.Calls + $o) -join ' / ')
 Fresh; $MA.NoRestore = $true; $o = Act 'Restore point FAILED (is System Protection on for C:?)'

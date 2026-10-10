@@ -14,7 +14,7 @@ function Ev($id, [datetime]$t, [hashtable]$data) {
 function Get-WinEvent { param($FilterHashtable, $MaxEvents, $ErrorAction)
     if ($FilterHashtable.Id -eq 100) { return $TR.Boot }
     @($TR.Slowed | Where-Object { $_.TimeCreated -ge $FilterHashtable.StartTime -and $_.TimeCreated -le $FilterHashtable.EndTime }) }
-function Get-PSDrive { [pscustomobject]@{ Free = $TR.FreeGB * 1GB } }
+function Get-PSDrive { [pscustomobject]@{ Free = $TR.FreeGB * 1GB; Used = $(if ($TR.SizeGB) { ($TR.SizeGB - $TR.FreeGB) * 1GB }) } }
 function Get-Partition { 'part' }
 function Get-Disk { 'disk' }
 function Get-StorageReliabilityCounter { [pscustomobject]@{ Wear = $TR.Wear; Temperature = 45 } }
@@ -58,6 +58,23 @@ Check 'a few seconds slower (not 1.5x and 10 s): nothing' (-not $o) ($o -join ' 
 Section 'disk space, temperature, SSD wear'
 Reset-T; New-History -freeThen 400 -freeNow 60; $TR.FreeGB = 55; $o = T
 Check 'C: filling fast: WARNING with the pace and the days left' ($o -match '^WARNING: C: is filling up - 55 GB free, about \d+ GB less each week; nearly full in about \d+ days') ($o -join ' / ')
+# one big install (1.1 TB between two checks, fast enough that the old pace math said "full in 27 days") with 1 TB free: not a pace; the same drop with little space left still warns
+function Jump([double]$then, [double]$now2) { $r = Get-Content $hf -Raw | ConvertFrom-Json; foreach ($x in $r) { $x.freeGB = $(if ([datetime]$x.date -lt $now.AddDays(-3)) { $then } else { $now2 }) }; $r | ConvertTo-Json | Set-Content $hf }
+Reset-T; New-History; Jump 2300 1150; $TR.FreeGB = 1142; $o = T
+Check 'one big install with plenty of space: no filling-up line' (-not ($o -match 'filling up')) ($o -join ' / ')
+Reset-T; New-History; Jump 200 90; $TR.FreeGB = 85; $o = T
+Check '... but a big install leaving under 100 GB still warns' ($o -match 'C: is filling up - 85 GB free') ($o -join ' / ')
+# 10/10: several big games in one week on a 2 TB drive (1262 > 1149 GB free over a few checks) said "nearly full in about 27 days"
+# (several installs in the last days, none big enough to count as "one install": the old math projects under 30 days)
+function Steps([double]$then, [double[]]$recent) { $r = Get-Content $hf -Raw | ConvertFrom-Json; $n = @($r).Count
+    for ($i = 0; $i -lt $n; $i++) { $k = $i - ($n - $recent.Count); @($r)[$i].freeGB = $(if ($k -ge 0) { $recent[$k] } else { $then }) }; $r | ConvertTo-Json | Set-Content $hf }
+Reset-T; New-History; Steps 2300 @(2000, 1700, 1400, 1160); $TR.FreeGB = 1149; $TR.SizeGB = 3726; $o = T
+Check 'a week of game installs with over a quarter of the drive free: no filling-up line' (-not ($o -match 'filling up')) ($o -join ' / ')
+Check '... and the drive size is recorded' ((Hist)[-1].sizeGB -eq 3726) ((Hist)[-1] | ConvertTo-Json -Compress)
+Reset-T; New-History; Steps 2300 @(2000, 1700, 1400, 1160); $TR.FreeGB = 1149; $o = T
+Check '... (without the drive size - an older history - it says what it said before)' ($o -match 'C: is filling up - 1149 GB free') ($o -join ' / ')
+Reset-T; New-History; Steps 400 @(330, 260, 200, 160); $TR.FreeGB = 150; $TR.SizeGB = 1863; $o = T
+Check '... the same pace with under a quarter free still warns' ($o -match 'C: is filling up - 150 GB free') ($o -join ' / ')
 Reset-T; New-History -gpuThen 31 -gpuNow 43; $TR.Gpu = 44; $o = T
 Check 'graphics card 10+ C warmer at idle than a month ago: a dust reminder' ($o -match '^Reminder: the graphics card runs \d+ C warmer at idle than a month ago \(43 C, was 31 C\)') ($o -join ' / ')
 Reset-T; New-History; $TR.Wear = 9; $o = T

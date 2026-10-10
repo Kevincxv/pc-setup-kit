@@ -45,10 +45,11 @@ $bar1 = if ($T) { $T.Bar1MiB } else {
 if ($bar1 -and $bar1 -le 256) { 'Reminder: Resizable BAR is off - in the BIOS turn on "Above 4G Decoding" and "Re-Size BAR Support" (often a few % more frame rate; the graphics card then sees all of its memory at once)' }
 
 # --- games on a hard drive (Steam's libraries) ---
-$libs = if ($T) { $T.Libraries } else {
-    $sp = "$((Get-ItemProperty 'HKCU:\Software\Valve\Steam').SteamPath)" -replace '/', '\'
-    $vdf = "$sp\steamapps\libraryfolders.vdf"; if (-not (Test-Path $vdf)) { $vdf = "$sp\config\libraryfolders.vdf" }
-    foreach ($m in Select-String -Path $vdf -Pattern '"path"\s+"([^"]+)"') {
+# Steam's own path first, then where Steam is installed: games with a bundled Steam emulator overwrite SteamPath
+$libs = if ($T -and -not $T.SteamRoots) { $T.Libraries } else {
+    $sps = if ($T) { $T.SteamRoots } else { @((Get-ItemProperty 'HKCU:\Software\Valve\Steam').SteamPath, (Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam').InstallPath, "${env:ProgramFiles(x86)}\Steam") }
+    $vdf = @(foreach ($sp in @($sps) | Where-Object { $_ }) { foreach ($f in 'steamapps', 'config') { "$($sp -replace '/', '\')\$f\libraryfolders.vdf" } }) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    foreach ($m in $(if ($vdf) { Select-String -LiteralPath $vdf -Pattern '"path"\s+"([^"]+)"' })) {
         $p = $m.Matches[0].Groups[1].Value -replace '\\\\', '\'
         $games = @(Get-ChildItem "$p\steamapps\common" -Directory)
         if (-not $games) { continue }
@@ -119,7 +120,11 @@ $want = @(if ($opt -eq 'on') {
         foreach ($l in @($libs)) { "$($l.Path)\steamapps" }
         foreach ($d in (Get-Volume | Where-Object { $_.DriveType -eq 'Fixed' -and $_.DriveLetter }).DriveLetter) { foreach ($f in "$d`:\Program Files\Epic Games", "$d`:\Epic Games", "$d`:\XboxGames", "$d`:\Games") { if (-not $T -and (Test-Path $f)) { $f } } }
     })
-$had = @($st.excluded)
+# what Defender really skips: other apps (Set-MpPreference replaces the whole list) or the owner may have removed ours
+$liveOk = $false; $live = @()
+if ($T) { if ($T.ContainsKey('Live')) { $liveOk = $true; $live = @($T.Live) } }
+else { try { $live = @((Get-MpPreference -ErrorAction Stop).ExclusionPath | Where-Object { $_ }); $liveOk = -not ($live -match '^N/A') } catch { } }   # N/A: not admin
+$had = @($st.excluded | Where-Object { $_ }); if ($liveOk) { $had = @($had | Where-Object { $_ -in $live }) }
 $add = @($want | Where-Object { $_ -notin $had }); $drop = @($had | Where-Object { $_ -notin $want })
 foreach ($p in $add) { Act "exclude $p" { Add-MpPreference -ExclusionPath $p } }
 foreach ($p in $drop) { Act "unexclude $p" { Remove-MpPreference -ExclusionPath $p } }
