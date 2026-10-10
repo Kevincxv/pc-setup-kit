@@ -10,7 +10,7 @@ Copy-Item "$Src\health-check.ps1" $d
 '' | Set-Content "$d\restart-check.ps1"
 $mocked = 'Get-WinEvent', 'Get-ChildItem', 'Get-CimInstance', 'Get-MpComputerStatus', 'Start-Process', 'w32tm', 'winget', 'Get-PnpDevice', 'Get-PnpDeviceProperty',
     'Get-PSDrive', 'Get-PhysicalDisk', 'Get-StorageReliabilityCounter', 'Get-ScheduledTask', 'Get-NetAdapter', 'Get-Disk', 'Get-Partition',
-    'Get-ItemProperty', 'Enable-ComputerRestore', 'reagentc'
+    'Get-ItemProperty', 'Enable-ComputerRestore', 'reagentc', 'Confirm-SecureBootUEFI', 'Get-SecureBootUEFI', 'Get-AuthenticodeSignature'
 if (-not (Test-Tripwire "$d\health-check.ps1" $mocked -Guarded 'C:\PCSetupKit\tweaks.ps1')) { Finish }   # (Test-Path mock hides the real tweak guard)
 
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
@@ -31,7 +31,7 @@ function Healthy {
         Nics = @([pscustomobject]@{ Name = 'Ethernet'; Status = 'Up'; MediaType = '802.3'; ReceiveLinkSpeed = 1e9; LinkSpeed = '1 Gbps'; InterfaceDescription = 'Realtek Gaming 2.5GbE' })
         AllDisks = @([pscustomobject]@{ Number = 0; FriendlyName = 'TestNVMe'; BusType = 'NVMe'; Size = 2TB })
         Tasks = @([pscustomobject]@{ TaskName = 'Messiah Tray'; TaskPath = '\'; State = 'Ready' })
-        Sp = '\\?\Volume{1}\:(C%3A)'; SpFail = $false; Re = 'Windows RE status:         Enabled'
+        Sp = '\\?\Volume{1}\:(C%3A)'; SpFail = $false; Re = 'Windows RE status:         Enabled'; WebView2 = '140.0.0.0'; WvExit = 0; SecureBoot = $true; Db = 'Microsoft Windows Production PCA 2011 ... Windows UEFI CA 2023'
     }
     $global:HCcalls = New-Object System.Collections.Generic.List[string]
 }
@@ -39,13 +39,16 @@ function Get-WinEvent { param($FilterHashtable, $MaxEvents, $ErrorAction)
     $f = $FilterHashtable
     @($M.Events | Where-Object { (-not $f.Id -or $_.Id -in @($f.Id)) -and (-not $f.ProviderName -or $_.ProviderName -eq $f.ProviderName) -and (-not $f.StartTime -or $_.TimeCreated -ge $f.StartTime) }) }
 function Get-ChildItem { if ((@($args | ForEach-Object { $_ }) -join ' ') -match 'Minidump|MEMORY\.DMP') { return $M.Dumps }; Microsoft.PowerShell.Management\Get-ChildItem @args }
-function Test-Path { $a = @($args | ForEach-Object { $_ }) -join ' '; if ($a -match 'PCSetupKit\\tweaks\.ps1') { return $false }; if ($a -match 'RebootPending|RebootRequired') { return $M.Reboot }; Microsoft.PowerShell.Management\Test-Path @args }
+function Test-Path { $a = @($args | ForEach-Object { $_ }) -join ' '; if ($a -match 'PCKitTest(Tool|Good)') { return $true }; if ($a -match 'PCSetupKit\\tweaks\.ps1') { return $false }; if ($a -match 'RebootPending|RebootRequired') { return $M.Reboot }; Microsoft.PowerShell.Management\Test-Path @args }
 function Get-CimInstance { if ("$args" -match 'Win32_PhysicalMemory') { return $M.Ram }; if ("$args" -match 'Win32_BIOS') { return $M.Bios }; if ("$args" -match 'Win32_Battery') { return $M.Battery }
     if ("$args" -match 'Win32_OperatingSystem' -and $M.Boot) { return [pscustomobject]@{ LastBootUpTime = $M.Boot } }; CimCmdlets\Get-CimInstance @args }
 function Get-MpComputerStatus { $M.Mp }
 function Start-Process { $global:HCcalls.Add("Start-Process $args") }
 function w32tm { if ("$args" -match 'resync') { $global:HCcalls.Add('w32tm resync') } else { $M.W32 } }
-function winget { $M.Winget }
+function winget { if ("$args" -match '^install') { $global:HCcalls.Add("winget $args"); $global:LASTEXITCODE = $M.WvExit; return }; $M.Winget }
+function Confirm-SecureBootUEFI { $M.SecureBoot }
+function Get-AuthenticodeSignature { param($LiteralPath, $FilePath) [pscustomobject]@{ Status = $(if ("$LiteralPath$FilePath" -in @($global:Unsigned)) { 'NotSigned' } else { 'Valid' }) } }
+function Get-SecureBootUEFI { param($Name, $ErrorAction) [pscustomobject]@{ bytes = [Text.Encoding]::ASCII.GetBytes($M.Db) } }
 function Get-PnpDevice { param([switch]$PresentOnly, $Class) $M.Gpus }
 function Get-PnpDeviceProperty { param($InstanceId, $KeyName) $M.GpuProps[$InstanceId] }
 function Get-PSDrive { $M.CDrive }
@@ -55,7 +58,7 @@ function Get-NetAdapter { $M.Nics }
 function Get-Disk { $M.AllDisks }
 function Get-Partition { [pscustomobject]@{ DiskNumber = 0 } }
 function Get-ScheduledTask { $M.Tasks }
-function Get-ItemProperty { if ("$args" -match 'SPP\\Clients') { [pscustomobject]@{ '{09F7EDC5-294E-4180-AF6A-FB0E6A0E9513}' = $M.Sp } } }
+function Get-ItemProperty { if ("$args" -match 'SPP\\Clients') { [pscustomobject]@{ '{09F7EDC5-294E-4180-AF6A-FB0E6A0E9513}' = $M.Sp } }; if ("$args" -match 'F3017226') { [pscustomobject]@{ pv = $M.WebView2 } } }
 function Enable-ComputerRestore { param($Drive) $global:HCcalls.Add("Enable-ComputerRestore $Drive"); if ($M.SpFail) { throw 'The service cannot be started' } }
 function reagentc { if ("$args" -match 'enable') { $global:HCcalls.Add('reagentc /enable'); $global:LASTEXITCODE = 0 } else { $M.Re } }
 function HC { $u = $env:USERPROFILE; $env:USERPROFILE = $H; try { @(& "$d\health-check.ps1" | Where-Object { $_ -notmatch 'Hz but supports' }) } finally { $env:USERPROFILE = $u } }   # (monitor Hz = the real screens)
@@ -203,6 +206,17 @@ $M.Tasks += [pscustomobject]@{ TaskName = 'SneakyUpdater_{99999999-2222-3333-444
 Check 'an updater renaming its task (new GUID) stays quiet' (-not ($o -match 'SneakyUpdater')) ''
 $M.Tasks += [pscustomobject]@{ TaskName = 'Claude Resume After Restart'; TaskPath = '\'; State = 'Ready' }, [pscustomobject]@{ TaskName = 'PCSetupKit Tray TEST'; TaskPath = '\'; State = 'Ready' }, [pscustomobject]@{ TaskName = 'PCSetupKitRevertTest'; TaskPath = '\PCSetupKitTest\'; State = 'Ready' }, [pscustomobject]@{ TaskName = 'Messiah Night Restart'; TaskPath = '\'; State = 'Ready' }; $o = HC
 Check 'the kit''s own tasks (one-shot resume task, test runs'' throwaway tasks) are not reported as new' (-not ($o -match 'auto-start')) ($o -join ' / ')
+# a new one's program: checked for its maker's signature (what Autoruns flags; 10/10, the research comparison)
+# (the two in Program Files are stand-ins the Test-Path mock reports as there: the test's own folder is under Temp)
+$evil = "$Work\AppData\Roaming\Evil\evil.exe"; $tool = 'C:\Program Files\PCKitTestTool\tool.exe'; $good = 'C:\Program Files\PCKitTestGood\good.exe'
+New-Item (Split-Path $evil) -ItemType Directory -Force | Out-Null; '' | Set-Content $evil
+$global:Unsigned = @($evil, $tool)
+$M.Tasks += [pscustomobject]@{ TaskName = 'EvilUpdate'; TaskPath = '\'; State = 'Ready'; Actions = @([pscustomobject]@{ Execute = $evil }) },
+    [pscustomobject]@{ TaskName = 'ToolHelper'; TaskPath = '\'; State = 'Ready'; Actions = @([pscustomobject]@{ Execute = "`"$tool`"" }) },
+    [pscustomobject]@{ TaskName = 'GoodUpdater'; TaskPath = '\'; State = 'Ready'; Actions = @([pscustomobject]@{ Execute = $good }) }
+$o = HC
+Check 'a new unsigned one running from AppData: a WARNING naming it (gets looked at)' ($o -match '^WARNING: new auto-start item\(s\) not signed .*task: EvilUpdate') ($o -join ' / ')
+Check '... an unsigned one elsewhere: the usual reminder, marked "not signed"; a signed one as before' (($o -match 'task: ToolHelper \(not signed\)') -and ($o -match 'task: GoodUpdater(,|\s\()') -and -not ($o -match 'GoodUpdater \(not signed\)') -and -not ($o -match 'Reminder: .*EvilUpdate')) ($o -join ' / ')
 Healthy; $M.Nics = @([pscustomobject]@{ Name = 'Ethernet'; Status = 'Up'; MediaType = '802.3'; ReceiveLinkSpeed = 100e6; LinkSpeed = '100 Mbps'; InterfaceDescription = 'Intel(R) Ethernet Controller I225-V' }); $o = HC
 Check 'gigabit adapter stuck at 100 Mbps -> cable reminder' ([bool]($o -match 'Reminder: Ethernet network link is only 100 Mbps')) ($o -join ' / ')
 Healthy; $M.AllDisks += [pscustomobject]@{ Number = 1; FriendlyName = 'WD Elements'; BusType = 'USB'; Size = 4TB }; $o = HC
@@ -222,4 +236,15 @@ Healthy; (Get-Date).AddDays(-1).ToString('o') | Set-Content "$d\health-check.las
 Healthy; 'not a date' | Set-Content "$d\health-check.last"; $e = @(HCErrors | Where-Object { $_ -notin $base })
 Check 'a corrupt last-check file causes no errors' ($e.Count -eq 0) "$e"
 Check '... and is replaced by a good one' ([datetime]::TryParse((Get-Content "$d\health-check.last" -Raw).Trim(), [ref][datetime]::MinValue)) ''
+Section 'WebView2 and Secure Boot''s 2023 certificate (10/10, the research comparison)'
+Healthy; $M.WebView2 = $null; $global:HCcalls.Clear(); Clear-Path "$d\health-check.last"; $o = HC
+Check 'WebView2 missing (an older install USB): installed with winget, said' (($HCcalls -match 'winget install --id Microsoft\.EdgeWebView2Runtime') -and ($o -match '^Repaired: WebView2')) (($o + $HCcalls) -join ' / ')
+Healthy; $M.WebView2 = $null; $M.WvExit = 1; $global:HCcalls.Clear(); Clear-Path "$d\health-check.last"; $o = HC
+Check '... the install failing: a WARNING (gets looked at)' ($o -match '^WARNING: WebView2 is missing') ($o -join ' / ')
+Healthy; $global:HCcalls.Clear(); Clear-Path "$d\health-check.last"; $o = HC
+Check '... there: nothing installed, nothing said' (-not ($HCcalls -match 'WebView2') -and -not ($o -match 'WebView2|Secure Boot')) (($o + $HCcalls) -join ' / ')
+Healthy; $M.Db = 'Microsoft Windows Production PCA 2011 / Microsoft Corporation UEFI CA 2011'; Clear-Path "$d\health-check.last"; $o = HC
+Check 'Secure Boot without the 2023 certificate: a reminder' ($o -match '^Reminder: Secure Boot doesn''t have Microsoft''s 2023 certificate') ($o -join ' / ')
+$M.SecureBoot = $false; Clear-Path "$d\health-check.last"; $o = HC
+Check '... Secure Boot off: nothing said about it' (-not ($o -match 'Secure Boot doesn')) ($o -join ' / ')
 Finish

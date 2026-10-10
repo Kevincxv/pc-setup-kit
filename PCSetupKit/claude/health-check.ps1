@@ -173,21 +173,33 @@ foreach ($g in $ioErr | Group-Object) { "WARNING: $($g.Name) logged $($g.Count) 
 # --- New auto-start items (Run keys, Startup folders, non-Windows scheduled tasks) since the last check ---
 # Baseline in .claude\startup-baseline.txt; the first run only records it. Each new item is mentioned once.
 # Task names are normalized (GUID and version suffixes stripped) so updaters renaming their task on update stay quiet.
-$auto = @()
+$auto = @(); $autoCmd = @{}   # (what each one runs: a new one is checked for its maker's signature)
 foreach ($k in 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run', 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run') {
     $item = Get-Item $k; if (-not $item) { continue }
     $ok = Get-Item ($k -replace 'CurrentVersion\\Run$', 'CurrentVersion\Explorer\StartupApproved\Run')
-    $auto += $item.Property | Where-Object { $v = if ($ok) { $ok.GetValue($_) }; -not ($v -and ($v[0] -band 1)) }
+    $auto += $item.Property | Where-Object { $v = if ($ok) { $ok.GetValue($_) }; -not ($v -and ($v[0] -band 1)) } | ForEach-Object { $autoCmd[$_] = "$($item.GetValue($_))"; $_ }
 }
 $auto += (Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\*", "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\*" -Exclude desktop.ini).BaseName
 # (the kit's own tasks aren't news: the tray, the maintenance, the one-shot resume task, test runs' throwaway tasks)
 $own = '^Messiah |^(Claude Admin Tray|Claude Background Maintenance|Claude Resume After Restart)$|^PCSetupKit|^PC Setup Kit |KITTEST'
-$auto += Get-ScheduledTask | Where-Object { $_.TaskPath -notlike '\Microsoft\*' -and $_.TaskPath -notlike '\PCSetupKit*' -and $_.State -ne 'Disabled' -and $_.TaskName -notmatch $own } | ForEach-Object { "task: $($_.TaskName -replace '_?\{[0-9A-Fa-f-]+\}$' -replace '\d+(\.\d+)+$')" }
+$auto += Get-ScheduledTask | Where-Object { $_.TaskPath -notlike '\Microsoft\*' -and $_.TaskPath -notlike '\PCSetupKit*' -and $_.State -ne 'Disabled' -and $_.TaskName -notmatch $own } | ForEach-Object { $tn = "task: $($_.TaskName -replace '_?\{[0-9A-Fa-f-]+\}$' -replace '\d+(\.\d+)+$')"; $autoCmd[$tn] = "$(@($_.Actions)[0].Execute)"; $tn }
 $auto = @($auto | Where-Object { $_ } | Sort-Object -Unique)
 $base = "$env:USERPROFILE\.claude\startup-baseline.txt"
 if (Test-Path $base) {
     $new = @($auto | Where-Object { $_ -notin @(Get-Content $base) })
-    if ($new) { "Reminder: new auto-start item(s) since last check: $($new -join ', ') (turn off any you don't want: Task Manager > Startup apps)" }
+    # each new one's program checked for its maker's signature (what Sysinternals Autoruns flags): an unsigned one running
+    # from a folder any program can write to (AppData, Temp) is how malware starts itself - a WARNING, so it gets looked at
+    $unsigned = @(); $suspect = @()
+    foreach ($n in $new) {
+        $c = [Environment]::ExpandEnvironmentVariables("$($autoCmd[$n])").Trim()
+        $exe = if ($c -match '^"([^"]+)"') { $Matches[1] } elseif ($c -match '^(.+?\.(exe|com|bat|cmd|ps1|vbs|js|scr))(\s|$)') { $Matches[1] } else { $c }
+        if (-not $exe -or -not (Test-Path -LiteralPath $exe)) { continue }
+        if ((Get-AuthenticodeSignature -LiteralPath $exe).Status -eq 'Valid') { continue }
+        if ($exe -match '\\AppData\\|\\Temp\\|\\Users\\Public\\') { $suspect += "$n ($exe)" } else { $unsigned += $n }
+    }
+    if ($suspect) { "WARNING: new auto-start item(s) not signed by their maker, running from a folder any program can write to: $($suspect -join ', ') - if you didn't install this, it may be malware" }
+    $plain = @($new | Where-Object { $n = $_; -not ($suspect | Where-Object { $_ -like "$n (*" }) })
+    if ($plain) { "Reminder: new auto-start item(s) since last check: $(@($plain | ForEach-Object { if ($_ -in $unsigned) { "$_ (not signed)" } else { $_ } }) -join ', ') (turn off any you don't want: Task Manager > Startup apps)" }
 }
 Set-Content $base -Value $auto   # also when empty (a clean PC): no baseline file would keep the first new item unreported
 
@@ -226,4 +238,19 @@ if ((reagentc /info 2>$null | Out-String) -match 'Windows RE status:\s+Disabled'
     reagentc /enable 2>$null | Out-Null
     if ($LASTEXITCODE -eq 0) { 'Backups: the Windows recovery tools were off - turned back on' }
     else { 'WARNING: the Windows recovery tools (Startup Repair, Reset this PC) are off and could not be turned back on' }
+}
+# WebView2 - the engine Windows' own Start search and many apps (game launchers too) show their pages with. PCs from an
+# older install USB came without it: after the 12/2025 update Start search hung on such images (tiny11builder #575) - so
+# where it's missing it's installed (10/10, the research comparison)
+$wv = (Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -Name pv).pv
+if (-not $wv -or $wv -eq '0.0.0.0') {
+    $null = winget install --id Microsoft.EdgeWebView2Runtime -e --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1
+    if ($LASTEXITCODE -eq 0) { 'Repaired: WebView2 (the page engine Windows search and many apps need) was missing - installed' }
+    else { "WARNING: WebView2 is missing and could not be installed (winget $LASTEXITCODE) - Start search and some apps may not work" }
+}
+# Secure Boot's 2023 certificates: Microsoft's 2011 ones expire in 2026, and a PC still on them can't take future boot
+# security updates. Windows Update brings the new ones; a firmware that refuses them needs a BIOS update (Sophia checks this too)
+if ((Confirm-SecureBootUEFI) -eq $true) {
+    $db = try { [Text.Encoding]::ASCII.GetString((Get-SecureBootUEFI db -ErrorAction Stop).bytes) } catch { $null }
+    if ($db -and $db -notmatch 'Windows UEFI CA 2023') { "Reminder: Secure Boot doesn't have Microsoft's 2023 certificate yet (the 2011 ones expire in 2026) - Windows Update installs it; if it doesn't arrive within a few weeks, a BIOS update from the motherboard maker brings it" }
 }

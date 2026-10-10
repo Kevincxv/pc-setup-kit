@@ -31,9 +31,12 @@ function Get-KitList([string]$Tweaks, [string]$Name) {
 }
 # the stick is tiny11 as the base: on top of what setup removes everywhere, what tiny11 removes too - only in a NEW Windows
 # (an installed PC keeps them: its games may sign in with Xbox, someone may use Narrator). All of it comes back from the
-# Microsoft Store or Settings > Optional features, and apps that need WebView2 install it themselves.
-$imageOnlyApps = 'Microsoft.XboxIdentityProvider', 'Microsoft.Xbox.TCUI', 'Microsoft.GamingApp', 'Microsoft.MicrosoftEdge.Stable', 'Microsoft.MicrosoftEdgeDevToolsClient'
-$imageOnlyParts = 'Hello.Face', 'Language.TextToSpeech', 'Language.OCR', 'Language.Handwriting'
+# Microsoft Store or Settings > Optional features. Kept on the stick (10/10, the research comparison): WebView2 - after the
+# 12/2025 update Start search on tiny11 images hung without it (tiny11builder #575) - and with it EdgeUpdate, which keeps it
+# patched (Edge itself stays blocked by policy); the Xbox sign-in parts (games that sign in with Xbox, Game Pass); OCR
+# (Snipping Tool's "Extract text").
+$imageOnlyApps = 'Microsoft.GamingApp', 'Microsoft.MicrosoftEdge.Stable', 'Microsoft.MicrosoftEdgeDevToolsClient'
+$imageOnlyParts = 'Hello.Face', 'Language.TextToSpeech', 'Language.Handwriting'
 function Get-KitBloat([string]$Tweaks) {
     # (not the Xbox Game Bar: AMD's dual-CCD X3D CPUs need it - setup knows the new PC's CPU and decides there)
     @(@(Get-KitList $Tweaks 'apps') | Where-Object { $_ -ne 'Microsoft.XboxGamingOverlay' }) + $imageOnlyApps
@@ -223,8 +226,8 @@ try {
     #   - no ads, suggested apps or silent app installs; no automatic drive encryption (Windows 11 encrypts a new PC by
     #     itself - on a local account with the recovery key saved nowhere, and it costs SSD speed; Settings turns it on)
     #   - Start with Windows' own tools pinned - no placeholders that install Outlook, Solitaire or WhatsApp when clicked
-    #   - no Edge, WebView2 or EdgeUpdate (as tiny11), and Windows doesn't put Edge back (an app that needs WebView2 still
-    #     installs it - that stays allowed); the Xbox sign-in parts and app, text-to-speech, OCR, handwriting, face sign-in
+    #   - no Edge (as tiny11), and Windows doesn't put it back - WebView2 and EdgeUpdate (which patches WebView2) stay;
+    #     no Xbox app, text-to-speech, handwriting or face sign-in
     #   - OneDrive's installer, the old Windows parts tweaks.ps1 removes (Internet Explorer, the old Media Player, ...),
     #     reserved storage
     # Anything failing here: the image as Microsoft ships it (setup removes the same things later) - never a broken stick.
@@ -259,8 +262,7 @@ try {
             try {
                 Get-AppxProvisionedPackage -Path $mnt -ErrorAction Stop | Where-Object { $_.DisplayName -in $bloat } | ForEach-Object { Remove-AppxProvisionedPackage -Path $mnt -PackageName $_.PackageName -ErrorAction Stop | Out-Null }
                 Get-WindowsCapability -Path $mnt -ErrorAction Stop | Where-Object { $_.State -eq 'Installed' -and ($_.Name -split '~')[0] -in $parts } | ForEach-Object { Remove-WindowsCapability -Path $mnt -Name $_.Name -ErrorAction Stop | Out-Null }
-                foreach ($f in "$mnt\Program Files (x86)\Microsoft\Edge", "$mnt\Program Files (x86)\Microsoft\EdgeCore", "$mnt\Program Files (x86)\Microsoft\EdgeWebView",
-                    "$mnt\Program Files (x86)\Microsoft\EdgeUpdate", "$mnt\ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft Edge.lnk", "$mnt\Windows\System32\OneDriveSetup.exe", "$mnt\Windows\SysWOW64\OneDriveSetup.exe") { Remove-ImagePath $f }
+                foreach ($f in "$mnt\Program Files (x86)\Microsoft\Edge", "$mnt\Program Files (x86)\Microsoft\EdgeCore", "$mnt\ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft Edge.lnk", "$mnt\Windows\System32\OneDriveSetup.exe", "$mnt\Windows\SysWOW64\OneDriveSetup.exe") { Remove-ImagePath $f }
                 & reg load HKLM\PCKIT_SOFT "$mnt\Windows\System32\config\SOFTWARE" | Out-Null
                 & reg load HKLM\PCKIT_SYS "$mnt\Windows\System32\config\SYSTEM" | Out-Null
                 & reg load HKLM\PCKIT_DEF "$mnt\Users\Default\NTUSER.DAT" | Out-Null
@@ -279,16 +281,8 @@ try {
                     & reg add 'HKLM\PCKIT_SOFT\Microsoft\PolicyManager\current\device\Start' /v ConfigureStartPins_ProviderSet /t REG_DWORD /d 1 /f | Out-Null
                     & reg add 'HKLM\PCKIT_SOFT\Microsoft\PolicyManager\current\device\Start' /v ConfigureStartPins_WinningProvider /t REG_SZ /d 'B5292708-1619-419B-9923-E5D9F3925E71' /f | Out-Null
                     & reg add 'HKLM\PCKIT_SOFT\Microsoft\PolicyManager\current\device\Start' /v PCKit /t REG_DWORD /d 1 /f | Out-Null
-                    foreach ($u in 'Microsoft Edge', 'Microsoft EdgeWebView', 'Microsoft Edge Update') { & reg delete "HKLM\PCKIT_SOFT\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$u" /f 2>$null | Out-Null }
-                    foreach ($v in 'edgeupdate', 'edgeupdatem', 'MicrosoftEdgeElevationService') { & reg delete "HKLM\PCKIT_SYS\ControlSet001\Services\$v" /f 2>$null | Out-Null }
-                    # EdgeUpdate's scheduled tasks: the task files and Task Scheduler's own entries for them (else it reports missing tasks)
-                    $tc = 'Registry::HKEY_LOCAL_MACHINE\PCKIT_SOFT\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache'
-                    foreach ($t in @(Get-ChildItem "$tc\Tree" -ErrorAction SilentlyContinue | Where-Object PSChildName -like 'MicrosoftEdgeUpdate*')) {
-                        $tid = (Get-ItemProperty $t.PSPath -Name Id -ErrorAction SilentlyContinue).Id
-                        if ($tid) { foreach ($sub in 'Tasks', 'Boot', 'Logon', 'Plain', 'Maintenance') { Remove-Item "$tc\$sub\$tid" -Recurse -Force -ErrorAction SilentlyContinue } }
-                        Remove-Item $t.PSPath -Recurse -Force -ErrorAction SilentlyContinue
-                    }
-                    Get-ChildItem "$mnt\Windows\System32\Tasks" -Filter 'MicrosoftEdgeUpdate*' -File -ErrorAction SilentlyContinue | ForEach-Object { Remove-ImagePath $_.FullName }
+                    foreach ($u in 'Microsoft Edge') { & reg delete "HKLM\PCKIT_SOFT\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$u" /f 2>$null | Out-Null }
+                    foreach ($v in 'MicrosoftEdgeElevationService') { & reg delete "HKLM\PCKIT_SYS\ControlSet001\Services\$v" /f 2>$null | Out-Null }   # (EdgeUpdate's services stay: they patch WebView2)
                     & reg delete 'HKLM\PCKIT_SOFT\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\EdgeUpdate' /f 2>$null | Out-Null   # (the first-sign-in Edge install)
                     & reg add 'HKLM\PCKIT_SOFT\Policies\Microsoft\EdgeUpdate' /v 'Install{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}' /t REG_DWORD /d 0 /f | Out-Null   # (Edge itself - not WebView2)
                     & reg add 'HKLM\PCKIT_SOFT\Policies\Microsoft\EdgeUpdate' /v CreateDesktopShortcutDefault /t REG_DWORD /d 0 /f | Out-Null

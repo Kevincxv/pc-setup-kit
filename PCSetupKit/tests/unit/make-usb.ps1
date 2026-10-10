@@ -44,10 +44,15 @@ $img = @((($ip -match '^BLOAT ') -replace '^BLOAT ') -split ',' | Where-Object {
 $ast = [Management.Automation.Language.Parser]::ParseFile("$Kit\tweaks.ps1", [ref]$null, [ref]$null)
 $tw = @($ast.Find({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and "$($n.Left)" -eq '$apps' }, $true).Right.Expression.SafeGetValue())
 Check 'the image leaves out every app setup removes (one list: tweaks.ps1''s)...' ($img.Count -ge 40 -and -not ($tw | Where-Object { $_ -notin $img -and $_ -ne 'Microsoft.XboxGamingOverlay' })) "image $($img.Count), tweaks $($tw.Count)"
-Check '... and tiny11''s own extras on top: the Xbox sign-in parts and app, Edge' (($img -contains 'Microsoft.XboxIdentityProvider') -and ($img -contains 'Microsoft.GamingApp') -and ($img -contains 'Microsoft.MicrosoftEdge.Stable')) ''
+Check '... and tiny11''s own extras on top: the Xbox app and Edge' (($img -contains 'Microsoft.GamingApp') -and ($img -contains 'Microsoft.MicrosoftEdge.Stable')) ''
+Check '... but the Xbox sign-in parts stay (games and Game Pass sign in with them)' (($img -notcontains 'Microsoft.XboxIdentityProvider') -and ($img -notcontains 'Microsoft.Xbox.TCUI')) ($img -join ', ')
 $parts = @((($ip -match '^PARTS ') -replace '^PARTS ') -split ',' | Where-Object { $_ })
 Check '... the old Windows parts, and text-to-speech, OCR, handwriting and face sign-in' (($parts -contains 'Browser.InternetExplorer') -and ($parts -contains 'Language.TextToSpeech') -and ($parts -contains 'Hello.Face')) ($parts -join ', ')
-Check 'Edge, WebView2 and EdgeUpdate out of the image, Edge not reinstalled - but an app may still install WebView2 (its id is never blocked)' ((Get-Content $km -Raw) -match 'Microsoft\\EdgeWebView' -and (Get-Content $km -Raw) -match 'Install\{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062\}' -and (Get-Content $km -Raw) -notmatch 'F3017226-FE2A-4295-8BDF-00C3A9A7E4C5') ''
+# 10/10: WebView2 stays - after the 12/2025 update Start search on tiny11 images hung without it (tiny11builder #575) - and so
+# does EdgeUpdate with its services and tasks (it patches WebView2); OCR stays too (Snipping Tool's "Extract text")
+$kmt = Get-Content $km -Raw
+Check 'Edge out of the image and not reinstalled; WebView2 and EdgeUpdate (its updates) stay, WebView2 never blocked' ($kmt -notmatch 'Microsoft\\EdgeWebView' -and $kmt -notmatch 'Microsoft\\EdgeUpdate"' -and $kmt -notmatch 'MicrosoftEdgeUpdate\*' -and $kmt -notmatch "'edgeupdate'" -and $kmt -match 'Install\{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062\}' -and $kmt -notmatch 'F3017226-FE2A-4295-8BDF-00C3A9A7E4C5') ''
+Check '... and OCR stays in the image' ($kmt -notmatch "'Language\.OCR'") ''
 Check '... except the Xbox Game Bar (AMD dual-CCD X3D CPUs need it: setup decides on the new PC)' ($img -notcontains 'Microsoft.XboxGamingOverlay' -and $tw -contains 'Microsoft.XboxGamingOverlay') ''
 $pins = try { ((($ip -match '^PINS ') -replace '^PINS ') | ConvertFrom-Json).pinnedList } catch { $null }
 $ids = @($pins | ForEach-Object { if ($_.packagedAppId) { ($_.packagedAppId -split '_')[0] } })

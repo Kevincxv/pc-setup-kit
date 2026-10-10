@@ -38,11 +38,14 @@ if (-not $game -and (Due 'weekly-apps' 7)) {
     # winget's own message stays out of the line: its "Failed when searching..." would read as FAILED.
     if (-not (& $answered $raw $code)) { "App updates $(if (Due 'weekly-apps' 21) { 'FAILED' } else { 'held' }): winget couldn't load its package list - trying again next run" }
     elseif ($h -ge 0) {
+        # what's installed, before this week's updates: the way back if one goes wrong (winget import -i <file>)
+        $null = winget export -o "$PSScriptRoot\apps-before-update.json" --accept-source-agreements --disable-interactivity 2>&1
         # each row read from the right (Id, Version, Available, Source never contain spaces): a shortened or oddly
         # encoded name can't shift the columns
         for ($i = $h + 2; $i -lt $raw.Count -and $raw[$i] -match '\S' -and $raw[$i] -notmatch 'upgrades? available|explicit targeting'; $i++) {
             $id = $src = $null; if ("$($raw[$i])" -match '^(?<name>.+?)\s+(?<id>\S+)\s+(?<ver>(<\s)?\S+)\s+(?<avail>\S+)\s+(?<src>\S+)\s*$') { $id = $Matches['id']; $src = $Matches['src'] }
             if (-not $id -or ($skip | Where-Object { $id -like "$_*" })) { continue }
+            if ($Matches['ver'] -eq 'Unknown') { continue }   # (no version to compare: winget would reinstall it every week - winget-cli #1375)
             # (GitHub's test machines come with dozens of developer tools no real PC has - Visual Studio, LLVM, MySQL...:
             # updating them took 20+ minutes of every fresh-install test. There, only the kit's own apps.)
             if ($env:GITHUB_ACTIONS -and -not $env:PCKIT_IN_TESTS -and $id -notin 'Git.Git', 'Microsoft.WinDbg', 'AutoHotkey.AutoHotkey', 'Valve.Steam', 'Discord.Discord', 'Google.Chrome') { continue }

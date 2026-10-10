@@ -711,21 +711,23 @@ try {
                 # back what it had changed, and keeps to the choice after updates) - in groups
                 $tw = [ordered]@{
                     'Speed and games'     = @(
-                        @('memory-integrity', 'Memory integrity off', 'Core isolation (VBS) costs 5-10% in many games. On: extra protection against malicious drivers, a bit less speed.'),
+                        @('memory-integrity', 'Memory integrity off', 'Core isolation (VBS) costs 0-15% frame rate, mostly in games limited by the processor (little when the graphics card is the limit). Some anti-cheats check it. Off: extra protection against malicious drivers, a bit less speed.'),
                         @('game-bar', 'Xbox Game Bar removed', 'Its overlay and background capture cost frame rate. Off: it comes back. (Always kept on AMD dual-CCD X3D CPUs, which need it.)'),
                         @('game-recording', 'Background game recording off', 'Game DVR records every game in the background. Off: recording and clips work again.'),
                         @('windowed-games', 'Optimizations for windowed games and VRR', 'Lower input lag in borderless-window games, variable refresh rate where supported.'),
                         @('mouse-acceleration', 'Mouse acceleration off', 'The same hand movement always moves the cursor the same distance - better aim.'),
                         @('end-task', '"End task" in the taskbar menu', 'Right-click a frozen game on the taskbar and close it - no Task Manager needed.'),
                         @('sticky-keys', 'Sticky Keys pop-up off','Pressing Shift five times in a game no longer opens the Sticky Keys prompt and throws you out of fullscreen. The feature itself stays in Accessibility.'),
-                        @('power-plan', 'Best power plan', 'Desktops: Ultimate Performance. Laptops: Balanced, full speed when plugged in. Off: your own plan.'),
+                        @('power-plan', 'Best power plan', 'Desktops: Ultimate Performance (Balanced on AMD''s dual-CCD X3D processors, as AMD recommends). Laptops: Balanced, full speed when plugged in. Off: your own plan.'),
+                        @('sysmain-off', 'SysMain (app prefetch) off', 'Off unless you turn it on. No measured gain on an SSD - Windows'' default is to keep it. Off again: back as it was.', 'off'),
                         @('hibernation', 'Hibernation off (desktops)', 'Frees disk space and gives a clean start every time. Laptops always keep it.'))
                     'Privacy and clutter' = @(
-                        @('telemetry', 'Telemetry, ads and Windows AI off', 'No diagnostic data, ads, suggestions, Bing in search, Copilot or Recall.'),
+                        @('telemetry', 'Telemetry, ads and Windows AI off', 'No diagnostic data, ads, suggestions, Bing in search, Copilot, Recall or the AI parts of Notepad, Paint and Edge. May break: Xbox achievements in some games and the Feedback Hub (they need the diagnostics service). Off: all of it back as it was.'),
                         @('bloat-apps', 'Preinstalled apps removed', 'News, Weather, Teams, Clipchamp, Solitaire, TikTok and the like. Off: Messiah stops removing them (reinstall any from the Microsoft Store).'),
                         @('onedrive', 'OneDrive removed', 'Off: OneDrive comes back and can sync again.'),
                         @('edge-remove', 'Remove Edge completely', 'Off unless you turn it on. Uninstalls the Edge browser and keeps it from coming back; WebView2 - the part apps and game launchers need - stays. Your Edge bookmarks stay on the PC. Off again: Edge is reinstalled.', 'off'),
                         @('edge', 'Edge kept out of the way','Edge stays installed (Windows and many apps need it), but no desktop icon, no taskbar pin, no prompts, and Chrome is your browser. Off: its icon and prompts come back.'),
+                        @('notifications-off', 'All app notifications off', 'Off unless you turn it on. Silences every app''s pop-ups (Discord, calendar, mail) - Windows'' own suggestions are off either way. Off again: they come back.', 'off'),
                         @('start-menu', 'Start menu recommendations and Task View off', 'A cleaner Start menu and taskbar.'),
                         @('legacy', 'Old Windows parts removed', 'Internet Explorer''s engine, the old Media Player, WordPad, Steps Recorder and the like; PowerShell 2.0 and Recall off; reserved storage (about 7 GB) freed. Never what updates need. Off: they come back.'),
                         @('vendor-installers', 'Razer and Logitech apps don''t install by themselves', 'Plugging in one of their mice or headsets no longer makes Windows install Razer Synapse or Logitech''s download assistant (drivers still come). Off: they can install again.'),

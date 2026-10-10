@@ -4,7 +4,7 @@
 $tweaksText = Get-Content "$Kit\tweaks.ps1" -Raw
 $bk = "$Work\tweaks-backup.json"
 Set-Content "$Work\tweaks.ps1" $tweaksText.Replace("'C:\PCSetupKit\tweaks-backup.json'", "'$bk'")
-$mocked = 'Set-ItemProperty', 'New-Item', 'Get-ItemProperty', 'Set-Service', 'Stop-Service', 'Get-Service', 'Disable-ScheduledTask', 'Unregister-ScheduledTask',
+$mocked = 'Set-ItemProperty', 'Start-Service', 'New-Item', 'Get-ItemProperty', 'Set-Service', 'Stop-Service', 'Get-Service', 'Disable-ScheduledTask', 'Unregister-ScheduledTask',
     'Get-ScheduledTask', 'Get-AppxPackage', 'Get-AppxProvisionedPackage', 'Remove-AppxPackage', 'Remove-AppxProvisionedPackage', 'Get-CimInstance', 'Set-CimInstance',
     'Get-NetAdapter', 'Get-NetAdapterAdvancedProperty', 'Set-NetAdapterAdvancedProperty', 'Get-Printer', 'Test-Path', 'powercfg', 'Get-Process', 'Stop-Process', 'Start-Process', 'Remove-ItemProperty', 'winget', 'Get-PhysicalDisk', 'Get-Partition',
     'Get-WindowsCapability', 'Remove-WindowsCapability', 'Add-WindowsCapability', 'Get-WindowsOptionalFeature', 'Disable-WindowsOptionalFeature', 'Enable-WindowsOptionalFeature', 'Get-WindowsReservedStorageState', 'Set-WindowsReservedStorageState'
@@ -27,12 +27,13 @@ function Fresh {
     foreach ($s in $svcNames) { $TW.Services[$s] = $(if ($s -in 'StiSvc', 'PhoneSvc', 'diagsvc', 'Spooler', 'SysMain', 'DiagTrack') { 'Automatic' } else { 'Manual' }) }
     $global:TWlog = New-Object System.Collections.Generic.List[string]
 }
-function Set-ItemProperty { param($Path, $Name, $Value, $Type) $global:TW.Reg["$Path|$Name"] = $Value; $global:TWlog.Add("reg $Name=$Value") }
+function Set-ItemProperty { param($Path, $Name, $Value, $Type) if ("$Path|$Name" -in @($global:TW.Blocked)) { $global:TWlog.Add("blocked $Name"); return }; $global:TW.Reg["$Path|$Name"] = $Value; $global:TWlog.Add("reg $Name=$Value") }
 function Get-ItemProperty { param($Path, $Name) if ($global:TW.Reg.ContainsKey("$Path|$Name")) { [pscustomobject]@{ $Name = $global:TW.Reg["$Path|$Name"] } } }
 function New-Item { param($Path, [switch]$Force, $ItemType) if ("$Path" -match '^HK') { $global:TWlog.Add("new key $Path") } else { Microsoft.PowerShell.Management\New-Item @PSBoundParameters } }
-function Test-Path { $a = @($args | ForEach-Object { $_ }) -join ' '; if ($a -match '^HK') { return $true }; if ($a -match 'OneDrive(Setup)?\.exe$') { return [bool]$global:TW.OneDrive }; Microsoft.PowerShell.Management\Test-Path @args }
+function Test-Path { $a = @($args | ForEach-Object { $_ }) -join ' '; if ($a -match 'RebootPending|RebootRequired') { return [bool]$global:TW.Pending }; if ($a -match '^HK') { return $true }; if ($a -match 'OneDrive(Setup)?\.exe$') { return [bool]$global:TW.OneDrive }; Microsoft.PowerShell.Management\Test-Path @args }
 function Get-Service { param($Name) if ($global:TW.Services.ContainsKey($Name)) { [pscustomobject]@{ Name = $Name; StartType = $global:TW.Services[$Name] } } }
 function Set-Service { param($Name, $StartupType) $global:TW.Services[$Name] = $StartupType; $global:TWlog.Add("service $Name $StartupType") }
+function Start-Service { param($Name) $global:TWlog.Add("start $Name") }
 function Stop-Service { param($Name, [switch]$Force) $global:TWlog.Add("stop $Name") }
 function Get-ScheduledTask { param($TaskName) $global:TW.Tasks | ForEach-Object { [pscustomobject]@{ TaskPath = $_.P; TaskName = $_.N; State = $_.S } } }
 function Disable-ScheduledTask { $input | ForEach-Object { $n = $_.TaskName; if (($global:TW.Tasks | Where-Object N -eq $n).D) { throw 'Access is denied.' }; ($global:TW.Tasks | Where-Object N -eq $n).S = 'Disabled'; $global:TWlog.Add("task off $n") } }
@@ -91,7 +92,7 @@ Check "all $setRegCalls settings written, each exactly once" ($regSets -eq $setR
 Check 'each change is reported (one line per kind)' (($o -match '^setting ').Count -ge 1 -and ($o -contains 'service DiagTrack off') -and ($o -contains 'task Microsoft Compatibility Appraiser off')) ($o -join ' / ')
 Check 'telemetry, Copilot, Recall/Click to Do, ads and Bing search turned off' ($TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection|AllowTelemetry'] -eq 0 -and $TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot|TurnOffWindowsCopilot'] -eq 1 -and $TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI|DisableClickToDo'] -eq 1 -and $TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search|DisableWebSearch'] -eq 1) ''
 Check 'crash reports stay possible (WER kept on, only extra data off)' (-not ($TW.Reg.Keys | Where-Object { $_ -match 'Windows Error Reporting\|Disabled$' })) ''
-Check 'telemetry/unneeded services disabled' (($TW.Services['DiagTrack'] -eq 'Disabled') -and ($TW.Services['SysMain'] -eq 'Disabled')) ''
+Check 'telemetry/unneeded services disabled; SysMain left as Windows has it (turning it off is opt-in)' (($TW.Services['DiagTrack'] -eq 'Disabled') -and ($TW.Services['SysMain'] -eq 'Automatic')) ''
 Check 'no printer: the print spooler set to manual (not disabled)' ($TW.Services['Spooler'] -eq 'Manual') $TW.Services['Spooler']
 Check 'listed telemetry tasks disabled; the owner''s own and Windows'' defrag/TRIM task untouched' (($TW.Tasks | Where-Object N -eq 'Microsoft Compatibility Appraiser').S -eq 'Disabled' -and ($TW.Tasks | Where-Object N -eq 'ScheduledDefrag').S -eq 'Ready' -and ($TW.Tasks | Where-Object N -eq 'MyOwnTask').S -eq 'Ready') ''
 Check 'motherboard "app shop" auto-installer task removed' (-not ($TW.Tasks | Where-Object N -eq 'AsrAPPShopUpdate')) ''
@@ -108,9 +109,9 @@ Check 'no output, no changes' (($o.Count -eq 0) -and ($TWlog.Count -eq 0)) (($o 
 Check 'backup file not rewritten' ((Get-Item $bk).LastWriteTime -eq $t0) ''
 
 Section 'Windows reverted a few things after an update'
-$TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection|AllowTelemetry'] = 3; $TW.Services['SysMain'] = 'Automatic'; $TW.Apps = @('Microsoft.Copilot')
+$TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection|AllowTelemetry'] = 3; $TW.Services['DiagTrack'] = 'Automatic'; $TW.Apps = @('Microsoft.Copilot'); $TW.Prov = @('Microsoft.Copilot')   # (a feature update brings an app back for new users too)
 $TWlog.Clear(); $o = Run
-Check 'only the reverted ones are re-applied and reported' (($TWlog.Count -eq 4) -and ($o -contains 'setting AllowTelemetry') -and ($o -contains 'service SysMain off') -and ($o -contains 'app Microsoft.Copilot removed')) (($o + '|' + $TWlog) -join ' / ')
+Check 'only the reverted ones are re-applied and reported' (($TWlog.Count -eq 5) -and ($o -contains 'setting AllowTelemetry') -and ($o -contains 'service DiagTrack off') -and ($o -contains 'app Microsoft.Copilot removed')) (($o + '|' + $TWlog) -join ' / ')
 Check '... and the recorded original stays the FIRST one (not the reverted value)' ((Get-Content $bk -Raw | ConvertFrom-Json).'reg|HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection|AllowTelemetry'.Existed -eq $false) ''
 
 Section 'special cases'
@@ -189,7 +190,11 @@ Section 'more devices and keyboard prompts'
 Fresh; $TW.Power += @{ I = 'USB\VID_054C&PID_0CE6\DS_0'; E = $true }; Clear-Path $bk; [void](Run)
 Check 'a PlayStation controller: power-saving off too (not only Xbox)' (-not ($TW.Power | Where-Object { $_.I -match 'VID_054C' -and $_.E })) ''
 Check 'the Sticky Keys / Filter Keys / Toggle Keys shortcut prompts off' ($TW.Reg['HKCU:\Control Panel\Accessibility\StickyKeys|Flags'] -eq '506' -and $TW.Reg['HKCU:\Control Panel\Accessibility\Keyboard Response|Flags'] -eq '122' -and $TW.Reg['HKCU:\Control Panel\Accessibility\ToggleKeys|Flags'] -eq '58') ''
-Check 'Windows on an SSD: SysMain off' ($TW.Services['SysMain'] -eq 'Disabled') ''
+'tweak.sysmain-off=on' | Set-Content $opt; Fresh; Clear-Path $bk; [void](Run)
+Check 'Windows on an SSD, SysMain off chosen (opt-in): off' ($TW.Services['SysMain'] -eq 'Disabled') ''
+'' | Set-Content $opt; $TWlog.Clear(); $o = Run
+Check '... and chosen again: back as it was, started' (($TW.Services['SysMain'] -eq 'Automatic') -and ($TWlog -contains 'start SysMain') -and ($o -contains 'service SysMain back to Automatic (your choice)')) (($o + $TWlog) -join ' / ')
+'tweak.sysmain-off=on' | Set-Content $opt
 Fresh; $TW.Hdd = $true; Clear-Path $bk; [void](Run)
 Check 'Windows on a hard drive: SysMain kept (prefetch is what makes apps start quicker there)' ($TW.Services['SysMain'] -eq 'Automatic') $TW.Services['SysMain']
 
@@ -241,6 +246,43 @@ Check '... and the taskbar unpin (the shell can wait forever) runs in its own pr
 Fresh; Clear-Path $bk; $env:PCKIT_TWEAKS_TRACE = "$Work\trace2.txt"; [void](Run); $env:PCKIT_TWEAKS_TRACE = $null
 Check '... the originals file is complete after a normal run all the same' ((Test-Path $bk) -and (Get-Content $bk -Raw) -match 'DiagTrack') ''
 
+Section 'from the research comparison (10/10): blocked writes, reinstalled apps, mid-update, X3D, notifications, history'
+'' | Set-Content $opt
+$dsh = 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh|AllowNewsAndInterests'
+Fresh; Clear-Path $bk; $TW.Blocked = @($dsh); $o = Run
+Check 'a value Windows refuses (its protection driver): said once as blocked - not as applied' (($o -contains 'setting AllowNewsAndInterests blocked by Windows (left as it is)') -and ($o -notcontains 'setting AllowNewsAndInterests')) ($o -join ' / ')
+$TWlog.Clear(); $o = Run
+Check '... not tried or reported again on the same Windows build' (-not ($o -match 'AllowNewsAndInterests') -and -not ($TWlog -match 'AllowNewsAndInterests')) (($o + $TWlog) -join ' / ')
+$TW.Blocked = @(); $TWlog.Clear(); $o = Run
+Check '... (a new build would try again: the block is remembered per build)' ((Get-Content $bk -Raw | ConvertFrom-Json).("blocked|$dsh").Build -eq "$([Environment]::OSVersion.Version.Build)") ''
+Fresh; Clear-Path $bk; [void](Run)
+$TW.Apps += 'Microsoft.Copilot'; $TWlog.Clear(); $o = Run
+Check 'an app the owner reinstalled (back for them, not for new users): kept, said once' (('Microsoft.Copilot' -in $TW.Apps) -and ($o -contains 'app Microsoft.Copilot kept (you reinstalled it)') -and -not ($TWlog -match 'app removed')) (($o + $TWlog) -join ' / ')
+$o = Run
+Check '... and left alone from then on' (('Microsoft.Copilot' -in $TW.Apps) -and -not ($o -match 'Copilot')) ($o -join ' / ')
+$TW.Apps += 'Microsoft.BingNews'; $TW.Prov += 'Microsoft.BingNews'; $o = Run
+Check '... while one Windows put back (for new users too) goes again' (('Microsoft.BingNews' -notin $TW.Apps) -and ($o -contains 'app Microsoft.BingNews removed')) ($o -join ' / ')
+Fresh; Clear-Path $bk; $TW.Pending = $true; $o = Run
+Check 'a restart pending (an update mid-install): no app or Windows part removed' (('Microsoft.Copilot' -in $TW.Apps) -and -not ($o -match 'app .* removed|old Windows part')) ($o -join ' / ')
+$TW.Pending = $false; $o = Run
+Check '... after the restart: removed' (('Microsoft.Copilot' -notin $TW.Apps) -and ($o -contains 'app Microsoft.Copilot removed')) ($o -join ' / ')
+Fresh; $TW.Cpu = 'AMD Ryzen 9 9950X3D 16-Core Processor'; $TW.Plan = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'; Clear-Path $bk; $o = Run
+Check 'a dual-CCD X3D desktop: Balanced, as AMD recommends (its driver parks the second CCD) - not Ultimate' (($TW.Plan -eq '381b4222-f694-41f0-9685-ff5bb260df2e') -and ($o -contains 'power plan Balanced (AMD''s choice for this X3D CPU)') -and -not ($TWlog -match 'duplicatescheme')) ($o -join ' / ')
+Fresh; Clear-Path $bk; [void](Run)
+$nt = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications|ToastEnabled'
+Check 'apps'' notifications left on by default; only Windows'' own "suggested" ones off' ((-not $TW.Reg.ContainsKey($nt)) -and $TW.Reg['HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Windows.SystemToast.Suggested|Enabled'] -eq 0) ''
+'tweak.notifications-off=on' | Set-Content $opt; [void](Run)
+Check '... all of them off when the owner chooses it (opt-in)' ($TW.Reg[$nt] -eq 0) ''
+'' | Set-Content $opt; [void](Run)
+Check '... and back on when they change their mind' (-not $TW.Reg.ContainsKey($nt)) ''
+Check 'the AI parts of Notepad and Paint, and Edge''s AI and ads, off' ($TW.Reg['HKLM:\SOFTWARE\Policies\WindowsNotepad|DisableAIFeatures'] -eq 1 -and $TW.Reg['HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint|DisableCocreator'] -eq 1 -and $TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Edge|CopilotPageContext'] -eq 0 -and $TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Edge|ShowAcrobatSubscriptionButton'] -eq 0) ''
+# a PC set up before the originals were kept (no original recorded): Windows' default, once - a later "off" by hand stays
+'' | Set-Content $opt; Fresh; Clear-Path $bk; $TW.Services['SysMain'] = 'Disabled'; $TW.Reg[$nt] = 0; $o = Run
+Check 'set up before originals were kept: SysMain and app notifications back to Windows'' default, said' (($TW.Services['SysMain'] -eq 'Automatic') -and -not $TW.Reg.ContainsKey($nt) -and ($o -contains 'service SysMain back to Automatic (Windows'' default)') -and ($o -contains 'app notifications back on (Windows'' default)')) ($o -join ' / ')
+$TW.Services['SysMain'] = 'Disabled'; $TW.Reg[$nt] = 0; $o = Run
+Check '... once: the owner turning them off by hand later is left alone' (($TW.Services['SysMain'] -eq 'Disabled') -and $TW.Reg[$nt] -eq 0 -and -not ($o -match 'SysMain|notifications')) ($o -join ' / ')
+$hist = Join-Path (Split-Path $bk) 'change-history.log'
+Check 'a change history next to the originals: each setting with its before and after value' ((Test-Path $hist) -and ((Get-Content $hist -Raw) -match "AllowTelemetry '\(not set\)' -> '0'") -and ((Get-Content $hist -Raw) -match 'app Microsoft\.Copilot removed')) ''
 Section 'Edge kept out of the way (it stays installed: Windows and apps need it)'
 $er = "$Work\edge"; $env:PCKIT_EDGE_ROOT = $er; $uc = 'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice|ProgId'
 $pol = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System|DefaultAssociationsConfiguration'

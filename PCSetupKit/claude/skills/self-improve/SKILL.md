@@ -31,6 +31,16 @@ watching and nothing may pop up. Budget: about 20 minutes, then stop and write t
   After changing a shared file, copy it there too so both stay identical. `tweaks-local.ps1` and the tray .ahk are
   this PC only.
 
+## Tweaks to keep out (evidence from the 10/10 research comparison of other optimization projects)
+Never add these, even if a guide or tool recommends them - they are measured as harmful, break things, or have no
+evidence: `NetworkThrottlingIndex=0xFFFFFFFF` (raises network DPC latency); NIC interrupt moderation off; Nagle /
+`TcpAckFrequency` / `TCPNoDelay`; `bcdedit useplatformclock` / `disabledynamictick` (HPET); old `Win32PrioritySeparation`
+values; Spectre/Meltdown mitigations off; C-states off; disabling the Delivery Optimization *service* (breaks Windows
+Update and Store - the download-mode policy is the safe way); `TextInputManagementService` manual (breaks emoji input);
+firewall/NLA/NCSI off; hosts-file telemetry blocks; removing CBS-level AI packages; deleting WinSxS/WinRE/Windows Update or
+`DISM /ResetBase`; disabling UCPD; pausing or disabling Windows Update; STIG-style hardening; monitoring tools that load
+WinRing0. Where evidence is thin (SysMain, timer resolution), Windows' default stays and the change is opt-in.
+
 ## Steps
 1. **Read the journal** so you don't repeat work, and continue anything marked "next time".
 2. **Bugs (always first).** Look for things that went wrong: `timed out`, `FAILED`, errors or odd output in the last few

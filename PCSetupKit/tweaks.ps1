@@ -35,7 +35,7 @@ $optFile = if ($env:PCKIT_TWEAK_OPTIONS) { $env:PCKIT_TWEAK_OPTIONS } else { "$e
 $off = @(Get-Content $optFile | Where-Object { $_ -match '^\s*tweak\.([\w-]+)\s*=\s*off\s*$' } | ForEach-Object { $Matches[1] })
 # Opt-in groups are off until the owner turns them on ("tweak.<group>=on"): bigger changes not everyone wants
 $on = @(Get-Content $optFile | Where-Object { $_ -match '^\s*tweak\.([\w-]+)\s*=\s*on\s*$' } | ForEach-Object { $Matches[1] })
-$optIn = @('edge-remove')
+$optIn = @('edge-remove', 'notifications-off', 'sysmain-off')
 function Want([string]$Group) { if ($Group -in $optIn) { return $Group -in $on }; -not $Group -or $Group -notin $off }
 $group = $null   # the group the next settings belong to (none: always applied)
 # once per group turned off (reinstalling an app, turning hibernation back on): 'undone|<group>' in the backup file,
@@ -46,20 +46,33 @@ function Undo-Once([string]$Group, [scriptblock]$Action, [string]$Said) {
 }
 function Redo([string]$Group) { if ($bk.ContainsKey("undone|$Group")) { $bk.Remove("undone|$Group"); $script:bkDirty = $true } }
 
+# Change history (C:\PCSetupKit\change-history.log, next to the originals): every change with its before and after
+# value, so "what did Messiah change, and when did Windows undo it" has an answer (written at the end of the run)
+$changeLog = New-Object System.Collections.Generic.List[string]
+function Note-Change([string]$What) { $changeLog.Add("$((Get-Date).ToString('yyyy-MM-dd HH:mm'))  $What") }
 function Set-Reg($Path, $Name, $Value, $Type = 'DWord') {
     $cur = (Get-ItemProperty -Path $Path -Name $Name).$Name
     if (-not (Want $script:group)) {
         # turned off by the owner: back to the original (only if the kit had changed it)
         $o = $bk["reg|$Path|$Name"]; if (-not $o) { return }
-        if ($o.Existed) { if ("$cur" -ne "$($o.Value)") { Set-ItemProperty -Path $Path -Name $Name -Value $o.Value -Type $(if ($o.Kind) { $o.Kind } else { 'DWord' }); $changes.Add("setting $Name back (your choice)") } }
-        elseif ($null -ne (Get-ItemProperty -Path $Path -Name $Name)) { Remove-ItemProperty -Path $Path -Name $Name; $changes.Add("setting $Name back (your choice)") }
+        if ($o.Existed) { if ("$cur" -ne "$($o.Value)") { Set-ItemProperty -Path $Path -Name $Name -Value $o.Value -Type $(if ($o.Kind) { $o.Kind } else { 'DWord' }); Note-Change "$Path\$Name '$cur' -> '$($o.Value)' (your choice)"; $changes.Add("setting $Name back (your choice)") } }
+        elseif ($null -ne (Get-ItemProperty -Path $Path -Name $Name)) { Remove-ItemProperty -Path $Path -Name $Name; Note-Change "$Path\$Name '$cur' -> (not set) (your choice)"; $changes.Add("setting $Name back (your choice)") }
         return
     }
     if ("$cur" -ne "$Value") {
+        # a value Windows refuses to change (its user-choice protection driver, a company policy): said once, tried again
+        # on the next Windows build - not "re-applied" at every check (10/10: the Widgets policy on 26200, Winhance #780)
+        $bl = $bk["blocked|$Path|$Name"]; if ($bl -and "$($bl.Build)" -eq "$([Environment]::OSVersion.Version.Build)") { return }
         $had = $null -ne (Get-ItemProperty -Path $Path -Name $Name)
         Save-Original "reg|$Path|$Name" @{ Existed = $had; Value = $cur; Kind = $(if ($had) { "$((Get-Item $Path).GetValueKind($Name))" }) }
         if (-not (Test-Path $Path)) { New-Item $Path -Force | Out-Null }
         Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type
+        if ("$((Get-ItemProperty -Path $Path -Name $Name).$Name)" -ne "$Value") {   # read back: did it take?
+            $bk["blocked|$Path|$Name"] = @{ Build = "$([Environment]::OSVersion.Version.Build)" }; $script:bkDirty = $true
+            Note-Change "$Path\$Name - blocked by Windows, left at '$cur'"; $changes.Add("setting $Name blocked by Windows (left as it is)"); return
+        }
+        if ($bl) { $bk.Remove("blocked|$Path|$Name"); $script:bkDirty = $true }
+        Note-Change "$Path\$Name '$(if ($had) { $cur } else { '(not set)' })' -> '$Value'"
         $changes.Add("setting $Name")
     }
 }
@@ -85,6 +98,13 @@ Set-Reg "$pol\WindowsCopilot" TurnOffWindowsCopilot 1
 Set-Reg "$pol\WindowsAI" DisableAIDataAnalysis 1
 Set-Reg "$pol\WindowsAI" DisableClickToDo 1
 Set-Reg "$pol\WindowsAI" TurnOffSavingSnapshots 1
+Set-Reg "$pol\WindowsAI" AllowRecallEnablement 0
+# the AI parts of Notepad and Paint (24H2/25H2: Rewrite, Cocreator, generative fill/erase, background removal) - from
+# Win11Debloat's maintained list, 10/10
+Set-Reg 'HKLM:\SOFTWARE\Policies\WindowsNotepad' DisableAIFeatures 1
+foreach ($n in 'DisableCocreator', 'DisableGenerativeFill', 'DisableImageCreator', 'DisableGenerativeErase', 'DisableRemoveBackground') {
+    Set-Reg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' $n 1 }
+Set-Reg "$pol\CloudContent" DisableConsumerAccountStateContent 1   # Microsoft 365 / Copilot ads on Settings' home page
 $group = 'onedrive'; Set-Reg "$pol\OneDrive" DisableFileSyncNGSC 1; $group = 'telemetry'
 Set-Reg "$pol\DeliveryOptimization" DODownloadMode 1              # update sharing only with this home network
 $group = 'game-recording'; Set-Reg "$pol\GameDVR" AllowGameDVR 0; $group = 'telemetry'
@@ -104,12 +124,26 @@ $CDM = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'
 foreach ($n in 'ContentDeliveryAllowed', 'OemPreInstalledAppsEnabled', 'PreInstalledAppsEnabled', 'PreInstalledAppsEverEnabled',
     'SilentInstalledAppsEnabled', 'SoftLandingEnabled', 'SystemPaneSuggestionsEnabled', 'RotatingLockScreenOverlayEnabled',
     'SubscribedContent-310093Enabled', 'SubscribedContent-338388Enabled', 'SubscribedContent-338389Enabled',
-    'SubscribedContent-353694Enabled', 'SubscribedContent-353696Enabled') { Set-Reg $CDM $n 0 }
+    'SubscribedContent-353694Enabled', 'SubscribedContent-353696Enabled',
+    'SubscribedContent-338393Enabled', 'SubscribedContent-353698Enabled', 'SubscribedContent-338387Enabled') { Set-Reg $CDM $n 0 }   # (last 3: suggestions in Settings and lock-screen tips)
+Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' ShowSyncProviderNotifications 0   # OneDrive/365 ads in File Explorer
+# "suggested" toasts from Windows itself (tips, "finish setting up") - only those; apps' own notifications are their own switch
+Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Windows.SystemToast.Suggested' Enabled 0
 Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement' ScoobeSystemSettingEnabled 0
 Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo' Enabled 0
 Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Privacy' TailoredExperiencesWithDiagnosticDataEnabled 0
 Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' BingSearchEnabled 0
-Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications' ToastEnabled 0
+# every app's notifications off (Discord, calendar, ...): its own switch now, opt-in - no other debloat tool does this by
+# default, and it silenced more than the "telemetry" switch said (10/10, the research comparison)
+$group = 'notifications-off'
+$toast = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications'
+Set-Reg $toast ToastEnabled 0
+# (set up before the originals were kept: Windows' default - notifications on - once; the owner's own "off" later stays)
+if (Want 'notifications-off') { Redo 'notifications-off' }
+elseif (-not $bk.ContainsKey("reg|$toast|ToastEnabled") -and (Get-ItemProperty -Path $toast -Name ToastEnabled).ToastEnabled -eq 0) {
+    Undo-Once 'notifications-off' { Remove-ItemProperty -Path $toast -Name ToastEnabled } 'app notifications back on (Windows'' default)'
+}
+$group = 'telemetry'
 
 Trace 'Taskbar / Start / look'
 # --- Taskbar / Start / look ---
@@ -178,6 +212,8 @@ Set-Reg $WU ActiveHoursEnd 2
 $group = 'feature-delay'
 Set-Reg $WU DeferFeatureUpdates 1
 Set-Reg $WU DeferFeatureUpdatesPeriodInDays 45
+# ...and not "Get the latest updates as soon as they're available" (the early, optional feature drops)
+Set-Reg 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' IsContinuousInnovationOptedIn 0
 # The page file: some "debloat" guides turn it off, and games then crash when memory runs short - with none at all,
 # Windows manages it again (a size the owner chose is kept; takes effect after a restart)
 $group = $null
@@ -194,9 +230,26 @@ Trace 'Services'
 # --- Services ---
 # SysMain (prefetch) only goes where Windows is on an SSD: on a hard drive it's what makes apps start quicker
 $sysHdd = "$((Get-PhysicalDisk | Where-Object DeviceId -eq "$((Get-Partition -DriveLetter C -ErrorAction SilentlyContinue).DiskNumber)").MediaType)" -eq 'HDD'
-foreach ($n in @('DiagTrack', 'dmwappushservice', 'SysMain', 'MapsBroker', 'lfsvc', 'TrkWks', 'WSAIFabricSvc', 'PcaSvc', 'RetailDemo') | Where-Object { -not ($sysHdd -and $_ -eq 'SysMain') }) {
-    $s = Get-Service $n
-    if ($s -and $s.StartType -ne 'Disabled') { Save-Original "service|$n" @{ StartType = "$($s.StartType)" }; Stop-Service $n -Force; Set-Service $n -StartupType Disabled; $changes.Add("service $n off") }
+# Each one belongs to a switch, so the owner can turn it back on (10/10: before, only the uninstaller could). SysMain off is
+# opt-in: no measurement shows a gain on an SSD, and Atlas - the most speed-minded playbook - keeps it on. DiagTrack goes
+# with telemetry (its switch says it can stop Xbox achievements).
+$svcGroups = [ordered]@{ DiagTrack = 'telemetry'; dmwappushservice = 'telemetry'; WSAIFabricSvc = 'telemetry'; SysMain = 'sysmain-off'
+    MapsBroker = $null; lfsvc = $null; TrkWks = $null; PcaSvc = $null; RetailDemo = $null }
+$svcDefault = @{ DiagTrack = 'Automatic'; dmwappushservice = 'Manual'; WSAIFabricSvc = 'Manual'; SysMain = 'Automatic' }   # (Windows 11's own)
+foreach ($n in @($svcGroups.Keys) | Where-Object { -not ($sysHdd -and $_ -eq 'SysMain') }) {
+    $s = Get-Service $n; if (-not $s) { continue }
+    if (Want $svcGroups[$n]) {
+        if ($s.StartType -ne 'Disabled') { Save-Original "service|$n" @{ StartType = "$($s.StartType)" }; Stop-Service $n -Force; Set-Service $n -StartupType Disabled; $changes.Add("service $n off") }
+    } elseif ($s.StartType -eq 'Disabled') {
+        # switched off (or opt-in and never chosen): back to how it was before the kit - or, on a PC set up before the
+        # originals were kept, to Windows' own default, once (one the owner turns off by hand afterwards stays off)
+        $o = $bk["service|$n"]
+        $to = if ($o -and "$($o.StartType)" -notin '', 'Disabled') { $o.StartType } elseif (-not $o -and $svcDefault[$n] -and -not $bk.ContainsKey("undone|service|$n")) { $svcDefault[$n] }
+        if (-not $to) { continue }
+        Set-Service $n -StartupType $to; if ($to -eq 'Automatic') { Start-Service $n }
+        if (-not $o) { $bk["undone|service|$n"] = @{ Date = (Get-Date).ToString('d') }; $script:bkDirty = $true }
+        $changes.Add("service $n back to $to $(if ($o) { '(your choice)' } else { '(Windows'' default)' })")
+    }
 }
 $manual = 'StiSvc', 'PhoneSvc', 'diagsvc'
 $printers = try { Get-Printer -ErrorAction Stop } catch { @() }
@@ -268,9 +321,28 @@ if (-not (Want 'game-bar')) {
         Undo-Once 'game-bar' { $null = winget install --id 9NZKPSTSNW4P --source msstore --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 } 'Xbox Game Bar reinstalled (your choice)'
     }
 } else { Redo 'game-bar' }
+# Never while Windows is halfway through an update (a restart pending): removing parts then has corrupted the component
+# store (RemoveWindowsAI #77) - the next run, after the restart, does it
+$restartPending = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending',
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired' | Where-Object { Test-Path $_ }).Count -gt 0
+# apps that hold the owner's own data: kept when they have some (a Win11Debloat user lost their notes that way, #576)
+$dataApps = 'Microsoft.MicrosoftStickyNotes', 'Microsoft.Office.OneNote', 'Microsoft.Todos', 'Microsoft.MicrosoftJournal', 'microsoft.windowscommunicationsapps'
 foreach ($a in $apps) {
+    if ($restartPending) { break }
     $pkg = Get-AppxPackage -AllUsers $a
     if ($pkg) {
+        if ($bk.ContainsKey("reinstalled|$a") -or $bk.ContainsKey("kept|$a")) { continue }
+        # removed before and back for this user only (not set up for new users again): the owner reinstalled it - it
+        # stays (Winhance kept removing apps people had reinstalled on purpose, #175). Windows putting it back comes
+        # with the new-user copy too, and that goes again.
+        if ($bk.ContainsKey("app|$a") -and -not (Get-AppxProvisionedPackage -Online | Where-Object DisplayName -eq $a)) {
+            $bk["reinstalled|$a"] = @{ Date = (Get-Date).ToString('d') }; $script:bkDirty = $true; $changes.Add("app $a kept (you reinstalled it)"); continue
+        }
+        $fam = ($pkg | Select-Object -First 1).PackageFamilyName
+        if ($a -in $dataApps -and -not $bk.ContainsKey("app|$a") -and $fam -and
+            (Get-ChildItem "$env:LOCALAPPDATA\Packages\$fam\LocalState" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+            $bk["kept|$a"] = @{ Date = (Get-Date).ToString('d') }; $script:bkDirty = $true; $changes.Add("app $a kept (it has your data)"); continue
+        }
         Save-Original "app|$a" @{ Name = ($pkg | Select-Object -First 1).Name; Removed = (Get-Date).ToString('d') }   # can't be put back automatically (Microsoft Store)
         $pkg | ForEach-Object { Remove-AppxPackage -Package $_.PackageFullName -AllUsers }
         $changes.Add("app $a removed")
@@ -293,7 +365,7 @@ $legacyCaps = 'Browser.InternetExplorer', 'Media.WindowsMediaPlayer', 'Microsoft
 $legacyFeats = 'MicrosoftWindowsPowerShellV2Root', 'MicrosoftWindowsPowerShellV2', 'Recall'
 if (Want 'legacy') {
     Redo 'legacy'
-    if (-not $Quick -and "$($bk['legacy|build'].Build)" -ne $build) {
+    if (-not $Quick -and -not $restartPending -and "$($bk['legacy|build'].Build)" -ne $build) {   # (not mid-update: see the apps)
         $all = $true
         # (another servicing job - the first maintenance's own DISM cleanup runs alongside - holds Windows' servicing lock and
         # a removal is refused: waited for and tried again, 8 minutes (16 x 30 s) at most in all; 9/30 on GitHub only 1 of 9 went at first)
@@ -354,6 +426,13 @@ elseif ($laptop) {
     if ((Get-AcIndex $usbSub $usbSet) -ne 0) { powercfg /setacvalueindex SCHEME_CURRENT $usbSub $usbSet 0; powercfg /setactive SCHEME_CURRENT; $changes.Add('USB sleep off when plugged in') }
     # Settings > Power mode "Best performance" when plugged in (Windows keeps it here; there's no powercfg switch)
     Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes' ActiveOverlayAcPowerScheme 'ded574b5-45a0-4f42-8737-46345c09c238' String
+}
+elseif ($dualX3D) {
+    # AMD's dual-CCD X3D CPUs: Balanced, as AMD recommends - its driver parks the second CCD so games stay on the V-Cache
+    # cores, and Ultimate Performance keeps every core unparked (reviewers follow AMD here; 10/10, the research comparison)
+    $bal = '381b4222-f694-41f0-9685-ff5bb260df2e'
+    if ($active -ne $bal) { Save-Original 'plan|active' @{ Guid = $active }; powercfg /setactive $bal; $changes.Add('power plan Balanced (AMD''s choice for this X3D CPU)') }
+    if ((Get-AcIndex $usbSub $usbSet) -ne 0) { powercfg /setacvalueindex SCHEME_CURRENT $usbSub $usbSet 0; powercfg /setactive SCHEME_CURRENT; $changes.Add('USB sleep off') }
 }
 else {
     $ult = '99999999-9999-9999-9999-999999999999'
@@ -427,6 +506,11 @@ Trace 'Edge'
 $group = 'edge'
 Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' HideFirstRunExperience 1
 Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' DefaultBrowserSettingEnabled 0
+# its AI and ads (Copilot reading pages, AI history search, "compose", Bing chat and news on the new tab, shopping, Acrobat
+# and donation upsells) - from Win11Debloat's maintained list, 10/10
+foreach ($n in 'CopilotPageContext', 'CopilotCDPPageContext', 'EdgeEntraCopilotPageContext', 'EdgeHistoryAISearchEnabled', 'ComposeInlineEnabled',
+    'NewTabPageBingChatEnabled', 'NewTabPageContentEnabled', 'EdgeShoppingAssistantEnabled', 'ShowRecommendationsEnabled',
+    'SpotlightExperiencesAndRecommendationsEnabled', 'WalletDonationEnabled', 'ShowAcrobatSubscriptionButton') { Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' $n 0 }
 Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate' CreateDesktopShortcutDefault 0
 Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate' 'CreateDesktopShortcut{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}' 0   # (Edge's own id)
 # (tests: the icons and the pins live in PCKIT_EDGE_ROOT - never this PC's; none set: not touched)
@@ -555,6 +639,15 @@ if (-not $laptop) {
 }
 
 Trace 'done'
+# the change history: the settings with their values (above), everything else as reported; the newest 3000 lines kept
+foreach ($c in $changes | Select-Object -Unique) { if ($c -notmatch '^setting ') { Note-Change $c } }
+if ($changeLog.Count) {
+    $hist = Join-Path (Split-Path $bkFile) 'change-history.log'
+    try {
+        Add-Content $hist $changeLog -Encoding UTF8
+        $all = @(Get-Content $hist -Encoding UTF8); if ($all.Count -gt 3000) { $all[-3000..-1] | Set-Content $hist -Encoding UTF8 }
+    } catch { }
+}
 Save-Backup
 try { $tmx.ReleaseMutex() } catch { }
 $changes | Select-Object -Unique

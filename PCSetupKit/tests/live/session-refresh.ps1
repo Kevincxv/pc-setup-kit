@@ -75,6 +75,10 @@ try {
     $o = & $rs -Log $testLog -Exe (Touch-New) -OnlyPid $n[0].LauncherPid -IdleMinutes 10 -WhatIf   # it is up to date anyway; use an older session for this:
     $id3 = New-Conversation 'Use the PowerShell tool to run exactly: ping -n 30 127.0.0.1. Then reply DONE.' 13; $ids += $id3
     $s3 = Start-Hidden @('--resume', $id3); $cleanup += $s3
+    # (the resumed Claude writes its transcript once more while starting: wait until it's quiet, or the backdated time below
+    # is overwritten and the session counts as active instead of cut off mid-task - 10/10 a race)
+    $q = (Get-Date).AddSeconds(20); $last = $null
+    while ((Get-Date) -lt $q) { Start-Sleep 2; $wt = (Get-Item "$proj\$id3.jsonl").LastWriteTime; if ($last -and $wt -eq $last) { break }; $last = $wt }
     (Get-Item "$proj\$id3.jsonl").LastWriteTime = (Get-Date).AddMinutes(-30)
     $o = & $rs -Log $testLog -Exe (Touch-New) -OnlyPid $s3 -IdleMinutes 10 -WhatIf
     Check 'conversation cut off mid-task: skipped' ($o -match 'skip .*middle of a task') ($o -join ' / ')
