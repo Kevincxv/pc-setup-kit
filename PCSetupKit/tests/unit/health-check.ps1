@@ -11,7 +11,7 @@ Copy-Item "$Src\health-check.ps1" $d
 $mocked = 'Get-WinEvent', 'Get-ChildItem', 'Get-CimInstance', 'Get-MpComputerStatus', 'Start-Process', 'w32tm', 'winget', 'Get-PnpDevice', 'Get-PnpDeviceProperty',
     'Get-PSDrive', 'Get-PhysicalDisk', 'Get-StorageReliabilityCounter', 'Get-ScheduledTask', 'Get-NetAdapter', 'Get-Disk', 'Get-Partition',
     'Get-ItemProperty', 'Enable-ComputerRestore', 'reagentc', 'Confirm-SecureBootUEFI', 'Get-SecureBootUEFI', 'Get-AuthenticodeSignature'
-if (-not (Test-Tripwire "$d\health-check.ps1" $mocked -Guarded 'C:\PCSetupKit\tweaks.ps1')) { Finish }   # (Test-Path mock hides the real tweak guard)
+if (-not (Test-Tripwire "$d\health-check.ps1" $mocked -Guarded 'C:\PCSetupKit\tweaks.ps1', 'Get-Command')) { Finish }   # (Test-Path mock hides the real tweak guard; Get-Command only reads its parameters)
 
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
 # ---- mocks (functions win over cmdlets/programs; the script is run in this scope so it sees them) ----

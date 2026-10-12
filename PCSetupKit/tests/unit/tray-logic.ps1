@@ -1,4 +1,4 @@
-﻿# The tray script's own logic (alerts, tooltip, "maintenance running", rehearsal ignore list), run in an AutoHotkey
+# The tray script's own logic (alerts, tooltip, "maintenance running", rehearsal ignore list), run in an AutoHotkey
 # harness: the real functions are copied out of the tray script; the on-screen parts (fullscreen check, the alert
 # window) are replaced by stand-ins that record what would be shown.
 . "$PSScriptRoot\..\lib.ps1"
@@ -11,7 +11,7 @@ function Get-AhkFunction([string]$Name) {
     if (-not $m.Success) { $m = [regex]::Match($traySrc, "(?m)^$Name\([^)\r\n]*\)\s*=>.*$") }
     $m.Value
 }
-$funcs = foreach ($n in 'MaintRunning', 'TodoTip', 'Notify', 'RehearsalPids', 'TrayError', 'AiEnabled', 'StatusAtLogin', 'LogNote', 'SetPause') { $f = Get-AhkFunction $n; Check "tray function $n found" ([bool]$f) ''; $f }
+$funcs = foreach ($n in 'MaintRunning', 'TodoTip', 'Notify', 'RehearsalPids', 'TrayError', 'AiEnabled', 'StatusAtLogin', 'LogNote', 'SetPause', 'Alert') { $f = Get-AhkFunction $n; Check "tray function $n found" ([bool]$f) ''; $f }
 @"
 #Requires AutoHotkey v2.0
 #NoTrayIcon
@@ -86,8 +86,14 @@ Check 'fresh marker: running' ((T running) -eq 'yes') ''
 (Get-Item "$C\maint-claude-running").LastWriteTime = (Get-Date).AddMinutes(-70); if ((Get-Date).AddMinutes(-70) -gt $boot) { Check 'marker older than 60 min: not running' ((T running) -eq 'no') '' }
 Clear-Path "$C\maint-claude-running"; Check 'no marker: not running' ((T running) -eq 'no') ''
 
-Section 'alerts'
-Clear-Path "$C\tray-notified.ini"; Todo 'Turn EXPO back on in the BIOS'
+Section 'alerts: quiet by default (the owner''s rule 10/10 - Messiah never pops up by itself)'
+Clear-Path "$C\tray-notified.ini"; Clear-Path "$C\kit-options.txt"; [IO.File]::Delete("$C\notifications.log"); Todo 'Turn EXPO back on in the BIOS'
+$o = T notify; Check 'a new to-do item: nothing pops up' ($o -eq '') $o
+Check '... it is kept for the app (Notifications) all the same' ((Get-Content "$C\notifications.log" -Raw -ErrorAction SilentlyContinue) -match '\|Needs you \(1\): Turn EXPO back on') ''
+Check '... and not again (recorded as told)' ((T notify) -eq '' -and @(Get-Content "$C\notifications.log").Count -eq 1) ''
+[IO.File]::Delete("$C\notifications.log")
+Section 'alerts in the corner (Settings: "Show alerts in the corner" on)'
+Clear-Path "$C\tray-notified.ini"; 'cornernotes=on' | Set-Content "$C\kit-options.txt"; Todo 'Turn EXPO back on in the BIOS'
 $o = T notify; Check 'a new to-do item: alert shown' ($o -eq 'Needs you (1): Turn EXPO back on in the BIOS') $o
 Check '... and recorded, so it is shown once' ((T notify) -eq '') (T notify)
 Todo 'A second thing', 'Turn EXPO back on in the BIOS'; (Get-Item "$C\maint-todo.txt").LastWriteTime = (Get-Date).AddSeconds(5)
@@ -135,11 +141,11 @@ try {
 } finally { $env:PCKIT_IN_TESTS = $saved; [IO.File]::Delete("$C\tray-notified.ini"); [IO.File]::Delete("$C\kit-options.txt") }
 
 Section "what's new / the weekly summary (tray-news.txt), pausing, the app's commands"
-Clear-Path "$C\maint-todo.txt"; Clear-Path "$C\restart-ledger.json"; [void](T notify)
+'cornernotes=on' | Set-Content "$C\kit-options.txt"; Clear-Path "$C\maint-todo.txt"; Clear-Path "$C\restart-ledger.json"; [void](T notify)
 'Updated to v2026.10.01 - new: faster monitor fix. Details: the app > Maintenance.' | Set-Content "$C\tray-news.txt" -Encoding UTF8
 $o = T notify; Check 'a message from the maintenance (what''s new, the weekly summary): shown as a note' ($o -match '^Updated to v2026\.10\.01 - new: faster monitor fix') $o
 Check '... once' ((T notify) -eq '') ''
-'claude=on' | Set-Content "$C\kit-options.txt"
+'claude=on', 'cornernotes=on' | Set-Content "$C\kit-options.txt"
 $o = T pause 2
 $opts = @(Get-Content "$C\kit-options.txt")
 $pu = [datetime]::MinValue; $okDate = ($opts -match '^pause-until=') -and [datetime]::TryParse(((@($opts -match '^pause-until=')[0]) -split '=', 2)[1], [ref]$pu)

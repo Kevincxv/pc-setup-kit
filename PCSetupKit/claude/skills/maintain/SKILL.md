@@ -113,7 +113,7 @@ To mark the report's warnings as handled, run `& "$env:USERPROFILE\.claude\maint
 ## Unattended runs and the to-do list
 At login this skill may run headless (`claude -p`, no window): then never ask questions, restart, or start anything heavy -
 write what needs the owner to `%USERPROFILE%\.claude\maint-todo.txt` (one plain-English line each; rewrite the whole list;
-delete the file when empty). Logs of headless runs are in `.claude\maint-claude-log\`. When the owner opens Messiah
+delete the file when empty). Keep every line that is already in the file and still open, also lines other runs wrote (self-improve, the kit's scripts) - drop a line only when it is done or no longer true. Never write a line the owner dismissed in the app: `todo-scripted.json` `gone` lists those lines (90 days) - don't put the same item back in other words either, unless something new happened (a new crash, a new failure). Logs of headless runs are in `.claude\maint-claude-log\`. When the owner opens Messiah
 with open items, go through them together; remove each line once it's done. One-off requests for the next login run can be
 left in `.claude\maint-requests.txt`.
 

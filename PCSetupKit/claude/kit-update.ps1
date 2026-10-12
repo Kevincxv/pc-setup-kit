@@ -124,7 +124,12 @@ try {
             $notes = "$((Invoke-RestMethod "https://api.github.com/repos/$($cfg.repo)/releases/tags/$tag" -Headers @{ 'User-Agent' = 'pc-setup-kit' } -TimeoutSec 20).body)"
             $pts = @($notes -split "`r?`n" | Where-Object { $_ -match '^\s*-\s+\S' } | ForEach-Object { ($_ -replace '^\s*-\s+', '' -replace '\s*\(.*$', '' -replace ':.*$', '').Trim() } | Where-Object { $_ } | Select-Object -First 3)
             "Updated to $tag$(if ($pts) { " - new: $($pts -join '; ')" }). Details: the app > Maintenance." | Set-Content "$ClaudeDir\tray-news.txt" -Encoding UTF8
-        } catch { "Updated to $tag." | Set-Content "$ClaudeDir\tray-news.txt" -Encoding UTF8 }
+            # ...and the app's "What's new" card on Home (whats-new.json): the release's points, whole, up to 6
+            $all = @($notes -split "`r?`n" | Where-Object { $_ -match '^\s*-\s+\S' } | ForEach-Object { ($_ -replace '^\s*-\s+', '').Trim() } | Select-Object -First 6)
+            $wj = @{ version = $tag; date = (Get-Date).ToString('o'); points = $all; url = "https://github.com/$($cfg.repo)/releases/tag/$tag" } | ConvertTo-Json
+            [IO.File]::WriteAllText("$ClaudeDir\whats-new.json", $wj, (New-Object Text.UTF8Encoding $false))
+        } catch { "Updated to $tag." | Set-Content "$ClaudeDir\tray-news.txt" -Encoding UTF8
+            [IO.File]::WriteAllText("$ClaudeDir\whats-new.json", (@{ version = $tag; date = (Get-Date).ToString('o'); points = @() } | ConvertTo-Json), (New-Object Text.UTF8Encoding $false)) }
     "PC Setup Kit updated $(if ($cur) { "$cur -> " })$tag"
 }
 catch {

@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
 Persistent
 ; The Messiah app's tray side: it starts at login in the hidden tray (the ^ area) and runs the PC's maintenance on its own; small alerts when something needs the owner, and the
@@ -64,6 +64,7 @@ if AI {
     SetTimer AutoStart, -3000
     SetTimer SessionCheck, 300000
     SetTimer RefreshSession, 900000
+    SetTimer ChatDone, 3000
 }
 
 ; The optional Claude part is on when setup recorded it (kit-options.txt: claude=on); PCs installed before the option
@@ -113,7 +114,8 @@ AppCommand(wParam, *) {
         9, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\kit-update.ps1" -Rollback'),                ; undo the last update
         10, (*) => Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\ai-toggle.ps1" -On'),                               ; the AI assistant on: installs Claude Code, then its sign-in
         11, (*) => Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' CL '\ai-toggle.ps1" -Off', , "Hide"),
-        12, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\gpu-rollback.ps1"'))                       ; back to the graphics driver before this one
+        12, (*) => Run('powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "' CL '\gpu-rollback.ps1"'),
+        13, (*) => Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' CL '\chat-host.ps1"', , "Hide"))   ; the app's chat with Claude (elevated, no window)                       ; back to the graphics driver before this one
     if work.Has(wParam)
         SetTimer work[wParam], -10
     return 1
@@ -181,7 +183,8 @@ UnpinIcon() {
         SetTimer UnpinIcon, -15000
 }
 
-; --- Alerts. Windows notifications are off on this PC (debloat), so the tray shows its own small note in the corner:
+; --- Alerts. Windows notifications are off on this PC (debloat), so the tray has its own small note in the corner (Alert:
+; only when the owner turns corner alerts on):
 ; it never takes focus, waits while a game or video is fullscreen, closes after 20 s, and each thing is shown once.
 Notify() {
     if IsFullscreen()
@@ -198,7 +201,7 @@ Notify() {
             IniWrite stamp, notified, "shown", "todo"
             first := StrLen(items.Length ? items[1] : "") > 110 ? SubStr(items[1], 1, 107) "..." : (items.Length ? items[1] : "")
             if items.Length
-                return ShowNote("Needs you (" items.Length "): " first (items.Length > 1 ? "`n+ " items.Length - 1 " more" : ""))
+                return Alert("Needs you (" items.Length "): " first (items.Length > 1 ? "`n+ " items.Length - 1 " more" : ""))
         }
     }
     f := CL "\tray-news.txt"   ; a short message from the maintenance: what's new after a kit update, the weekly summary
@@ -208,7 +211,7 @@ Notify() {
             IniWrite stamp, notified, "shown", "news"
             txt := Trim(FileRead(f, "UTF-8"), " `r`n")
             if txt != ""
-                return ShowNote(StrLen(txt) > 330 ? SubStr(txt, 1, 327) "..." : txt)
+                return Alert(StrLen(txt) > 330 ? SubStr(txt, 1, 327) "..." : txt)
         }
     }
     f := CL "\restart-ledger.json"   ; work waiting for the owner's next shutdown/restart (once per new batch)
@@ -220,20 +223,94 @@ Notify() {
         key := (RegExMatch(txt, '"boot":\s*"([^"]+)"', &m) ? m[1] : "") "|" n
         if n && key != IniRead(notified, "shown", "restart", "") {
             IniWrite key, notified, "shown", "restart"
-            return ShowNote(n " update(s)/fix(es) will finish the next time you turn the PC off.`nNo need to restart now - whenever suits you.")
+            return Alert(n " update(s)/fix(es) will finish the next time you turn the PC off.`nNo need to restart now - whenever suits you.")
         }
     }
 }
 
+; The owner's rule (10/10): Messiah works in the background and never pops up by itself - what the maintenance has to
+; say goes to the app (Home, Notifications) and the tray's tooltip, quietly. "Show alerts in the corner" in Settings
+; (kit-options.txt "cornernotes=on") brings the corner notes back. Notes about something the owner just did still show.
+Alert(text) {
+    opts := ""
+    try opts := FileRead(CL "\kit-options.txt")
+    if RegExMatch(opts, "im)^\s*cornernotes\s*=\s*on\s*$")
+        return ShowNote(text)
+    LogNote(text)
+}
+
+; --- "Claude finished": a chat in the app that was working is done while the owner isn't looking at the app (its window
+; isn't the one in front) - a note about something the owner asked for, so it shows even with corner alerts off. It
+; waits while a game or video is fullscreen. Clicking it opens that chat (app-request.txt, read by dashboard.ps1).
+ChatDone() {
+    static busy := Map(), pending := "", pendingTab := ""
+    dirs := [CL "\chat"]
+    Loop Files CL "\chats\*", "D"
+        dirs.Push(A_LoopFileFullPath)
+    for d in dirs {
+        st := ""
+        try st := FileRead(d "\state.json", "UTF-8")
+        if RegExMatch(st, '"busy":\s*true')
+            now := true
+        else if RegExMatch(st, '"busy":\s*false')
+            now := false
+        else {   ; no host (closed, not started yet): nothing to say
+            if busy.Has(d)
+                busy.Delete(d)
+            continue
+        }
+        was := busy.Has(d) ? busy[d] : false
+        busy[d] := now
+        if was && !now && !AppInFront()
+            pending := LastReply(d), pendingTab := (d = CL "\chat") ? "" : RegExReplace(d, ".*\\")
+    }
+    if pending = "" || IsFullscreen()
+        return
+    txt := pending, tab := pendingTab, pending := ""
+    if AppInFront()   ; (back at the app meanwhile: seen it)
+        return
+    ShowNote("Claude finished" (txt = "-" ? "." : ": " txt), (*) => OpenChat(tab), 15)
+}
+; the window of the app (dashboard.ps1 keeps its handle in app-window.txt) is the one in front
+AppInFront() {
+    try {
+        h := Trim(FileRead(CL "\app-window.txt"))
+        return h != "" && WinActive("ahk_id " h) ? true : false
+    }
+    return false
+}
+; the chat's last answer, short (events.jsonl: {"t":"text","text":...}); "-" when there's none
+LastReply(d) {
+    try {
+        txt := FileRead(d "\events.jsonl", "UTF-8")
+        p := InStr(txt, '"t":"text"', , -1)
+        if p && RegExMatch(txt, '"text":"((?:[^"\\]|\\.)*)"', &m, p) {
+            s := m[1]
+            while RegExMatch(s, "\\u([0-9a-fA-F]{4})", &u)
+                s := StrReplace(s, u[0], Chr(Integer("0x" u[1])))
+            s := StrReplace(StrReplace(StrReplace(StrReplace(s, "\n", " "), "\r", ""), '\"', '"'), "\\", "\")
+            s := Trim(RegExReplace(RegExReplace(s, "[*``#]+", ""), "\s+", " "))
+            return StrLen(s) > 140 ? SubStr(s, 1, 137) "..." : (s = "" ? "-" : s)
+        }
+    }
+    return "-"
+}
+OpenChat(tab) {
+    try FileOpen(CL "\app-request.txt", "w", "UTF-8-RAW").Write("chat=" tab)
+    ShowApp("Chat")
+}
+
 ; The note: dark card with rounded corners (Windows 11), bottom-right, fades in, never takes focus.
-; details = true: clicking opens Status (alerts); false: clicking just closes it (short messages)
+; details = true: clicking opens Status (alerts); false: clicking just closes it (short messages); a function: clicking
+; does that
 ShowNote(text, details := true, seconds := 20) {
     global note
     LogNote(text)
     try note.Destroy()
     note := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000")   ; WS_EX_NOACTIVATE: never steals focus
     note.BackColor := "202020", note.MarginX := 20, note.MarginY := 16
-    click := details ? NoteClick : (*) => CloseNote()
+    act := details
+    click := HasMethod(details) ? (*) => (CloseNote(), act()) : details ? NoteClick : (*) => CloseNote()
     note.SetFont("s10 bold c60CDFF", "Segoe UI"), note.SetFont(, "Segoe UI Variable Text")
     note.AddText("w300 +0x100", NAME).OnEvent("Click", click)
     note.SetFont("s10 norm c8A8A8A")
@@ -241,7 +318,7 @@ ShowNote(text, details := true, seconds := 20) {
     note.SetFont("s10 cF0F0F0")
     note.AddText("xm y+6 w330 +0x100", text).OnEvent("Click", click)
     note.SetFont("s8 c8A8A8A")
-    note.AddText("xm y+10 w330 +0x100", details ? "Click for details" : "Click to close").OnEvent("Click", click)
+    note.AddText("xm y+10 w330 +0x100", HasMethod(details) ? "Click to open the chat" : details ? "Click for details" : "Click to close").OnEvent("Click", click)
     try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", note.Hwnd, "int", 33, "int*", 2, "int", 4)            ; rounded corners
     try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", note.Hwnd, "int", 34, "int*", 0x3A3A3A, "int", 4)     ; subtle border
     note.Show("NoActivate Hide")

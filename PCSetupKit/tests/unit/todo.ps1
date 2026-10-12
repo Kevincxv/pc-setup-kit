@@ -44,9 +44,30 @@ Clear-Path "$D\maint-todo.txt"; Clear-Path "$D\todo-scripted.json"
 T -Id rebar -Text 'Resizable BAR is off'; 'A line Claude wrote' | Add-Content "$D\maint-todo.txt"
 T -Snooze 'Resizable BAR is off'; T -Snooze 'A line Claude wrote'
 T -Id rebar -Text 'Resizable BAR is off'
-Check 'snoozed: off the list - the kit''s item doesn''t put itself back meanwhile' (-not @(Get-Content "$D\maint-todo.txt" -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })) ((Get-Content "$D\maint-todo.txt") -join ' | ')
+Check 'snoozed: off the list - the kit''s item doesn''t put itself back meanwhile' (-not @(Get-Content "$D\maint-todo.txt" -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })) ((Get-Content "$D\maint-todo.txt" -ErrorAction SilentlyContinue) -join ' | ')
 $j = Get-Content "$D\todo-scripted.json" -Raw | ConvertFrom-Json; foreach ($p in $j.snoozed.PSObject.Properties) { $p.Value.until = (Get-Date).AddDays(-1).ToString('o') }; $j | ConvertTo-Json -Depth 4 | Set-Content "$D\todo-scripted.json"
 T -Id rebar -Text 'Resizable BAR is off'
 $l = @(Get-Content "$D\maint-todo.txt")
 Check '... a week later: both back (not counted as dismissed)' (($l -contains 'Resizable BAR is off') -and ($l -contains 'A line Claude wrote') -and -not ((Get-Content "$D\todo-scripted.json" -Raw | ConvertFrom-Json).dismissed.PSObject.Properties.Name -contains 'rebar')) ($l -join ' | ')
+Section 'dismiss (the app: Dismiss)'
+Clear-Path "$D\maint-todo.txt"; Clear-Path "$D\todo-scripted.json"
+T -Id rebar -Text 'Resizable BAR is off'; 'A line Claude wrote' | Add-Content "$D\maint-todo.txt"; 'Another line' | Add-Content "$D\maint-todo.txt"
+T -Dismiss 'Resizable BAR is off'; T -Dismiss 'A line Claude wrote'
+Check 'dismissed: off the list, the others stay' ((Lines) -join '|' -eq 'Another line') ((Lines) -join ' | ')
+T -Id rebar -Text 'Resizable BAR is off'
+Check '... the kit''s item doesn''t put itself back (90 days, like deleting its line)' (-not ((Lines) -contains 'Resizable BAR is off')) ((Lines) -join ' | ')
+$j = Get-Content "$D\todo-scripted.json" -Raw | ConvertFrom-Json
+Check '... a line Claude wrote is remembered as gone (the hidden /maintain reads it and doesn''t write it again)' (@($j.gone.PSObject.Properties.Name) -contains 'A line Claude wrote' -and @($j.gone.PSObject.Properties.Name) -contains 'Resizable BAR is off') ''
+$j.gone.'A line Claude wrote' = (Get-Date).AddDays(-91).ToString('o'); $j | ConvertTo-Json -Depth 4 | Set-Content "$D\todo-scripted.json"
+T -List | Out-Null; T -Id other -Text 'X.'
+Check '... forgotten after 90 days' (-not (@((Get-Content "$D\todo-scripted.json" -Raw | ConvertFrom-Json).gone.PSObject.Properties.Name) -contains 'A line Claude wrote')) ''
+T -Snooze 'Another line'; T -Dismiss 'Another line'
+Check 'a snoozed line dismissed: it never comes back from the snooze' (-not (@((Get-Content "$D\todo-scripted.json" -Raw | ConvertFrom-Json).snoozed.PSObject.Properties.Name) -contains 'Another line')) ''
+Section 'nothing open: no file'
+Clear-Path "$D\maint-todo.txt"; Clear-Path "$D\todo-scripted.json"
+'A line Claude wrote' | Add-Content "$D\maint-todo.txt"; T -Id rebar -Text 'Resizable BAR is off'
+T -Dismiss 'A line Claude wrote'; T -Snooze 'Resizable BAR is off'
+Check 'the last line dismissed or snoozed: the file is deleted, not left empty (the app would still offer the to-do walk-through)' (-not (Test-Path "$D\maint-todo.txt")) ''
+T -Id bios -Text 'Update the BIOS.'; T -Id bios -Done
+Check 'the last kit item done: no file either' (-not (Test-Path "$D\maint-todo.txt")) ''
 Finish

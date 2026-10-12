@@ -7,9 +7,10 @@ Set-Content "$Work\tweaks.ps1" $tweaksText.Replace("'C:\PCSetupKit\tweaks-backup
 $mocked = 'Set-ItemProperty', 'Start-Service', 'New-Item', 'Get-ItemProperty', 'Set-Service', 'Stop-Service', 'Get-Service', 'Disable-ScheduledTask', 'Unregister-ScheduledTask',
     'Get-ScheduledTask', 'Get-AppxPackage', 'Get-AppxProvisionedPackage', 'Remove-AppxPackage', 'Remove-AppxProvisionedPackage', 'Get-CimInstance', 'Set-CimInstance',
     'Get-NetAdapter', 'Get-NetAdapterAdvancedProperty', 'Set-NetAdapterAdvancedProperty', 'Get-Printer', 'Test-Path', 'powercfg', 'Get-Process', 'Stop-Process', 'Start-Process', 'Remove-ItemProperty', 'winget', 'Get-PhysicalDisk', 'Get-Partition',
-    'Get-WindowsCapability', 'Remove-WindowsCapability', 'Add-WindowsCapability', 'Get-WindowsOptionalFeature', 'Disable-WindowsOptionalFeature', 'Enable-WindowsOptionalFeature', 'Get-WindowsReservedStorageState', 'Set-WindowsReservedStorageState'
+    'Get-WindowsCapability', 'Remove-WindowsCapability', 'Add-WindowsCapability', 'Get-WindowsOptionalFeature', 'Disable-WindowsOptionalFeature', 'Enable-WindowsOptionalFeature', 'Get-WindowsReservedStorageState', 'Set-WindowsReservedStorageState', 'Get-PnpDevice'
 # (Get-Acl/Set-Acl: guarded - only on PCKIT_VENDOR_ROOT, the test's own folder; with none set in a test nothing is touched)
-if (-not (Test-Tripwire "$Work\tweaks.ps1" $mocked @('Get-Acl', 'Set-Acl'))) { Finish }
+# (Set-Item: only -Audit's stand-in functions, on the function: drive - checked below)
+if (-not (Test-Tripwire "$Work\tweaks.ps1" $mocked @('Get-Acl', 'Set-Acl', 'Set-Item'))) { Finish }
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
 
 $svcNames = 'DiagTrack', 'dmwappushservice', 'SysMain', 'MapsBroker', 'lfsvc', 'TrkWks', 'WSAIFabricSvc', 'PcaSvc', 'RetailDemo', 'StiSvc', 'PhoneSvc', 'diagsvc', 'Spooler'
@@ -53,6 +54,7 @@ function Set-NetAdapterAdvancedProperty { param($Name, $DisplayName, $DisplayVal
 $env:PCKIT_TWEAK_OPTIONS = "$Work\kit-options.txt"   # the owner's choices: this test's own file, never the real one
 function winget { $global:TWlog.Add("winget $args") }
 function Get-Partition { [pscustomobject]@{ DiskNumber = 0 } }
+function Get-PnpDevice { param([switch]$PresentOnly, $Class) @($global:TW.Pnp) | Where-Object { $_ } }   # (none by default: the hardware rule is skipped)
 function Get-PhysicalDisk { [pscustomobject]@{ DeviceId = '0'; MediaType = $(if ($global:TW.Hdd) { 'HDD' } else { 'SSD' }) } }
 function Get-Printer { $global:TW.Printers }
 function powercfg {
@@ -246,6 +248,25 @@ Check '... and the taskbar unpin (the shell can wait forever) runs in its own pr
 Fresh; Clear-Path $bk; $env:PCKIT_TWEAKS_TRACE = "$Work\trace2.txt"; [void](Run); $env:PCKIT_TWEAKS_TRACE = $null
 Check '... the originals file is complete after a normal run all the same' ((Test-Path $bk) -and (Get-Content $bk -Raw) -match 'DiagTrack') ''
 
+Section 'the preview (-Audit): lists what would change, changes nothing'
+# every command tweaks.ps1 uses either only reads, or is on -Audit's list of stand-ins - so a new kind of change can't
+# slip past the preview (the same idea as the tripwire above)
+$tast = [Management.Automation.Language.Parser]::ParseFile("$Kit\tweaks.ps1", [ref]$null, [ref]$null)
+$wc = @($tast.Find({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and "$($n.Left)" -eq '$writeCmds' }, $true).Right.Expression.SafeGetValue())
+$ownFn = @($tast.FindAll({ $args[0] -is [Management.Automation.Language.FunctionDefinitionAst] }, $true) | ForEach-Object Name)
+$usedCmds = @($tast.FindAll({ $args[0] -is [Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() } | Where-Object { $_ } | Sort-Object -Unique)
+$readOnly = '^(Get-|Test-|Select-|Where-|ForEach-|Sort-|Measure-|Group-|ConvertFrom-|ConvertTo-|Join-Path|Split-Path|Out-Null|Out-String|New-Object|Write-Host|Add-Type|Start-Sleep|powercfg$)'
+$setItems = @($tast.FindAll({ $args[0] -is [Management.Automation.Language.CommandAst] -and $args[0].GetCommandName() -eq 'Set-Item' }, $true))
+Check '... Set-Item is only used for the stand-ins themselves (the function: drive)' ($setItems.Count -ge 1 -and -not ($setItems | Where-Object { "$_" -notmatch 'function:script:' })) ''
+$uncovered = @($usedCmds | Where-Object { $_ -notmatch $readOnly -and $_ -notin $wc -and $_ -notin $ownFn -and $_ -ne 'Set-Item' })
+Check 'every changing command in tweaks.ps1 has a preview stand-in' ($wc.Count -ge 20 -and -not $uncovered) "not covered: $($uncovered -join ', ')"
+'' | Set-Content $opt; Fresh; Clear-Path $bk; $before = @($TW.Reg.Keys).Count
+$o = @(& "$Work\tweaks.ps1" -Audit)
+Check 'a fresh Windows: lists what would change, with the current and new value' (($o -match "^Would: setting AllowTelemetry \(HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection\): '\(not set\)' -> '0'") -and ($o -match '^Would: app Microsoft\.Copilot removed') -and ($o -match '^Would: service DiagTrack off')) ($o -join ' / ')
+Check '... and changes nothing: no setting, service, app or file' ((@($TW.Reg.Keys).Count -eq $before) -and ($TW.Services['DiagTrack'] -eq 'Automatic') -and ('Microsoft.Copilot' -in $TW.Apps) -and -not (Test-Path $bk) -and -not ($TWlog -match '^(reg|service|app|task)')) (($TWlog | Select-Object -First 5) -join ' / ')
+Check '... and says so in its last line' ($o[-1] -match '^Preview: \d+ change\(s\) would be made; \d+ setting\(s\) already as Messiah keeps them - nothing was changed$') $o[-1]
+[void](Run); $o = @(& "$Work\tweaks.ps1" -Audit)
+Check 'after a real run: nothing left to change, everything counted as in place' ($o[-1] -match '^Preview: 0 change\(s\) would be made; (\d+) setting' -and [int]$Matches[1] -ge 50) ($o -join ' / ')
 Section 'from the research comparison (10/10): blocked writes, reinstalled apps, mid-update, X3D, notifications, history'
 '' | Set-Content $opt
 $dsh = 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh|AllowNewsAndInterests'
@@ -331,5 +352,52 @@ Check '... done once: the next check changes nothing' (-not ($o -match 'auto-ins
 'tweak.vendor-installers=off' | Set-Content $opt; $o = Run
 Check 'switched off in Settings: unlocked and the empty folder removed' (-not (Test-Path "$vr\Razer") -and $o -contains 'Razer auto-installer allowed again (your choice)') ($o -join ' / ')
 '' | Set-Content $opt; $env:PCKIT_VENDOR_ROOT = ''; Clear-Path $vr
+
+Section 'network at Windows'' defaults: what "gaming tweak" tools change (throttling index, Nagle) is put back'
+$mm = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'; $nif = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{TEST}'
+function Get-ChildItem { if ("$args" -match 'Tcpip\\Parameters\\Interfaces') { return [pscustomobject]@{ PSChildName = '{TEST}' } }; Microsoft.PowerShell.Management\Get-ChildItem @args }   # (one adapter, the test's own)
+Fresh; Clear-Path $bk; '' | Set-Content $opt; $o = Run
+Check 'Windows'' own values: nothing changed, nothing added' (-not $TW.Reg.ContainsKey("$mm|NetworkThrottlingIndex") -and -not ($o -match 'Nagle|NetworkThrottling')) ($o -join ' / ')
+$TW.Reg["$mm|NetworkThrottlingIndex"] = 4294967295; $TW.Reg["$nif|TcpAckFrequency"] = 1; $TW.Reg["$nif|TCPNoDelay"] = 1; $o = Run
+Check 'a tool turned throttling and Nagle off: Windows'' defaults back (index 10, Nagle values gone)' ($TW.Reg["$mm|NetworkThrottlingIndex"] -eq 10 -and -not $TW.Reg.ContainsKey("$nif|TcpAckFrequency") -and -not $TW.Reg.ContainsKey("$nif|TCPNoDelay") -and ($o -contains 'setting NetworkThrottlingIndex') -and ($o -match 'Nagle setting TcpAckFrequency removed')) ($o -join ' / ')
+Check '... the tool''s values recorded for the uninstaller' ((Get-Content $bk -Raw | ConvertFrom-Json)."reg|$nif|TCPNoDelay".Value -eq 1) ''
+'tweak.network-defaults=off' | Set-Content $opt; $o = Run
+Check 'switched off in Settings: the index goes back to what it was' ($TW.Reg["$mm|NetworkThrottlingIndex"] -eq 4294967295) ($o -join ' / ')
+'' | Set-Content $opt; Remove-Item function:Get-ChildItem
+
+Section 'start-up helpers of hardware that is switched off (an unused integrated GPU, onboard audio)'
+Fresh; Clear-Path $bk; '' | Set-Content $opt; $TW.Run = @('RtkAudUService', 'AMDNoiseSuppression', 'Steam')
+$TW.Pnp = @([pscustomobject]@{ Class = 'Display'; FriendlyName = 'NVIDIA GeForce RTX 4070'; Manufacturer = 'NVIDIA'; Status = 'OK' }, [pscustomobject]@{ Class = 'Display'; FriendlyName = 'AMD Radeon(TM) Graphics'; Manufacturer = 'Advanced Micro Devices, Inc.'; Status = 'Error' }, [pscustomobject]@{ Class = 'MEDIA'; FriendlyName = 'Realtek(R) Audio'; Manufacturer = 'Realtek'; Status = 'Error' })
+$o = Run
+Check 'Realtek''s and AMD''s helpers off when their hardware is off; everything else left alone' (($o -contains 'start-up item RtkAudUService off (its hardware is off)') -and ($o -contains 'start-up item AMDNoiseSuppression off (its hardware is off)') -and -not ($o -match 'item Steam')) ($o -join ' / ')
+Fresh; Clear-Path $bk; $TW.Run = @('RtkAudUService', 'AMDNoiseSuppression'); $TW.Pnp = @([pscustomobject]@{ Class = 'Display'; FriendlyName = 'AMD Radeon RX 7800 XT'; Manufacturer = 'Advanced Micro Devices, Inc.'; Status = 'OK' }, [pscustomobject]@{ Class = 'MEDIA'; FriendlyName = 'Realtek(R) Audio'; Manufacturer = 'Realtek'; Status = 'OK' }); $o = Run
+Check '... working hardware: its helpers stay' (-not ($o -match 'RtkAudUService|AMDNoiseSuppression')) ($o -join ' / ')
+Fresh; Clear-Path $bk; $TW.Run = @('RtkAudUService'); $o = Run
+Check '... Windows lists no graphics devices (can''t tell): left alone' (-not ($o -match 'RtkAudUService')) ($o -join ' / ')
+$TW.Pnp = $null
+
+Section 'a value the owner keeps their own way (kit-options "keep.<key>\<name>=<value>" - the app''s Keep button)'
+$tk = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'
+Fresh; Clear-Path $bk; "keep.$tk\AllowTelemetry=3" | Set-Content $opt; $o = Run
+Check 'held at the owner''s value, not Messiah''s; said' ($TW.Reg["$tk|AllowTelemetry"] -eq 3 -and ($o -contains 'setting AllowTelemetry kept as you chose')) ($o -join ' / ')
+$o = Run
+Check '... then left alone' (-not ($o -match 'AllowTelemetry')) ($o -join ' / ')
+"keep.$tk\AllowTelemetry=(not set)" | Set-Content $opt; $o = Run
+Check '... kept as "(not set)": the value goes' (-not $TW.Reg.ContainsKey("$tk|AllowTelemetry")) ($o -join ' / ')
+'' | Set-Content $opt; $o = Run
+Check 'handed back to Messiah: its own value again' ($TW.Reg["$tk|AllowTelemetry"] -eq 0 -and ($o -contains 'setting AllowTelemetry')) ($o -join ' / ')
+
+Section 'the status per switch (-StatusFile, the app''s Status tab)'
+$sf = "$Work\tweak-status.json"; Clear-Path $sf
+Fresh; Clear-Path $bk; $o = @(& "$Work\tweaks.ps1" -StatusFile $sf); $j = Get-Content $sf -Raw | ConvertFrom-Json
+Check 'a fresh Windows: what each switch changed, under its own name' ((@($j.keys.telemetry.fixed) -contains 'AllowTelemetry') -and (@($j.keys.'#Services'.fixed) -contains 'service DiagTrack off') -and (@($j.keys.'#Scheduled tasks'.fixed) -contains 'task Microsoft Compatibility Appraiser off') -and -not $j.preview) (Get-Content $sf -Raw)
+$o = @(& "$Work\tweaks.ps1" -StatusFile $sf); $j = Get-Content $sf -Raw | ConvertFrom-Json
+Check '... the settings each switch checks, by their place in the registry (the details; its history is matched by it)' (@($j.keys.telemetry.names) -contains 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection\AllowTelemetry') (Get-Content $sf -Raw)
+Check '... the next check: all in place, nothing put back' (([int]$j.keys.telemetry.same -ge 20) -and -not @($j.keys.PSObject.Properties | Where-Object { @($_.Value.fixed).Count })) (Get-Content $sf -Raw)
+$TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection|AllowTelemetry'] = 3; $o = @(& "$Work\tweaks.ps1" -Audit -StatusFile $sf); $j = Get-Content $sf -Raw | ConvertFrom-Json
+Check '... a preview names what drifted, and changes nothing' ($j.preview -and (@($j.keys.telemetry.fixed) -contains 'AllowTelemetry') -and $TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection|AllowTelemetry'] -eq 3) (Get-Content $sf -Raw)
+$TW.Reg['HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection|AllowTelemetry'] = 3; Clear-Path "$Work\change-history.log"; $o = @(& "$Work\tweaks.ps1" -StatusFile $sf -Cause 'Windows Update (2026-10 Cumulative Update)'); $j = Get-Content $sf -Raw | ConvertFrom-Json
+Check 'what changed it back (-Cause): kept with the change in the history and in the status' ((@(Get-Content "$Work\change-history.log") -match 'AllowTelemetry ''3'' -> ''0'' \[after Windows Update \(2026-10 Cumulative Update\)\]') -and $j.cause -eq 'Windows Update (2026-10 Cumulative Update)') ((Get-Content "$Work\change-history.log" -Raw) + (Get-Content $sf -Raw))
+Clear-Path $sf
 
 Finish

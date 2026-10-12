@@ -1,15 +1,47 @@
-﻿# PC Setup Kit - Windows 11 debloat + performance tweaks.
+# PC Setup Kit - Windows 11 debloat + performance tweaks.
 # Idempotent: only changes what differs from the target and prints one line per change, so it is used both
 # by setup.ps1 at first logon and by health-check.ps1 as a "tweak guard" after Windows updates.
 # Must run elevated, as the user who owns the PC (HKCU settings apply to that user).
 # -Quick: setup's first run - the slow parts (the old Windows parts, via DISM) wait for the first maintenance
-param([switch]$Quick)
+# -Audit: a preview that changes nothing - every command that would change something is swapped for a stand-in that does
+#   nothing, and the run lists what it WOULD change ("Would: ..."), what Windows refuses, and how much is already in place.
+#   (tests/unit/tweaks.ps1 checks that every changing command used in this file is on the list below)
+# -StatusFile: where this run's result per switch (group) - or per section, for what has none - is written as JSON: how
+#   many settings were already in place, what had to be put back, what Windows refuses (the app's Status tab)
+# -Cause: what most likely changed things back since the last pass (update-cause.ps1: a Windows update, a driver install) -
+#   kept with each change in the history and in the status
+param([switch]$Quick, [switch]$Audit, [string]$StatusFile, [string]$Cause)
 $ErrorActionPreference = 'SilentlyContinue'
+$auditSame = 0; $auditBlocked = 0
+if ($Audit) {
+    $writeCmds = 'Set-ItemProperty', 'Remove-ItemProperty', 'New-Item', 'Remove-Item', 'Move-Item', 'Set-Content', 'Add-Content', 'Set-Service',
+        'Stop-Service', 'Start-Service', 'Stop-Process', 'Start-Process', 'Disable-ScheduledTask', 'Enable-ScheduledTask', 'Unregister-ScheduledTask',
+        'Remove-AppxPackage', 'Remove-AppxProvisionedPackage', 'Remove-WindowsCapability', 'Add-WindowsCapability', 'Disable-WindowsOptionalFeature',
+        'Enable-WindowsOptionalFeature', 'Set-WindowsReservedStorageState', 'Set-CimInstance', 'Set-NetAdapterAdvancedProperty', 'Set-Acl', 'winget'
+    foreach ($c in $writeCmds) { Set-Item "function:script:$c" ([scriptblock]::Create('$input | Out-Null')) }
+    # powercfg: its questions are answered, its changes aren't made
+    function script:powercfg { if ("$args" -match '^/(getactivescheme|list|q)\b') { & "$env:SystemRoot\System32\powercfg.exe" @args } }
+}
 # where it is, for whoever runs it with a time limit (setup.ps1): PCKIT_TWEAKS_TRACE names the file - a hang names itself
 # (and the originals recorded so far are saved: a run stopped halfway - setup's time limit - still leaves the uninstaller
 # everything it changed; 10/2 on GitHub a stopped run had saved none)
-function Trace([string]$Where) { Save-Backup; if ($env:PCKIT_TWEAKS_TRACE) { try { Add-Content $env:PCKIT_TWEAKS_TRACE "$((Get-Date).ToString('T')) $Where" } catch { } } }
+function Trace([string]$Where) { Save-Backup; Close-Section; $script:section = $Where; if ($env:PCKIT_TWEAKS_TRACE) { try { Add-Content $env:PCKIT_TWEAKS_TRACE "$((Get-Date).ToString('T')) $Where" } catch { } } }
 $changes = New-Object System.Collections.Generic.List[string]
+# the status per switch (-StatusFile): Set-Reg counts its own under its group (or "#<section>" without one); everything
+# else a section changed or found refused is counted for the section when the next one starts (Close-Section)
+$stat = @{}; $section = ''; $secMark = 0; $secBlocked = 0; $regBlocked = 0
+function Add-Stat([string]$Key, [string]$What, [string]$Text, [string]$Name) {   # -Name: the setting (the Status tab lists what each switch checks)
+    if (-not $stat.ContainsKey($Key)) { $stat[$Key] = @{ same = 0; fixed = @(); blocked = 0; names = @() } }
+    if ($What -eq 'fixed') { $stat[$Key].fixed += $Text } else { $stat[$Key][$What]++ }
+    if ($Name -and $Name -notin $stat[$Key].names) { $stat[$Key].names += $Name }
+}
+function Get-StatKey { if ($script:group) { $script:group } else { "#$script:section" } }
+function Close-Section {
+    for ($i = $script:secMark; $i -lt $changes.Count; $i++) { if ($changes[$i] -notmatch '^setting ') { Add-Stat "#$script:section" 'fixed' $changes[$i] } }
+    $nb = ($script:auditBlocked - $script:secBlocked) - $script:regBlocked
+    if ($nb -gt 0 -and $script:section) { for ($i = 0; $i -lt $nb; $i++) { Add-Stat "#$script:section" 'blocked' } }
+    $script:secMark = $changes.Count; $script:secBlocked = $script:auditBlocked; $script:regBlocked = 0
+}
 # one guard at a time (health-check, the update guard, setup, the app's choices): the originals file isn't written twice at
 # once - the second waits (up to 2 min). Tests each get their own.
 $tmx = New-Object Threading.Mutex($false, "Global\PCSetupKitTweaks$(if ($env:PCKIT_IN_TESTS) { "-$PID" })")
@@ -36,20 +68,23 @@ $off = @(Get-Content $optFile | Where-Object { $_ -match '^\s*tweak\.([\w-]+)\s*
 # Opt-in groups are off until the owner turns them on ("tweak.<group>=on"): bigger changes not everyone wants
 $on = @(Get-Content $optFile | Where-Object { $_ -match '^\s*tweak\.([\w-]+)\s*=\s*on\s*$' } | ForEach-Object { $Matches[1] })
 $optIn = @('edge-remove', 'notifications-off', 'sysmain-off')
+# Values the owner keeps their own way, one setting at a time (the app: a Status row's history > "Keep ..."): kit-options.txt
+# "keep.<key>\<name>=<value>" ("(not set)": no value) - held at that value instead of Messiah's, also after updates
+$keep = @{}; foreach ($kl in @(Get-Content $optFile)) { if ($kl -match '^\s*keep\.(.+?)=(.*)$') { $keep[$Matches[1].Trim()] = $Matches[2] } }
 function Want([string]$Group) { if ($Group -in $optIn) { return $Group -in $on }; -not $Group -or $Group -notin $off }
 $group = $null   # the group the next settings belong to (none: always applied)
 # once per group turned off (reinstalling an app, turning hibernation back on): 'undone|<group>' in the backup file,
 # cleared when the group is turned on again
 function Undo-Once([string]$Group, [scriptblock]$Action, [string]$Said) {
     if ($bk.ContainsKey("undone|$Group")) { return }
-    & $Action; $bk["undone|$Group"] = @{ Date = (Get-Date).ToString('o') }; $script:bkDirty = $true; $changes.Add($Said)
+    if (-not $Audit) { & $Action }; $bk["undone|$Group"] = @{ Date = (Get-Date).ToString('o') }; $script:bkDirty = $true; $changes.Add($Said)
 }
 function Redo([string]$Group) { if ($bk.ContainsKey("undone|$Group")) { $bk.Remove("undone|$Group"); $script:bkDirty = $true } }
 
 # Change history (C:\PCSetupKit\change-history.log, next to the originals): every change with its before and after
 # value, so "what did Messiah change, and when did Windows undo it" has an answer (written at the end of the run)
 $changeLog = New-Object System.Collections.Generic.List[string]
-function Note-Change([string]$What) { $changeLog.Add("$((Get-Date).ToString('yyyy-MM-dd HH:mm'))  $What") }
+function Note-Change([string]$What) { $changeLog.Add("$((Get-Date).ToString('yyyy-MM-dd HH:mm'))  $What$(if ($Cause -and $What -notmatch 'your choice') { " [after $Cause]" })") }
 function Set-Reg($Path, $Name, $Value, $Type = 'DWord') {
     $cur = (Get-ItemProperty -Path $Path -Name $Name).$Name
     if (-not (Want $script:group)) {
@@ -59,21 +94,35 @@ function Set-Reg($Path, $Name, $Value, $Type = 'DWord') {
         elseif ($null -ne (Get-ItemProperty -Path $Path -Name $Name)) { Remove-ItemProperty -Path $Path -Name $Name; Note-Change "$Path\$Name '$cur' -> (not set) (your choice)"; $changes.Add("setting $Name back (your choice)") }
         return
     }
-    if ("$cur" -ne "$Value") {
+    $kk = "$Path\$Name"
+    if ($keep.ContainsKey($kk)) {   # kept the owner's way: that value, not Messiah's
+        $kv = $keep[$kk]; $had = $null -ne (Get-ItemProperty -Path $Path -Name $Name)
+        if ($kv -eq '(not set)') { if ($had) { Remove-ItemProperty -Path $Path -Name $Name; Note-Change "$kk '$cur' -> (not set) (your choice)"; $changes.Add("setting $Name kept as you chose") } }
+        elseif ("$cur" -ne $kv) {
+            $kind = if ($had) { "$((Get-Item $Path).GetValueKind($Name))" } else { $Type }
+            $val = if ($kind -eq 'DWord' -and $kv -match '^\d+$' -and [uint64]$kv -le 4294967295) { [BitConverter]::ToInt32([BitConverter]::GetBytes([uint32]$kv), 0) } else { $kv }
+            if (-not (Test-Path $Path)) { New-Item $Path -Force | Out-Null }
+            Set-ItemProperty -Path $Path -Name $Name -Value $val -Type $kind; Note-Change "$kk '$(if ($had) { $cur } else { '(not set)' })' -> '$kv' (your choice)"; $changes.Add("setting $Name kept as you chose")
+        }
+        Add-Stat (Get-StatKey) 'kept' -Name $kk; return
+    }
+    if ("$cur" -eq "$Value") { $script:auditSame++; Add-Stat (Get-StatKey) 'same' -Name "$Path\$Name" }
+    else {
         # a value Windows refuses to change (its user-choice protection driver, a company policy): said once, tried again
         # on the next Windows build - not "re-applied" at every check (10/10: the Widgets policy on 26200, Winhance #780)
-        $bl = $bk["blocked|$Path|$Name"]; if ($bl -and "$($bl.Build)" -eq "$([Environment]::OSVersion.Version.Build)") { return }
+        $bl = $bk["blocked|$Path|$Name"]; if ($bl -and "$($bl.Build)" -eq "$([Environment]::OSVersion.Version.Build)") { $script:auditBlocked++; $script:regBlocked++; Add-Stat (Get-StatKey) 'blocked' -Name "$Path\$Name"; return }
         $had = $null -ne (Get-ItemProperty -Path $Path -Name $Name)
+        if ($Audit) { $changes.Add("setting $Name ($Path): '$(if ($had) { $cur } else { '(not set)' })' -> '$Value'"); Add-Stat (Get-StatKey) 'fixed' $Name "$Path\$Name"; return }
         Save-Original "reg|$Path|$Name" @{ Existed = $had; Value = $cur; Kind = $(if ($had) { "$((Get-Item $Path).GetValueKind($Name))" }) }
         if (-not (Test-Path $Path)) { New-Item $Path -Force | Out-Null }
         Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type
         if ("$((Get-ItemProperty -Path $Path -Name $Name).$Name)" -ne "$Value") {   # read back: did it take?
             $bk["blocked|$Path|$Name"] = @{ Build = "$([Environment]::OSVersion.Version.Build)" }; $script:bkDirty = $true
-            Note-Change "$Path\$Name - blocked by Windows, left at '$cur'"; $changes.Add("setting $Name blocked by Windows (left as it is)"); return
+            Note-Change "$Path\$Name - blocked by Windows, left at '$cur'"; $changes.Add("setting $Name blocked by Windows (left as it is)"); Add-Stat (Get-StatKey) 'blocked' -Name "$Path\$Name"; return
         }
         if ($bl) { $bk.Remove("blocked|$Path|$Name"); $script:bkDirty = $true }
         Note-Change "$Path\$Name '$(if ($had) { $cur } else { '(not set)' })' -> '$Value'"
-        $changes.Add("setting $Name")
+        $changes.Add("setting $Name"); Add-Stat (Get-StatKey) 'fixed' $Name "$Path\$Name"
     }
 }
 
@@ -284,7 +333,10 @@ $tasks = '\Microsoft\Windows\Application Experience\MareBackup', '\Microsoft\Win
 # some are protected even from admins (Access is denied: UsageAndQualityInsights and the Click to Do ones on 26200) -
 # skip those quietly; reporting them "off" made the guard say "Windows had reverted" them at every run (10/2)
 foreach ($t in Get-ScheduledTask | Where-Object { $_.State -ne 'Disabled' -and ($_.TaskPath + $_.TaskName) -in $tasks }) {
-    try { $t | Disable-ScheduledTask -ErrorAction Stop | Out-Null } catch { continue }
+    # (remembered per Windows build, so the preview - which can't try it - knows too; a new build tries again)
+    $tk = "blocked|task|$($t.TaskPath)$($t.TaskName)"; $bld = "$([Environment]::OSVersion.Version.Build)"
+    if ("$($bk[$tk].Build)" -eq $bld) { $script:auditBlocked++; continue }
+    try { $t | Disable-ScheduledTask -ErrorAction Stop | Out-Null } catch { $bk[$tk] = @{ Build = $bld }; $script:bkDirty = $true; continue }
     Save-Original "task|$($t.TaskPath)$($t.TaskName)" @{ Enabled = $true }; $changes.Add("task $($t.TaskName) off")
 }
 foreach ($t in Get-ScheduledTask | Where-Object { $_.TaskName -match 'AsrAPPShop|ArmouryCrate.*Update|MSI.*LiveUpdate' -and $_.TaskPath -eq '\' }) {
@@ -371,6 +423,7 @@ if (Want 'legacy') {
         # a removal is refused: waited for and tried again, 8 minutes (16 x 30 s) at most in all; 9/30 on GitHub only 1 of 9 went at first)
         $waits = 0
         foreach ($c in @(Get-WindowsCapability -Online | Where-Object { $_.State -eq 'Installed' -and ($_.Name -split '~')[0] -in $legacyCaps })) {
+            if ($Audit) { $changes.Add("old Windows part $(($c.Name -split '~')[0]) removed"); continue }   # (no waiting for a removal that isn't made)
             for ($try = 0; ; $try++) {
                 Remove-WindowsCapability -Online -Name $c.Name | Out-Null
                 if ((Get-WindowsCapability -Online -Name $c.Name).State -ne 'Installed' -or $waits -ge 16) { break }
@@ -483,17 +536,26 @@ if (-not (Want 'startup-clutter')) {   # the owner wants them: each one the kit 
         } "start-up items back on (your choice): $(($sus | ForEach-Object { ($_ -split '\|')[2] }) -join ', ')"
     }
 } else { Redo 'startup-clutter' }
+# ...and the helpers of hardware that is switched off or gone: Realtek's audio console without a working Realtek audio
+# device, AMD's noise suppression and Radeon software without a working AMD graphics chip (an unused integrated GPU turned
+# off - on the owner's PC both kept starting, 10/11). Only when Windows lists the graphics devices at all.
+$pnp = @(Get-PnpDevice -PresentOnly -Class Display, MEDIA)
+$orphanRx = if ($pnp | Where-Object Class -eq 'Display') {
+    $ok = @($pnp | Where-Object Status -eq 'OK' | ForEach-Object { "$($_.FriendlyName) $($_.Manufacturer)" })
+    @(if (-not ($ok -match 'Realtek')) { '^(RtkAudUService|RTHDVCPL|RtHDVBg.*)$' }
+        if (-not ($ok -match 'AMD|Radeon|Advanced Micro Devices')) { '^(AMDNoiseSuppression|RadeonSoftware|AMD ?Software.*)$' }) -join '|'
+}
 if (Want 'startup-clutter') { foreach ($r in @(@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Run', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'),
         @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'),
         @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32'))) {
     $run = Get-Item $r[0]; if (-not $run) { continue }
-    foreach ($n in @($run.Property | Where-Object { $_ -match $clutter })) {
+    foreach ($n in @($run.Property | Where-Object { $_ -match $clutter -or ($orphanRx -and $_ -match $orphanRx) })) {
         $cur = (Get-ItemProperty -Path $r[1] -Name $n).$n
         if ($cur -and ($cur[0] -band 1)) { continue }   # already off (odd first byte = disabled)
         Save-Original "startup|$($r[1])|$n" @{ Existed = $null -ne $cur; Value = $(if ($cur) { [Convert]::ToBase64String([byte[]]$cur) }) }
         if (-not (Test-Path $r[1])) { New-Item $r[1] -Force | Out-Null }
         Set-ItemProperty -Path $r[1] -Name $n -Value ([byte[]](@(3, 0, 0, 0) + [BitConverter]::GetBytes((Get-Date).ToFileTime()))) -Type Binary
-        $changes.Add("start-up item $n off")
+        $changes.Add("start-up item $n off$(if ($n -notmatch $clutter) { ' (its hardware is off)' })")
     }
 } }
 
@@ -520,7 +582,7 @@ $pinned = if ($er) { "$er\pinned" } else { "$env:APPDATA\Microsoft\Internet Expl
 if (-not $edgeFiles) { }
 elseif (Want 'edge') {
     Redo 'edge'
-    foreach ($l in $edgeIcons) { if (Test-Path -LiteralPath $l) { Save-Original 'edge|desktop' @{ Removed = (Get-Date).ToString('d') }; [IO.File]::Delete($l); $changes.Add('Edge desktop icon removed') } }
+    foreach ($l in $edgeIcons) { if (Test-Path -LiteralPath $l) { Save-Original 'edge|desktop' @{ Removed = (Get-Date).ToString('d') }; if (-not $Audit) { [IO.File]::Delete($l) }; $changes.Add('Edge desktop icon removed') } }
     # (only with a desktop shell in this session: without one the shell's unpin can wait forever - a service, a test machine)
     if ((Test-Path -LiteralPath "$pinned\Microsoft Edge.lnk") -and (Get-Process explorer -ErrorAction SilentlyContinue | Where-Object SessionId -eq (Get-Process -Id $PID).SessionId)) {
         # (Windows 11 lets a program unpin, not pin: the taskbar's own "Unpin" on the pinned shortcut)
@@ -638,6 +700,45 @@ if (-not $laptop) {
     }
 }
 
+Trace 'Network'
+# --- Network: Windows' own defaults, kept against "gaming tweak" tools (WinUtil and the like - on the owner's PC 10/10):
+# network throttling off (NetworkThrottlingIndex 0xFFFFFFFF) raises network DPC latency, and Nagle off (TcpAckFrequency /
+# TCPNoDelay on an adapter) gains nothing in games that already send at once - measured as more lag, not less.
+# Windows' defaults: an index of 10, and neither Nagle value set. ---
+$group = 'network-defaults'
+$mm = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
+if ($null -ne (Get-ItemProperty -Path $mm -Name NetworkThrottlingIndex).NetworkThrottlingIndex) { Set-Reg $mm NetworkThrottlingIndex 10 }
+if (Want 'network-defaults') {
+    foreach ($k in @(Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces')) {
+        $kp = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$($k.PSChildName)"
+        foreach ($n in 'TcpAckFrequency', 'TCPNoDelay') {
+            $v = (Get-ItemProperty -Path $kp -Name $n).$n; if ($null -eq $v) { continue }
+            Save-Original "reg|$kp|$n" @{ Existed = $true; Value = $v; Kind = 'DWord' }
+            Remove-ItemProperty -Path $kp -Name $n; Note-Change "$kp\$n '$v' -> (not set)"; $changes.Add("Nagle setting $n removed (Windows' default)")
+        }
+    }
+}
+$group = $null
+
+Close-Section
+# the status (-StatusFile): the run's result per switch / section, and which switches the owner turned off (the app's
+# Status tab). Written directly - in a preview the usual file commands are stand-ins that do nothing.
+if ($StatusFile) {
+    try {
+        $sj = @{ at = (Get-Date).ToString('o'); preview = [bool]$Audit; quick = [bool]$Quick; build = "$([Environment]::OSVersion.Version.Build)"
+            cause = $Cause; laptop = $laptop; dualX3D = $dualX3D; off = @($off); on = @($on); optIn = $optIn; keys = $stat } | ConvertTo-Json -Depth 5
+        [IO.File]::WriteAllText("$StatusFile.tmp", $sj, (New-Object Text.UTF8Encoding $false))
+        if ([IO.File]::Exists($StatusFile)) { [IO.File]::Delete($StatusFile) }; [IO.File]::Move("$StatusFile.tmp", $StatusFile)
+    } catch { }
+}
+# the preview: what would change, what Windows refuses, how much is in place - and nothing written (no originals, no history)
+if ($Audit) {
+    $would = @($changes | Select-Object -Unique)
+    foreach ($c in $would) { "Would: $c" }
+    "Preview: $($would.Count) change(s) would be made; $auditSame setting(s) already as Messiah keeps them$(if ($auditBlocked) { "; $auditBlocked blocked by Windows" }) - nothing was changed"
+    try { $tmx.ReleaseMutex() } catch { }
+    return
+}
 Trace 'done'
 # the change history: the settings with their values (above), everything else as reported; the newest 3000 lines kept
 foreach ($c in $changes | Select-Object -Unique) { if ($c -notmatch '^setting ') { Note-Change $c } }

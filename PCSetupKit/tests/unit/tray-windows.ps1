@@ -1,4 +1,4 @@
-﻿# The windows the tray menu opens: "Watch maintenance live" (maint-watch.ps1), "Status" (the window, dashboard.ps1, and
+# The windows the tray menu opens: "Watch maintenance live" (maint-watch.ps1), "Status" (the window, dashboard.ps1, and
 # its text fallback status.ps1), in a sandbox home.
 . "$PSScriptRoot\..\lib.ps1"
 $H = "$Work\home"; $C = "$H\.claude"; $P = "$C\projects\C--WINDOWS-system32"
@@ -65,9 +65,9 @@ Section 'the app window (dashboard.ps1)'
 $r = Invoke-As $H "$C\dashboard.ps1" @('-Test')
 $d = $r.Out
 Check 'without the AI assistant: still "Messiah", no errors' ((-not $r.Err.Trim()) -and ($d -match '(?m)^WINDOW: Messiah\s*$')) ($r.Err + $d)
-Check '... pages: Overview, Maintenance, History, Schedule, Notifications, Settings (no Sessions)' ($d -match '(?m)^NAV: Home \| Maintenance \| History \| Schedule \| Notifications \| Settings\s*$') $d
-Check '... History: a chart per measure; with no history yet it says it is collecting' (($d -match 'CHART: Start-up time \| 0 point') -and ($d -match 'CHART: Free space on C: \|') -and ($d -match 'CHART: Graphics card at idle \|') -and ($d -match 'CHART: SSD temperature \|')) $d
-Check '... Notifications: none yet' ($d -match 'CARD: Alerts\s+: No alerts yet') $d
+Check '... tabs: Home, Status, Activity, Settings (no Claude button or card)' ($d -match '(?m)^NAV: Home \| Status \| Activity \| Settings\s*$' -and $d -notmatch 'CARD: Claude\s*$|Ask Claude') $d
+Check '... Activity > Trends: a chart per measure; with no history yet it says it is collecting' (($d -match 'CHART: Start-up time \| 0 point') -and ($d -match 'CHART: Free space on C: \|') -and ($d -match 'CHART: Graphics card at idle \|') -and ($d -match 'CHART: SSD temperature \|')) $d
+Check '... Activity > Alerts: none yet' ($d -match 'CARD: Alerts\s+: No alerts yet') $d
 # with a history, saved reports and alerts
 $now = Get-Date
 $rows = for ($i = 10; $i -ge 0; $i--) { [ordered]@{ date = $now.AddDays(-$i).ToString('o'); bootAt = $now.AddDays(-$i).AddMinutes(-3).ToString('o'); boot = 26 + ($i % 2); freeGB = 500 - $i; gpuIdle = 30; ssdTemp = 45 } }
@@ -76,18 +76,52 @@ New-Item "$C\maint-history" -ItemType Directory -Force | Out-Null
 'Checked 9/20/2026 9:00 AM in 30s', '[Periodic]', 'Updated app: Vendor.Tool', 'Tweaks: all still applied' | Set-Content "$C\maint-history\report-20260920-090000.txt"
 "$($now.ToString('yyyy-MM-dd')) 10:00|Maintenance started in the background. / The result shows here" | Set-Content "$C\notifications.log" -Encoding UTF8
 $r = Invoke-As $H "$C\dashboard.ps1" @('-Test'); $d = $r.Out
-Check '... History: 11 start-ups charted, now and usual values' (($d -match 'CHART: Start-up time \| 11 points, now 26 s, usual 26\.\d s|CHART: Start-up time \| 11 points, now 26 s, usual 26 s') -and ($d -match 'CHART: Free space on C: \| 11 points, now 500 GB')) $d
+Check '... Trends: 11 start-ups charted, now and usual values' (($d -match 'CHART: Start-up time \| 11 points, now 26 s, usual 26\.\d s|CHART: Start-up time \| 11 points, now 26 s, usual 26 s') -and ($d -match 'CHART: Free space on C: \| 11 points, now 500 GB')) $d
 Check '... "What maintenance did" lists what changed, not routine lines' (($d -match '(?m)^\s+\S[^\r\n]*: Updated app: Vendor\.Tool') -and ($d -notmatch 'all still applied')) $d
-Check '... Notifications: past alerts with their time, and a Clear button' (($d -match 'CARD: Alerts\s+\S+ \S+ \d+, 10:00 AM: Maintenance started in the background') -and ($d -match 'BUTTONS: Clear')) $d
+Check '... Alerts: past alerts with their time, and a Clear button' (($d -match 'CARD: Alerts\s+\S+ \S+ \d+, 10:00 AM: Maintenance started in the background') -and ($d -match 'BUTTONS: Clear')) $d
 Clear-Path "$C\health-history.json", "$C\maint-history", "$C\notifications.log"
-Check '... the overview leads with what needs the owner' (($d -match 'PAGE: Overview\s+CARD: -\s+1 thing needs you') -and ($d -match 'CARD: Needs you\s+\S+\s+Turn EXPO back on')) $d
-Check '... the overview has the main actions' ($d -match 'BUTTONS: Run maintenance now \| Optimize this PC') $d
-Check '... the maintenance page shows the last check; no Claude parts' (($d -match 'PAGE: Maintenance\s+CARD: Last background check\s+Checked \S[^\r\n]* \(took 18 s\)') -and ($d -match 'BUTTONS: Run maintenance now \| Full report') -and ($d -notmatch '(?m)CARD: Messiah\s*$|Watch live|Claude''s own checks|New session')) $d
-Check '... the schedule as a table; the setting to open at login' (($d -match 'CARD: Scheduled checks\s+App updates: ') -and ($d -match 'Open Messiah when I log in')) $d
+Check '... Home leads with what needs the owner' (($d -match 'PAGE: Home\s+CARD: -\s+1 thing needs you') -and ($d -match 'CARD: Needs you\s+Turn EXPO back on in the BIOS\.\s+ROW BUTTONS: Snooze a week \| Dismiss')) $d
+Check '... Home has the main actions' ($d -match 'BUTTONS: Run maintenance now \| Optimize this PC') $d
+Check '... Activity > Checks shows the last check and the to-do list; no Claude parts' (($d -match 'PAGE: Activity / Checks\s+CARD: Last background check\s+Checked \S[^\r\n]* \(took 18 s\)') -and ($d -match 'BUTTONS: Run maintenance now \| Full report') -and ($d -match 'CARD: Needs you\s+Turn EXPO back on') -and ($d -notmatch '(?m)CARD: Claude\s*$|Watch live|Claude''s own checks|Ask Claude')) $d
+Check '... the schedule as a table; the settings to open at login and for corner alerts' (($d -match 'CARD: Scheduled checks\s+App updates: ') -and ($d -match 'Open Messiah when I log in') -and ($d -match 'Show alerts in the corner / .* Off \(default\): nothing pops up')) $d
+Check '... every page and sub-page builds: Home, Status, Activity (Checks, Trends, Alerts), Settings (General, Windows, Tools)' ((@([regex]::Matches($d, '(?m)^PAGE: (Home|Status|Activity / (Checks|Trends|Alerts)|Settings / (General|Windows|Tools))\s*$')).Count -eq 8) -and $d -notmatch 'PAGE ERROR') $d
+Check '... Status: never checked yet - each row says so' (($d -match 'PAGE: Status\s+CARD: -\s+Not checked yet') -and ($d -match 'Not checked yet / Telemetry, ads, suggestions and Windows AI off')) $d
+# a guard pass's result (tweaks.ps1 -StatusFile): in place, one put back, Windows-protected ones, an opt-in never turned on
+'{"at":"' + (Get-Date).ToString('o') + '","preview":false,"cause":"Windows Update (KB5099999)","optIn":["edge-remove","notifications-off","sysmain-off"],"keys":{"telemetry":{"same":57,"fixed":[],"blocked":0,"names":["HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection\\AllowTelemetry"]},"start-menu":{"same":4,"fixed":["Start_TrackDocs"],"blocked":0},"#Scheduled tasks":{"same":0,"fixed":[],"blocked":3}}}' | Set-Content "$C\tweak-status.json"
+$r = Invoke-As $H "$C\dashboard.ps1" @('-Test', '-Page', 'Status'); $d2 = $r.Out
+Check '... Status after a guard pass: all green, what was put back, Windows-protected, opt-ins not on' ((-not $r.Err.Trim()) -and ($d2 -match 'PAGE: Status\s+CARD: -\s+All \d+ in place') -and ($d2 -match 'In place \(57\) / Telemetry, ads') -and ($d2 -match 'Put back [^/]+ / Start menu recommendations and Task View off / Something had changed it: Recent files in Start - after Windows Update \(KB5099999\)') -and ($d2 -match 'CARD: Guarded\s+\d+ of \d+ in place') -and ($d2 -match 'Not turned on / Edge removed completely') -and ($d2 -match '3 protected by Windows')) ($r.Err + $d2)
+Check '... each row''s details behind a click: what it does, the settings it checks, its last check, a way to change it' (($d2 -match 'Telemetry, ads, suggestions and Windows AI off\s+MORE: What it does  No diagnostic data[^\r\n]*\| Checks 1 setting  Telemetry level \| Last check  [^\r\n]*\| History  Never had to be put back \| \[Change in Settings\]') -and ($d2 -match 'Windows keeps registry backups\s+MORE: What it does  Windows saves copies')) $d2
+'tweak.telemetry=off' | Add-Content "$C\kit-options.txt"
+$r = Invoke-As $H "$C\dashboard.ps1" @('-Test', '-Page', 'Status'); $d2 = $r.Out
+Check '... a switch turned off in Settings shows as the owner''s choice' ($d2 -match 'Off - your choice / Telemetry, ads') $d2
+# a crash-hunting mode left on (diag-modes.ps1 - a stand-in here): amber from the start, with its off button; Home's tile says so too
+'[pscustomobject]@{ Id = ''verifier''; Name = ''Driver Verifier (18 drivers)''; Since = [datetime]''2026-10-04''; Days = 7 }' | Set-Content "$C\diag-modes.ps1"
+$r = Invoke-As $H "$C\dashboard.ps1" @('-Test') @{ PCKIT_DIAG_TEST = '1' }; $d2 = $r.Out
+Check '... a crash-hunting mode left on (Driver Verifier): amber with its off button; Home''s tile counts it' ((-not $r.Err.Trim()) -and ($d2 -match 'Driver Verifier \(18 drivers\) on / Crash-hunting modes off / On for 7 days \(since Oct 4\)') -and ($d2 -match 'ROW BUTTONS: Turn off Driver Verifier') -and ($d2 -match 'CARD: Guarded\s+1 needs a look\s+Driver Verifier \(18 drivers\) on - see Status') -and ($d2 -match 'PAGE: Status\s+CARD: -\s+1 needs a look')) ($r.Err + $d2)
+Clear-Path "$C\diag-modes.ps1"
+Check '... filters on top (All / Needs a look / Put back / Off, with counts)' ($d2 -match 'FILTERS: All  \d+\* \| Needs a look  1 \| Put back  1 \| Off  \d+') $d2
+'technames=on' | Add-Content "$C\kit-options.txt"; $r = Invoke-As $H "$C\dashboard.ps1" @('-Test', '-Page', 'Status'); $d2 = $r.Out
+Check '... settings in plain words, or by their registry names when chosen (Settings > General)' ($d2 -match 'Checks 1 setting  AllowTelemetry \|') $d2
+# Home: a game running (game-check.ps1 - a stand-in name here) and what's new after an update (whats-new.json)
+'{"version":"v2026.10.12","date":"' + (Get-Date).ToString('o') + '","points":["Status tab: every optimization at a glance","Search with Ctrl+K"],"url":"https://github.com/x/y/releases/tag/v2026.10.12"}' | Set-Content "$C\whats-new.json"
+$r = Invoke-As $H "$C\dashboard.ps1" @('-Test') @{ PCKIT_GAME_TEST = 'Test Game'; PCKIT_REPORT_TEST = '1' }; $d2 = $r.Out
+Check 'Home while a game runs: says maintenance waits' ((-not $r.Err.Trim()) -and ($d2 -match 'CARD: Playing Test Game\s+Updates, checks and cleanup wait')) ($r.Err + $d2)
+Check 'Home after an update: what''s new, with Got it and the release notes' ($d2 -match "CARD: What's new in Messiah v2026\.10\.12\s+[^\r\n]*Status tab: every optimization at a glance\s+[^\r\n]*Search with Ctrl\+K\s+BUTTONS: Got it \| All release notes") $d2
+Check 'the help report: status, what needs the owner and the last check - no PC name' (($d2 -match 'REPORT: Messiah report - ') -and ($d2 -match 'STATUS: ') -and ($d2 -match 'NEEDS THE OWNER: ') -and ($d2 -match 'LAST CHECK:') -and ($d2 -notmatch [regex]::Escape($env:COMPUTERNAME))) $d2
+'newsseen=v2026.10.12' | Add-Content "$C\kit-options.txt"; $r = Invoke-As $H "$C\dashboard.ps1" @('-Test'); $d2 = $r.Out
+Check '... Got it: the card goes' ($d2 -notmatch "What's new in Messiah") $d2
+Clear-Path "$C\whats-new.json"
+# Alerts: a "Needs you" alert whose item is no longer on the to-do list moves to "Earlier and resolved"
+"$((Get-Date).ToString('yyyy-MM-dd')) 09:00|Needs you (1): Something long settled that nobody needs to do any more" | Add-Content "$C\notifications.log" -Encoding UTF8
+$r = Invoke-As $H "$C\dashboard.ps1" @('-Test'); $d2 = $r.Out
+Check 'Alerts: a resolved "Needs you" moves to Earlier and resolved' ($d2 -match 'CARD: Earlier and resolved\s+[^\r\n]*Something long settled that nobody needs to do any more  \(resolved\)') $d2
+Clear-Path "$C\notifications.log"
+
+Clear-Path "$C\tweak-status.json"
 'claude=on' | Set-Content "$C\kit-options.txt"; Clear-Path "$C\maint-todo.txt"
 $r = Invoke-As $H "$C\dashboard.ps1" @('-Test') @{ FAKE_DIR = "$Work\fake" }
 $d = $r.Out
-Check 'with Claude: "Messiah" with a Sessions page (new / show / hide) and the live watch' ((-not $r.Err.Trim()) -and ($d -match '(?m)^WINDOW: Messiah\s*$') -and ($d -match 'PAGE: Sessions') -and ($d -match 'BUTTONS: New session \| Show sessions \| Hide sessions') -and ($d -match 'CARD: Claude''s own checks') -and ($d -match 'Watch live')) ($r.Err + $d)
-Check '... nothing to do: "All good"' ($d -match 'PAGE: Overview\s+CARD: -\s+All good - nothing needs you') $d
-Check '... the overview shows the sessions too' ($d -match 'CARD: Messiah\s+(No session open|\d+ sessions? running)') $d
+Check 'with Claude: "Messiah" with the chat (Open chat on Home - no terminal sessions) and the live watch' ((-not $r.Err.Trim()) -and ($d -match '(?m)^WINDOW: Messiah\s*$') -and ($d -match 'CARD: Claude') -and ($d -match 'BUTTONS: Open chat') -and ($d -notmatch 'Show sessions|Hide sessions') -and ($d -match 'CARD: Claude''s own checks') -and ($d -match 'Watch live')) ($r.Err + $d)
+Check '... nothing to do: "All good"' ($d -match 'PAGE: Home\s+CARD: -\s+All good - nothing needs you') $d
+Check '... Home says what Claude is doing' ($d -match 'CARD: Claude\s+(Chat with Claude right here|Ready - |Working right now)') $d
 Finish

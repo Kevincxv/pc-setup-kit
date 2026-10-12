@@ -45,7 +45,7 @@ $global:Sat.CPUScore = 7.5; Clear-Path "$D\calls.txt"; $o = Opt @{ Benchmark = $
 Check 'more than 15% slower: WARNING and an item with the likely causes' ($o -match 'WARNING: benchmark is more than 15% lower than at setup: CPU 7\.5 \(was 9\.3\)' -and ((Get-Content "$D\maint-todo.txt") -join ' ') -match 'dust') ($o -join ' / ')
 Check '... only the benchmark (no maintenance run, no report window)' (-not ((Calls) -match 'bg-maint|notepad')) ((Calls) -join ' / ')
 $global:Sat.CPUScore = 9.2; $o = Opt @{ Benchmark = $true }
-Check 'back to normal: "as fast as at setup", the item goes' ($o -match 'as fast as at setup' -and -not (((Get-Content "$D\maint-todo.txt") -join ' ') -match 'scores lower')) ($o -join ' / ')
+Check 'back to normal: "as fast as at setup", the item goes' ($o -match 'as fast as at setup' -and -not (((Get-Content "$D\maint-todo.txt" -ErrorAction SilentlyContinue) -join ' ') -match 'scores lower')) ($o -join ' / ')
 Check '... the baseline stays the first result' ((@(Get-Content "$D\benchmarks.json" -Raw | ConvertFrom-Json | ForEach-Object { $_ })[0].cpu) -eq 9.3) ''
 $global:Sat = $null; $o = Opt @{ Benchmark = $true }
 Check 'WinSAT gives no scores (e.g. a virtual machine): says so, no error' ($o -match 'could not run') ($o -join ' / ')

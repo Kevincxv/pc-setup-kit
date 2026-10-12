@@ -128,6 +128,8 @@ $had = @($st.excluded | Where-Object { $_ }); if ($liveOk) { $had = @($had | Whe
 $add = @($want | Where-Object { $_ -notin $had }); $drop = @($had | Where-Object { $_ -notin $want })
 foreach ($p in $add) { Act "exclude $p" { Add-MpPreference -ExclusionPath $p } }
 foreach ($p in $drop) { Act "unexclude $p" { Remove-MpPreference -ExclusionPath $p } }
-if ($add) { "Gaming: Microsoft Defender now skips the game folders ($($add -join ', ')) - less stutter while games load" }
+# put back after another app wiped the list (Better2k does on every launch): quietly - only new folders are said
+$new = @($add | Where-Object { $_ -notin @($st.excluded) })
+if ($new) { "Gaming: Microsoft Defender now skips the game folders ($($new -join ', ')) - less stutter while games load" }
 if ($drop) { "Gaming: Defender scans the game folders again ($($drop -join ', '))" }
 if ($add -or $drop) { $st.excluded = @($want); try { $st | ConvertTo-Json -Depth 3 | Set-Content $State -Encoding UTF8 } catch { } }

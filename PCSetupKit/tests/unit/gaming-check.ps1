@@ -63,7 +63,7 @@ Check 'turned off again: exactly the exclusions it added are removed' (($acts -j
 Clear-Path $st
 $null = Invoke-Gaming (Pc @{ Option = 'on'; Live = @() })
 $o = Invoke-Gaming (Pc @{ Option = 'on'; Live = @('C:\Users\x\AppData\Local\SomeTool') })
-Check 'another app replaced Defender''s list (ours gone): added again, and said' (($acts -join ',') -eq 'exclude C:\Steam\steamapps' -and "$o" -match 'Defender now skips') (($o + $acts) -join ' / ')
+Check 'another app replaced Defender''s list (ours gone; Better2k does at every launch): added again, quietly' (($acts -join ',') -eq 'exclude C:\Steam\steamapps' -and "$o" -notmatch 'Defender') (($o + $acts) -join ' / ')
 $o = Invoke-Gaming (Pc @{ Option = $null; Live = @() })
 Check '... turned off while already gone from Defender: nothing to remove' (-not $acts) (($o + $acts) -join ' / ')
 $sr = "$Work\steamroot"; $null = New-Item -ItemType Directory -Force "$sr\steamapps\common\SomeGame"

@@ -62,9 +62,15 @@ if (Test-Path "$PSScriptRoot\trends.ps1") { & "$PSScriptRoot\trends.ps1" }
 
 # --- Tweak guard (shared tweaks + this PC's own extras) ---
 $fixed = @()
-if (Test-Path 'C:\PCSetupKit\tweaks.ps1') { $fixed += & 'C:\PCSetupKit\tweaks.ps1' }
-if (Test-Path "$PSScriptRoot\tweaks-local.ps1") { $fixed += & "$PSScriptRoot\tweaks-local.ps1" }
-try { @{ at = (Get-Date).ToString('o'); fixed = @($fixed).Count } | ConvertTo-Json | Set-Content "$PSScriptRoot\guard-state.json" -Encoding UTF8 } catch { }   # (the app's Guarded tile)
+# (-StatusFile: each switch's result, for the app's Status tab - only when this PC's tweaks.ps1 knows it)
+$tws = @{}; $twc = Get-Command 'C:\PCSetupKit\tweaks.ps1' -ErrorAction SilentlyContinue; if ($twc -and $twc.Parameters.ContainsKey('StatusFile')) { $tws.StatusFile = "$PSScriptRoot\tweak-status.json" }
+# (-Cause: the updates and driver installs since the last pass - what most likely changed anything back; update-cause.ps1)
+$cause = $null; if ($twc -and $twc.Parameters.ContainsKey('Cause') -and (Test-Path "$PSScriptRoot\update-cause.ps1")) {
+    $last = try { [datetime]((Get-Content "$PSScriptRoot\guard-state.json" -Raw -ErrorAction Stop | ConvertFrom-Json).at) } catch { (Get-Date).AddHours(-6) }
+    $cause = "$(& "$PSScriptRoot\update-cause.ps1" -Since $last)"; if ($cause) { $tws.Cause = $cause } }
+if (Test-Path 'C:\PCSetupKit\tweaks.ps1') { $fixed += & 'C:\PCSetupKit\tweaks.ps1' @tws }
+$local = @(if (Test-Path "$PSScriptRoot\tweaks-local.ps1") { & "$PSScriptRoot\tweaks-local.ps1" }); $fixed += $local
+try { @{ at = (Get-Date).ToString('o'); fixed = @($fixed).Count; hasLocal = (Test-Path "$PSScriptRoot\tweaks-local.ps1"); local = @($local); cause = $(if ($fixed) { $cause }) } | ConvertTo-Json | Set-Content "$PSScriptRoot\guard-state.json" -Encoding UTF8 } catch { }   # (the app's Guarded tile and Status tab)
 if ($fixed -and (Test-Path "$PSScriptRoot\setup-maint-running.txt")) { "Tweaks: the rest of setup's changes applied ($($fixed.Count)): $(($fixed | Select-Object -Unique) -join ', ')" }   # (the first maintenance: what setup left for it - not reverted)
 elseif ($fixed) { "Tweaks: Windows had reverted $($fixed.Count) - re-applied: $(($fixed | Select-Object -Unique) -join ', ')" } else { 'Tweaks: all still applied' }
 
@@ -180,8 +186,9 @@ foreach ($k in 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run', 'HKLM:\Sof
     $auto += $item.Property | Where-Object { $v = if ($ok) { $ok.GetValue($_) }; -not ($v -and ($v[0] -band 1)) } | ForEach-Object { $autoCmd[$_] = "$($item.GetValue($_))"; $_ }
 }
 $auto += (Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\*", "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\*" -Exclude desktop.ini).BaseName
-# (the kit's own tasks aren't news: the tray, the maintenance, the one-shot resume task, test runs' throwaway tasks)
-$own = '^Messiah |^(Claude Admin Tray|Claude Background Maintenance|Claude Resume After Restart)$|^PCSetupKit|^PC Setup Kit |KITTEST'
+# (the kit's own tasks aren't news: the tray, the maintenance, the one-shot resume task, test runs' throwaway tasks;
+# Windows' own CreateExplorerShellUnelevatedTask, made in the root folder when Explorer is started from an elevated app)
+$own = '^Messiah |^(Claude Admin Tray|Claude Background Maintenance|Claude Resume After Restart)$|^PCSetupKit|^PC Setup Kit |KITTEST|^CreateExplorerShellUnelevatedTask$'
 $auto += Get-ScheduledTask | Where-Object { $_.TaskPath -notlike '\Microsoft\*' -and $_.TaskPath -notlike '\PCSetupKit*' -and $_.State -ne 'Disabled' -and $_.TaskName -notmatch $own } | ForEach-Object { $tn = "task: $($_.TaskName -replace '_?\{[0-9A-Fa-f-]+\}$' -replace '\d+(\.\d+)+$')"; $autoCmd[$tn] = "$(@($_.Actions)[0].Execute)"; $tn }
 $auto = @($auto | Where-Object { $_ } | Sort-Object -Unique)
 $base = "$env:USERPROFILE\.claude\startup-baseline.txt"
@@ -211,6 +218,12 @@ if (Test-Path "$PSScriptRoot\activation-check.ps1") { & "$PSScriptRoot\activatio
 # gaming: dual-CCD X3D needs (Game Bar, V-Cache service), Resizable BAR, games on a hard drive, the hypervisor,
 # optional Defender exclusions for the game folders
 if (Test-Path "$PSScriptRoot\gaming-check.ps1") { & "$PSScriptRoot\gaming-check.ps1" }
+# crash-hunting modes left on (Driver Verifier, kernel debugging, test signing): right while a crash is hunted, a cost in
+# every game after - said once they've been on two weeks (10/11: Driver Verifier had watched the NVIDIA driver for a week
+# with nothing pointing at it). (Tests: diag-modes.ps1 has its own - it keeps a state file next to it.)
+if ((Test-Path "$PSScriptRoot\diag-modes.ps1") -and -not $env:PCKIT_IN_TESTS) {
+    foreach ($dm in @(& "$PSScriptRoot\diag-modes.ps1" | Where-Object { $_.Days -ge 14 })) { "Reminder: $($dm.Name) has been on for $($dm.Days) days (since $($dm.Since.ToString('MMM d'))) - it is for hunting crashes and slows games; turn it off once the hunt is over (Messiah > Status)" }
+}
 # NVIDIA driver settings for games (low latency, unlimited shader cache) - once per driver version
 if (Test-Path "$PSScriptRoot\nvidia-settings.ps1") { & "$PSScriptRoot\nvidia-settings.ps1" }
 # ping, jitter, packet loss and DNS speed over time (a slow router DNS is switched to a fast public one where safe)
