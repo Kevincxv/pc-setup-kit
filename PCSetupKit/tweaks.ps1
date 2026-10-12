@@ -19,8 +19,11 @@ if ($Audit) {
         'Remove-AppxPackage', 'Remove-AppxProvisionedPackage', 'Remove-WindowsCapability', 'Add-WindowsCapability', 'Disable-WindowsOptionalFeature',
         'Enable-WindowsOptionalFeature', 'Set-WindowsReservedStorageState', 'Set-CimInstance', 'Set-NetAdapterAdvancedProperty', 'Set-Acl', 'winget'
     foreach ($c in $writeCmds) { Set-Item "function:script:$c" ([scriptblock]::Create('$input | Out-Null')) }
-    # powercfg: its questions are answered, its changes aren't made
-    function script:powercfg { if ("$args" -match '^/(getactivescheme|list|q)\b') { & "$env:SystemRoot\System32\powercfg.exe" @args } }
+    # powercfg: its questions are answered, its changes aren't made - by whichever powercfg was there before (the real one;
+    # the tests' stand-in under tests - 10/12 on GitHub the preview asked the real one and saw the runner's own plan)
+    $pcAsk = Get-Command powercfg -CommandType Function -ErrorAction SilentlyContinue
+    $script:pcAsk = if ($pcAsk) { $pcAsk.ScriptBlock } else { "$env:SystemRoot\System32\powercfg.exe" }
+    function script:powercfg { if ("$args" -match '^/(getactivescheme|list|q)\b') { & $script:pcAsk @args } }
 }
 # where it is, for whoever runs it with a time limit (setup.ps1): PCKIT_TWEAKS_TRACE names the file - a hang names itself
 # (and the originals recorded so far are saved: a run stopped halfway - setup's time limit - still leaves the uninstaller

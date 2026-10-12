@@ -10,7 +10,8 @@ $mocked = 'Set-ItemProperty', 'Start-Service', 'New-Item', 'Get-ItemProperty', '
     'Get-WindowsCapability', 'Remove-WindowsCapability', 'Add-WindowsCapability', 'Get-WindowsOptionalFeature', 'Disable-WindowsOptionalFeature', 'Enable-WindowsOptionalFeature', 'Get-WindowsReservedStorageState', 'Set-WindowsReservedStorageState', 'Get-PnpDevice'
 # (Get-Acl/Set-Acl: guarded - only on PCKIT_VENDOR_ROOT, the test's own folder; with none set in a test nothing is touched)
 # (Set-Item: only -Audit's stand-in functions, on the function: drive - checked below)
-if (-not (Test-Tripwire "$Work\tweaks.ps1" $mocked @('Get-Acl', 'Set-Acl', 'Set-Item'))) { Finish }
+# (Get-Command: only reads - -Audit asks which powercfg is there, to keep asking it)
+if (-not (Test-Tripwire "$Work\tweaks.ps1" $mocked @('Get-Acl', 'Set-Acl', 'Set-Item', 'Get-Command'))) { Finish }
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
 
 $svcNames = 'DiagTrack', 'dmwappushservice', 'SysMain', 'MapsBroker', 'lfsvc', 'TrkWks', 'WSAIFabricSvc', 'PcaSvc', 'RetailDemo', 'StiSvc', 'PhoneSvc', 'diagsvc', 'Spooler'
