@@ -52,6 +52,7 @@ SetTimer TodoTip, 5000
 TodoTip()
 SetTimer UnpinIcon, -5000
 SetTimer StatusAtLogin, -8000
+SetTimer PreloadApp, -60000   ; the app window, hidden - opening it is instant (PreloadApp)
 
 known := Map()  ; pid -> true if it's a Messiah launcher window
 note := 0       ; the corner note currently shown
@@ -125,6 +126,13 @@ AppCommand(wParam, *) {
 ; The app window (dashboard.ps1; one window - starting it again brings it to the front; it falls back to the text
 ; status.ps1 by itself). Installs from before it: text.
 ShowApp(page := "") {
+    ; already running (closing only hides it): told to show itself directly - instant, no new PowerShell
+    if h := DllCall("OpenEventW", "UInt", 0x0002, "Int", 0, "Str", "Local\MessiahAppShow", "Ptr") {
+        if page != ""
+            try FileOpen(CL "\app-request.txt", "w", "UTF-8-RAW").Write("page=" page)
+        DllCall("AllowSetForegroundWindow", "Int", -1), DllCall("SetEvent", "Ptr", h), DllCall("CloseHandle", "Ptr", h)
+        return
+    }
     if FileExist(CL "\dashboard.ps1")
         Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\dashboard.ps1"' (page != "" ? " -Page " page : ""), , "Hide"
     else
@@ -158,6 +166,16 @@ StatusAtLogin() {
     IniWrite boot, ini, "shown", "status-boot"
     if !IsFullscreen()
         ShowApp()
+}
+
+; The app window, started hidden a minute after login (dashboard.ps1 -Background): opening it is instant from then on,
+; the first time too - closing it only hides it. Not under a fullscreen game (tried again a minute later), not in tests.
+PreloadApp() {
+    if EnvGet("PCKIT_IN_TESTS") != "" || !FileExist(CL "\dashboard.ps1")
+        return
+    if IsFullscreen()
+        return SetTimer(PreloadApp, -60000)
+    Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\dashboard.ps1" -Background', , "Hide"
 }
 
 ; The icon lives in the hidden tray (the ^ area next to the clock), which is where Windows puts a new program's icon.

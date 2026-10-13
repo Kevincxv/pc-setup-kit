@@ -4,7 +4,8 @@
 # (General / Windows / Tools). One window: starting it again brings the open one to the front. Things that need admin
 # rights (sessions, maintenance, optimize) go through the tray, which runs elevated, so there's no UAC prompt; without
 # the tray they start directly. If the window can't open, status.ps1 (text) opens instead.
-param([switch]$Test, [string]$Page)   # -Test: build and fill every page once, print what they show, don't open (tests); -Page: open on that page (Welcome: after setup)
+param([switch]$Test, [string]$Page, [switch]$Background)   # -Background: start hidden (the tray, after login - the first open is instant too)
+# -Test: build and fill every page once, print what they show, don't open (tests); -Page: open on that page (Welcome: after setup)
 $cl = "$env:USERPROFILE\.claude"
 $ai = if (Test-Path "$cl\ai-enabled.ps1") { & "$cl\ai-enabled.ps1" } else { $true }
 $name = 'Messiah'   # one app; the AI assistant (Claude) is a switch in Settings (ai-toggle.ps1)
@@ -16,6 +17,7 @@ try {
 [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
 [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
 [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+[DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(int pid);
 [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
 [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern uint RegisterWindowMessage(string s);
 [DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern int SetCurrentProcessExplicitAppUserModelID(string id);
@@ -28,8 +30,12 @@ try {
     # unique - Messiah's session consoles are called "Messiah" too)
     $mutex = New-Object Threading.Mutex($false, 'Local\PCSetupKitStatusWindow')
     if (-not $Test -and -not $mutex.WaitOne(0)) {
+        if ($Background) { exit }   # (already running)
+        # the open one shows itself (it may be hidden - closing only hides it); a page asked for goes along
+        if ($Page) { [IO.File]::WriteAllText("$cl\app-request.txt", "page=$Page") }
+        $sig = $null; if ([Threading.EventWaitHandle]::TryOpenExisting('Local\MessiahAppShow', [ref]$sig)) { [void][KitApp.N]::AllowSetForegroundWindow(-1); [void]$sig.Set(); exit }
         $h = [IntPtr][long]("0$(Get-Content "$cl\app-window.txt" -ErrorAction SilentlyContinue)" -replace '\D')
-        if ($h -ne [IntPtr]::Zero -and [KitApp.N]::IsWindow($h)) { [void][KitApp.N]::ShowWindow($h, 9); [void][KitApp.N]::SetForegroundWindow($h) }
+        if ($h -ne [IntPtr]::Zero -and [KitApp.N]::IsWindow($h)) { [void][KitApp.N]::ShowWindow($h, 9); [void][KitApp.N]::SetForegroundWindow($h) }   # (an older version running)
         exit
     }
     . "$cl\status-lib.ps1"
@@ -2075,8 +2081,11 @@ try {
     }
     # the tray asks for a chat to be shown (its "Claude finished" note was clicked): app-request.txt "chat=<tab>"
     function Read-AppRequest {
-        $f = "$cl\app-request.txt"; if ($Test -or -not $script:ai -or -not (Test-Path $f)) { return }
+        $f = "$cl\app-request.txt"; if ($Test -or -not (Test-Path $f)) { return }
         $r = "$(Get-Content $f -ErrorAction SilentlyContinue)".Trim(); [IO.File]::Delete($f)
+        # a page (another start's -Page, handed over - the window is already running)
+        if ($r -match '^page=(\w+)(?:/(\w+))?$') { if ($Matches[1] -eq 'Chat') { if ($script:ai) { Show-Chat $true } } elseif ($pages.Contains($Matches[1])) { Show-Page $Matches[1] $Matches[2] }; return }
+        if (-not $script:ai) { return }
         if ($r -notmatch '^chat=([\w-]*)$') { return }
         $d = if ($Matches[1] -and (Test-Path "$cl\chats\$($Matches[1])")) { "$cl\chats\$($Matches[1])" } else { "$cl\chat" }
         if ($ui.ChatPanel.Visibility -ne 'Visible') { $script:chatDir = $d; Show-Chat $true } elseif ($d -ne $script:chatDir) { Switch-Chat $d }
@@ -2552,12 +2561,35 @@ try {
     $win.Add_ContentRendered({ Update-Layout })
     # the tour, once: after setup's Welcome is done (not over it), not while a game runs
     $win.Add_ContentRendered({ if ((Get-Opt 'tour' '') -ne 'done' -and (Get-Opt 'welcome' '') -ne 'pending' -and $script:onPage -ne 'Welcome' -and -not (Get-Playing)) { Show-Tour 0 } })
-    $win.Add_Closing({ $b = $win.RestoreBounds; if (-not $b.IsEmpty) { "$([Math]::Round($b.Left)),$([Math]::Round($b.Top)),$([Math]::Round($b.Width)),$([Math]::Round($b.Height)),$(if ($win.WindowState -eq 'Maximized') { 'max' } else { 'normal' })" | Set-Content "$cl\app-window-place.txt" -Encoding ASCII } })
+    # closing only hides it (10/12: opening took 2.3 s - most of it building Home): the next open is instant. Hidden, it
+    # does nothing but wait to be shown; a new version of this file (an update) ends it, so the next open runs that.
+    $script:quit = $false
+    $win.Add_Closing({ param($s_, $e_)
+            $b = $win.RestoreBounds; if (-not $b.IsEmpty) { "$([Math]::Round($b.Left)),$([Math]::Round($b.Top)),$([Math]::Round($b.Width)),$([Math]::Round($b.Height)),$(if ($win.WindowState -eq 'Maximized') { 'max' } else { 'normal' })" | Set-Content "$cl\app-window-place.txt" -Encoding ASCII }
+            if (-not $script:quit) { $e_.Cancel = $true; Hide-App } })
+    $win.Add_Closed({ $win.Dispatcher.InvokeShutdown() })
     $fast = New-Object Windows.Threading.DispatcherTimer -Property @{ Interval = [TimeSpan]::FromMilliseconds(400) }
     $fast.Add_Tick({ try { if ($ui.ChatPanel.Visibility -eq 'Visible') { Update-Chat }; if (($script:fastN++ % 5) -eq 0) { Update-Now } } catch {} })
-    $fast.Start(); $script:fastN = 0
-    $timer.Start()
-    [void]$win.ShowDialog()
+    $script:fastN = 0
+    function Hide-App { $win.Hide(); $timer.Stop(); $fast.Stop(); Show-ChatMenu $false; if ($script:searchOn) { try { Show-Search $false } catch {} } }
+    function Show-App {
+        $first = -not $win.IsLoaded
+        if ($win.Visibility -ne 'Visible') { $win.Show(); if (-not $first) { Update-View -Force } }
+        if ($win.WindowState -eq 'Minimized') { $win.WindowState = 'Normal' }
+        $timer.Start(); $fast.Start(); Read-AppRequest
+        $win.Activate() | Out-Null; $h_ = (New-Object Windows.Interop.WindowInteropHelper $win).Handle; [void][KitApp.N]::SetForegroundWindow($h_)
+    }
+    # another start (the tray, Ctrl+Alt+M, the Start menu) asks it to show itself
+    $showEvt = New-Object Threading.EventWaitHandle($false, 'AutoReset', 'Local\MessiahAppShow')
+    $script:selfPath = $PSCommandPath; $selfAt = (Get-Item $script:selfPath).LastWriteTime; $script:showN = 0   # (the path kept: a timer's code has no $PSCommandPath)
+    $showTimer = New-Object Windows.Threading.DispatcherTimer -Property @{ Interval = [TimeSpan]::FromMilliseconds(100) }
+    $showTimer.Add_Tick({ try {
+                if ($showEvt.WaitOne(0)) { Show-App; return }
+                if ((++$script:showN % 300) -eq 0 -and $win.Visibility -ne 'Visible' -and (Get-Item $script:selfPath).LastWriteTime -ne $selfAt) { $script:quit = $true; $win.Close() }   # (every 30 s, hidden: updated?)
+            } catch {} })
+    $showTimer.Start()
+    if ($Background) { [void](New-Object Windows.Interop.WindowInteropHelper $win).EnsureHandle() } else { Show-App }   # (the handle: app-window.txt, for the tray)
+    [Windows.Threading.Dispatcher]::Run()
 }
 catch {
     if ($Test) { throw }
