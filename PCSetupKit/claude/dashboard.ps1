@@ -1013,6 +1013,7 @@ try {
         $sticks = @(Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue)
         $now = "$($sticks.Count) stick(s), $([math]::Round(($sticks | Measure-Object Capacity -Sum).Sum / 1GB)) GB in $(@($sticks | ForEach-Object { "$($_.BankLabel)".Trim() }) -join ' + ')"   # (health-check.ps1's words)
         $pl_ = Read-Json "$cl\power-log.json"; $mine = @(if ($pl_) { $pl_.events | Where-Object answer -eq 'me' | ForEach-Object { ([datetime]$_.key).ToString('yyyy-MM-dd HH:mm') } })
+        Get-RamTest @(Get-Content "$cl\ram-test.log" -ErrorAction SilentlyContinue) $now $mine
     }
     function Get-Opt($k, $default) { $l = @(Get-Content "$cl\kit-options.txt" -ErrorAction SilentlyContinue) -match "^\s*$k\s*=" | Select-Object -First 1; if ($l) { ($l -split '=', 2)[1].Trim() } else { $default } }
     function Set-Opt($k, $v) {
