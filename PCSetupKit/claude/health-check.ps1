@@ -232,6 +232,8 @@ if (Test-Path "$PSScriptRoot\network-check.ps1") { & "$PSScriptRoot\network-chec
 # --- Backups: impossible with one drive (a copy on the same disk dies with it); when a second/external drive shows up, offer it ---
 # files-backup.ps1: the one-click offer, then the backup itself whenever the chosen drive is there
 if (Test-Path "$PSScriptRoot\files-backup.ps1") { & "$PSScriptRoot\files-backup.ps1" -Check }
+# game-saves.ps1: every game's saves to Documents, once a day, when the owner turned it on (Settings > Game saves)
+if (Test-Path "$PSScriptRoot\game-saves.ps1") { & "$PSScriptRoot\game-saves.ps1" -Check }
 $fh = Test-Path "$env:LOCALAPPDATA\Microsoft\Windows\FileHistory\Configuration\Config1.xml"
 $bk = Get-ScheduledTask | Where-Object { $_.TaskName -match 'backup' -and $_.TaskPath -notlike '\Microsoft\*' -and $_.State -ne 'Disabled' }
 if (-not (Test-Path "$PSScriptRoot\files-backup.ps1") -and -not $fh -and -not $bk) {   # (an older copy without it)

@@ -206,6 +206,7 @@ try {
           <Button x:Name="ChatMenu" DockPanel.Dock="Left" ToolTip="Chats and earlier conversations"/>
           <Button x:Name="ChatClose" DockPanel.Dock="Right" ToolTip="Close the chat (Claude keeps working)"/>
           <Button x:Name="ChatNew" DockPanel.Dock="Right" ToolTip="New conversation in a new tab"/>
+          <Button x:Name="ChatMode" DockPanel.Dock="Right"/>
           <Button x:Name="ChatRemote" DockPanel.Dock="Right" Visibility="Collapsed"/>
           <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
             <TextBlock FontFamily="$icons" FontSize="16" Foreground="$($c.Accent)" VerticalAlignment="Center" Text="&#xE99A;" Margin="0,0,10,0"/>
@@ -216,6 +217,15 @@ try {
           </StackPanel>
         </DockPanel>
         <WrapPanel x:Name="ChatTabs" DockPanel.Dock="Top" Margin="14,0,14,6" Visibility="Collapsed"/>
+        <Border x:Name="ChatFind" DockPanel.Dock="Top" Visibility="Collapsed" Margin="14,0,14,6" CornerRadius="8" Background="$($c.Btn)" BorderBrush="$($c.Accent)" BorderThickness="1" Padding="10,1,3,1">
+          <DockPanel>
+            <Button x:Name="ChatFindClose" DockPanel.Dock="Right"/>
+            <Button x:Name="ChatFindNext" DockPanel.Dock="Right"/>
+            <Button x:Name="ChatFindPrev" DockPanel.Dock="Right"/>
+            <TextBlock x:Name="ChatFindCount" DockPanel.Dock="Right" FontSize="12" Foreground="$($c.Sub)" VerticalAlignment="Center" Margin="8,0,4,0"/>
+            <TextBox x:Name="ChatFindBox" FontSize="13" Background="Transparent" BorderThickness="0" Foreground="$($c.Text)" CaretBrush="$($c.Text)" VerticalAlignment="Center" Padding="0,5"/>
+          </DockPanel>
+        </Border>
         <Border DockPanel.Dock="Bottom" Margin="14,6,14,14" CornerRadius="12" Background="$($c.Btn)" BorderBrush="$($c.Border)" BorderThickness="1" Padding="12,6,6,6">
           <DockPanel>
             <WrapPanel x:Name="ChatAttach" DockPanel.Dock="Top" Visibility="Collapsed" Margin="0,2,0,4"/>
@@ -248,7 +258,7 @@ try {
 </Window>
 "@
     $win = [Windows.Markup.XamlReader]::Load((New-Object Xml.XmlNodeReader $xaml))
-    $ui = @{}; foreach ($n in 'MainCol', 'ChatCol', 'ChatSplit', 'TopBar', 'AppName', 'Body', 'ChatMenu', 'ChatRemote', 'ChatTitle', 'ChatMenuPanel', 'ChatMenuList', 'ChatSearch', 'ChatSearchHint', 'Logo', 'NavList', 'Header', 'SubBox', 'SubNav', 'PageTitle', 'PageSub', 'Scroll', 'Content', 'Note', 'NoteBar', 'AiPill', 'NowBar', 'NowDot', 'NowText', 'ChatPanel', 'ChatClose', 'ChatNew', 'ChatStatus', 'ChatSend', 'ChatHint', 'ChatInput', 'ChatWorking', 'ChatEditing', 'ChatTabs', 'ChatAttach', 'ChatScroll', 'ChatList') { $ui[$n] = $win.FindName($n) }
+    $ui = @{}; foreach ($n in 'MainCol', 'ChatCol', 'ChatSplit', 'TopBar', 'AppName', 'Body', 'ChatMenu', 'ChatRemote', 'ChatTitle', 'ChatMenuPanel', 'ChatMenuList', 'ChatSearch', 'ChatSearchHint', 'Logo', 'NavList', 'Header', 'SubBox', 'SubNav', 'PageTitle', 'PageSub', 'Scroll', 'Content', 'Note', 'NoteBar', 'AiPill', 'NowBar', 'NowDot', 'NowText', 'ChatPanel', 'ChatClose', 'ChatNew', 'ChatStatus', 'ChatSend', 'ChatHint', 'ChatInput', 'ChatWorking', 'ChatEditing', 'ChatTabs', 'ChatMode', 'ChatFind', 'ChatFindBox', 'ChatFindCount', 'ChatFindPrev', 'ChatFindNext', 'ChatFindClose', 'ChatAttach', 'ChatScroll', 'ChatList') { $ui[$n] = $win.FindName($n) }
     $brush = @{}; foreach ($k in $c.Keys) { $brush[$k] = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString($c[$k])) }
     $levelBrush = @{ ok = $brush.Ok; info = $brush.Text; warn = $brush.Warn; dim = $brush.Sub }
     $onColor = if ($light) { [Windows.Media.Brushes]::White } else { [Windows.Media.Brushes]::Black }   # text on an Ok/Warn badge
@@ -1303,6 +1313,13 @@ try {
                 $bl = @(if ($bks) { @(@{ Text = "Last backup: $($bks[0].LastWriteTime.ToString('ddd MMM d, h:mm tt')) in $(Split-Path $bks[0].FullName)"; Level = 'info' }) } else { @(@{ Text = 'No backup yet - the first one is made at the next weekly maintenance.'; Level = 'dim' }) })
                 $bl += @{ Text = 'Weekly: wallpaper, dark mode, colours, taskbar, mouse, Start pins, game settings and Messiah''s memory. Reinstalling Windows with the install USB brings them back by itself; plug in the USB once in a while and a copy goes onto it too.'; Level = 'dim' }
                 [void]$out.Add((New-Card 'Settings backup' 'E777' $bl @((New-Btn 'E777' 'Back up now' $act.BackupNow), (New-Btn 'E896' 'Restore from a backup...' $act.RestoreFrom))))
+                # --- Game saves (game-saves.ps1, Ludusavi): off until turned on
+                if (Test-Path "$cl\game-saves.ps1") {
+                    $gsOn = (Get-Opt 'gamesaves' 'off') -eq 'on'; $gst = Read-Json "$cl\game-saves.json"; $gsAt = [datetime]::MinValue
+                    $gl = @(New-SwitchRow 'Back up my game saves every day' 'Every game''s saves (Steam or not - Ludusavi knows 10,000+ games) go to Documents\Game Saves (Messiah), zipped, the last 3 copies of each. Never while you play. With a backup drive set up, they go there too.' $gsOn { Set-Opt 'gamesaves' $(if ($this.IsChecked) { 'on' } else { 'off' }); Say $(if ($this.IsChecked) { 'On - the first backup runs at the next check (or click Back up now).' } else { 'Off - the backups made so far stay.' }) } 'gamesaves')
+                    if ($gst -and [datetime]::TryParse("$($gst.lastRun)", [ref]$gsAt)) { $gl += @{ Text = "Last backup $(Format-When $gsAt): $($gst.games) games$(if (@($gst.ignored).Count) { " ($(@($gst.ignored).Count) cache file(s) left out - not saves)" })"; Level = 'dim' } }
+                    [void]$out.Add((New-Card 'Game saves' 'E7FC' $gl @((New-Btn 'E777' 'Back up now' { Start-Process powershell -WindowStyle Hidden -ArgumentList ((& $psArgs 'game-saves.ps1') + '-Run'); Say 'Backing up your game saves in the background - "Last backup" here updates when it''s done (under a minute).' }), (New-Btn 'E8B7' 'Open the backups' { $d_ = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Game Saves (Messiah)'; if (Test-Path $d_) { Start-Process explorer.exe "`"$d_`"" } else { Say 'No backup yet - click Back up now.' } }), (New-Btn 'E896' 'Restore saves...' { $r_ = & "$cl\game-saves.ps1" -Restore; if ($r_) { Say $r_ } else { Say 'Ludusavi opens - choose Restore, pick the game, and it puts the saves back.' } }))))
+                }
             }
             'Settings/Windows' {
                 # every change the kit makes, each one the owner's to keep or not (tweaks.ps1 reads "tweak.<id>=off", puts
@@ -1755,6 +1772,7 @@ try {
     # the open chat's conversation: from its transcript; a conversation not saved yet (or a failed first message): the
     # events since its Claude started (deltas left out - the whole messages follow them)
     function Open-ChatHistory([string]$Session) {
+        $script:finds.Clear(); $script:findAt = -1; if ($ui.ChatFind.Visibility -eq 'Visible') { $ui.ChatFind.Visibility = 'Collapsed'; $ui.ChatFindCount.Text = '' }; Update-ChatModeBtn
         $ui.ChatList.Children.Clear(); $script:live = $null; $script:lastUser = $null; if ($script:editing) { Stop-Edit; $ui.ChatInput.Text = ''; Clear-Attach }
         $f = "$script:chatDir\events.jsonl"
         $shown = 0
@@ -2036,6 +2054,87 @@ try {
     $ui.ChatSplit.Add_DragCompleted({ $script:chatW = [Math]::Round($ui.ChatCol.ActualWidth); Set-Opt 'chatwidth' $script:chatW; Update-Layout })
     $ui.ChatClose.Add_Click({ Show-Chat $false })
     # a new conversation opens in a new tab and the one open keeps going (this chat still empty: it's already new)
+    # --- the chat's speed, per tab (mode.txt "model/effort", read by chat-host.ps1): the button in the chat's title bar
+    $script:modes = @(
+        @('Quick', 'sonnet/low', 'Sonnet, low effort - fast answers, easy on your plan''s usage'),
+        @('Standard', 'opus/medium', 'Opus, medium effort - the default'),
+        @('Deep', 'opus/high', 'Opus, high effort - hard problems like crash hunts'),
+        @('Deepest', 'opus/max', 'Opus, maximum effort - slowest, uses the most'))
+    function Get-ChatMode($d = $script:chatDir) { $m = "$(Get-Content "$d\mode.txt" -ErrorAction SilentlyContinue)".Trim(); $f = $script:modes | Where-Object { $_[1] -eq $m } | Select-Object -First 1; if ($f) { $f } else { $script:modes[1] } }
+    function Update-ChatModeBtn {
+        $m = Get-ChatMode; $sp = New-Object Windows.Controls.StackPanel -Property @{ Orientation = 'Horizontal' }
+        [void]$sp.Children.Add((New-Glyph $(if ($m[0] -eq 'Quick') { 'E945' } else { 'E9D9' }) 13 $brush.Text))
+        [void]$sp.Children.Add((New-Object Windows.Controls.TextBlock -Property @{ Text = $m[0]; FontSize = 12; Margin = '6,0,0,0'; VerticalAlignment = 'Center' }))
+        $ui.ChatMode.Content = $sp; $ui.ChatMode.ToolTip = "Speed: $($m[0]) ($($m[2])). Click to change - for this tab."
+    }
+    function Set-ChatMode($v) {
+        $d = $script:chatDir
+        if ($v -eq 'opus/medium') { if (Test-Path "$d\mode.txt") { [IO.File]::Delete("$d\mode.txt") } } else { Set-Content "$d\mode.txt" $v }
+        Update-ChatModeBtn; if (Get-ChatState) { Send-ChatCmd @{ cmd = 'mode' } }
+        $m = Get-ChatMode; Say "$($m[0]) from now on in this tab$(if ((Get-ChatState) -and (Get-ChatState).busy) { ' - after the current answer' })."
+    }
+    $ui.ChatMode.Style = $win.FindResource('Btn'); $ui.ChatMode.Margin = '4,0,0,0'; $ui.ChatMode.Padding = '9,6'
+    $ui.ChatMode.Add_Click({
+            $cm = New-Object Windows.Controls.ContextMenu; $cur = (Get-ChatMode)[1]
+            foreach ($m in $script:modes) {
+                $mi = New-Object Windows.Controls.MenuItem -Property @{ Header = "$($m[0]) - $($m[2])"; IsCheckable = $true; IsChecked = ($m[1] -eq $cur); Tag = $m[1] }
+                $mi.Add_Click({ Set-ChatMode "$($this.Tag)" }); [void]$cm.Items.Add($mi)
+            }
+            $cm.PlacementTarget = $this; $cm.Placement = 'Bottom'; $cm.IsOpen = $true })
+    Update-ChatModeBtn
+    # --- find in the open conversation (Ctrl+F in the chat): every match marked, Enter / Shift+Enter go through them
+    $script:finds = New-Object Collections.Generic.List[object]; $script:findAt = -1
+    $findBrush = New-Tint $brush.Warn 0x55; $findCur = New-Tint $brush.Warn 0xB0
+    function Get-ChatDocs {   # the replies' and messages' documents, in order
+        foreach ($el in $ui.ChatList.Children) {
+            if ($el -is [Windows.Controls.StackPanel] -and $el.Children.Count -and $el.Children[0] -is [Windows.Controls.RichTextBox]) { $el.Children[0] }
+            elseif ($el -is [Windows.Controls.DockPanel] -and $el.Children.Count -gt 1 -and $el.Children[1].Child -is [Windows.Controls.RichTextBox]) { $el.Children[1].Child }
+        }
+    }
+    function Clear-Finds { foreach ($f in $script:finds) { try { $f.R.ApplyPropertyValue([Windows.Documents.TextElement]::BackgroundProperty, $f.Bg) } catch {} }; $script:finds.Clear(); $script:findAt = -1 }
+    function Find-InChat([string]$q) {
+        Clear-Finds
+        if ($q.Length -ge 2) {
+            foreach ($rtb in @(Get-ChatDocs)) {
+                $hits = @(); $p = $rtb.Document.ContentStart
+                while ($p) {
+                    if ($p.GetPointerContext('Forward') -eq 'Text') {
+                        $run = $p.GetTextInRun('Forward'); $i = 0
+                        while (($i = $run.IndexOf($q, $i, [StringComparison]::OrdinalIgnoreCase)) -ge 0) { $hits += , @($p.GetPositionAtOffset($i), $p.Parent); $i += $q.Length }
+                    }
+                    $p = $p.GetNextContextPosition('Forward')
+                }
+                foreach ($h in $hits) {   # (marked after the walk: marking splits the text it walks)
+                    $r = New-Object Windows.Documents.TextRange ($h[0], $h[0].GetPositionAtOffset($q.Length))
+                    $script:finds.Add([pscustomobject]@{ R = $r; Bg = $(if ($h[1] -is [Windows.Documents.TextElement]) { $h[1].Background }); Box = $rtb })
+                    $r.ApplyPropertyValue([Windows.Documents.TextElement]::BackgroundProperty, $findBrush)
+                }
+            }
+        }
+        $ui.ChatFindCount.Text = if ($q.Length -lt 2) { '' } elseif ($script:finds.Count) { "$($script:finds.Count) found" } else { 'Not found' }
+        if ($script:finds.Count) { Step-Find ($script:finds.Count - 1) -Absolute }   # (the newest first - what was just said)
+    }
+    function Step-Find([int]$n, [switch]$Absolute) {
+        if (-not $script:finds.Count) { return }
+        if ($script:findAt -ge 0) { $script:finds[$script:findAt].R.ApplyPropertyValue([Windows.Documents.TextElement]::BackgroundProperty, $findBrush) }
+        $script:findAt = if ($Absolute) { $n } else { ($script:findAt + $n + $script:finds.Count) % $script:finds.Count }
+        $f = $script:finds[$script:findAt]; $f.R.ApplyPropertyValue([Windows.Documents.TextElement]::BackgroundProperty, $findCur)
+        $ui.ChatFindCount.Text = "$($script:findAt + 1) of $($script:finds.Count)"
+        try {   # scrolled to it, a little below the top
+            $rc = $f.R.Start.GetCharacterRect('Forward'); $pt = $f.Box.TranslatePoint((New-Object Windows.Point 0, $rc.Top), $ui.ChatScroll)
+            $ui.ChatScroll.ScrollToVerticalOffset([Math]::Max(0, $ui.ChatScroll.VerticalOffset + $pt.Y - 80))
+        } catch {}
+    }
+    function Show-ChatFind([bool]$on) {
+        $ui.ChatFind.Visibility = if ($on) { 'Visible' } else { 'Collapsed' }
+        if ($on) { $ui.ChatFindBox.Focus() | Out-Null; $ui.ChatFindBox.SelectAll(); if ($ui.ChatFindBox.Text) { Find-InChat $ui.ChatFindBox.Text } } else { Clear-Finds; $ui.ChatFindCount.Text = ''; $ui.ChatInput.Focus() | Out-Null }
+    }
+    foreach ($x in @(@($ui.ChatFindPrev, 'E70E', 'Previous (Shift+Enter)'), @($ui.ChatFindNext, 'E70D', 'Next (Enter)'), @($ui.ChatFindClose, 'E711', 'Close (Esc)'))) { Set-IconBtn $x[0] $x[1]; $x[0].Padding = '6,4'; $x[0].Margin = '2,0,0,0'; $x[0].ToolTip = $x[2]; $x[0].Content.FontSize = 11 }
+    $ui.ChatFindPrev.Add_Click({ Step-Find -1 }); $ui.ChatFindNext.Add_Click({ Step-Find 1 }); $ui.ChatFindClose.Add_Click({ Show-ChatFind $false })
+    $ui.ChatFindBox.Add_TextChanged({ Find-InChat $ui.ChatFindBox.Text })
+    $ui.ChatFindBox.Add_PreviewKeyDown({ param($s_, $e_)
+            if ($e_.Key -eq 'Return') { $e_.Handled = $true; Step-Find $(if ([Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Shift) { -1 } else { 1 }) }
+            elseif ($e_.Key -eq 'Escape') { $e_.Handled = $true; Show-ChatFind $false } })
     function New-Conversation { $cs = Get-ChatState; if ((Get-ChatSession) -or ($cs -and $cs.busy)) { New-ChatTab } else { Show-ChatMenu $false; Show-ChatStart; $ui.ChatInput.Focus() | Out-Null } }
     $ui.ChatTitle.ToolTip = 'Double-click to rename this chat'; $ui.ChatTitle.Add_MouseLeftButtonDown({ param($s_, $e_) if ($e_.ClickCount -eq 2) { $e_.Handled = $true; Start-RenameChat $script:chatDir } })
     $ui.ChatNew.Add_Click({ New-Conversation }); $ui.ChatNew.ToolTip = 'New conversation in a new tab (Ctrl+T)'
@@ -2167,7 +2266,8 @@ try {
             $ctrl = [Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Control
             $shift = [Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Shift
             $chatOn = $script:ai -and $ui.ChatPanel.Visibility -eq 'Visible'
-            if ($ctrl -and $e_.Key -in 'K', 'F' -and $ui.ChatInput.IsKeyboardFocused -eq $false) { Show-Search $true; $e_.Handled = $true }
+            if ($ctrl -and $e_.Key -eq 'F' -and $chatOn -and $ui.ChatPanel.IsKeyboardFocusWithin) { Show-ChatFind $true; $e_.Handled = $true }   # (in the chat: find in the conversation)
+            elseif ($ctrl -and $e_.Key -in 'K', 'F' -and $ui.ChatInput.IsKeyboardFocused -eq $false) { Show-Search $true; $e_.Handled = $true }
             # the chat's tabs: Ctrl+T new, Ctrl+W close (the first chat: hides the chat), Ctrl+Tab / Ctrl+Shift+Tab switch;
             # Ctrl+0 normal text size
             elseif ($ctrl -and $e_.Key -eq 'T' -and $script:ai) { $e_.Handled = $true; if (-not $chatOn) { Show-Chat $true }; New-Conversation }
@@ -2277,6 +2377,12 @@ try {
         "CHAT LINKS: $($lk -join ' | ')"
         "CHAT USER: blocks=$($ub.Blocks.Count) attach=$(@($ub.Blocks.LastBlock.Inlines | Where-Object { $_ -is [Windows.Documents.Hyperlink] } | ForEach-Object Tag) -join ',') width=$([int]$all_[1].Children[1].Child.MaxWidth)"
         Start-Edit "Fix this`nAttached: $env:SystemRoot\win.ini"; "CHAT EDIT: box=[$($ui.ChatInput.Text)] files=$($script:attach.Count) editing=$script:editing shown=$($ui.ChatEditing.Visibility) last=$([bool]$script:lastUser)"; Stop-Edit; $ui.ChatInput.Text = ''; Clear-Attach
+        Add-ChatItem 'text' 'The **Head** again, and head once more'; Find-InChat 'head'; $n1 = $script:finds.Count; $at1 = $ui.ChatFindCount.Text; Step-Find 1; $at2 = $ui.ChatFindCount.Text
+        $marked = @($script:finds | Where-Object { $_.R.GetPropertyValue([Windows.Documents.TextElement]::BackgroundProperty) }).Count; Clear-Finds
+        $left = 0; foreach ($rb in @(Get-ChatDocs)) { $q_ = $rb.Document.ContentStart; while ($q_) { if ($q_.GetPointerContext('Forward') -eq 'Text' -and $q_.Parent.Background -and $q_.Parent.Background.Color -eq $findBrush.Color) { $left++ }; $q_ = $q_.GetNextContextPosition('Forward') } }
+        "CHAT FIND: found=$n1 first=[$at1] next=[$at2] marked=$marked leftover=$left"
+        $md_ = Join-Path $env:TEMP "dash-mode-$PID"; New-Item $md_ -ItemType Directory -Force | Out-Null; $m0 = (Get-ChatMode $md_)[0]; Set-Content "$md_\mode.txt" 'opus/high'; $m1 = (Get-ChatMode $md_)[0]; Set-Content "$md_\mode.txt" 'junk'; $m2 = (Get-ChatMode $md_)[0]; [IO.Directory]::Delete($md_, $true)
+        "CHAT MODE: default=$m0 chosen=$m1 junk=$m2 button=[$($ui.ChatMode.Content.Children[1].Text)]"
         $ui.ChatList.Children.Clear()
         # a tab's own name and pin (a scratch folder, not a real chat)
         $td_ = Join-Path $env:TEMP "dash-tab-$PID"; New-Item $td_ -ItemType Directory -Force | Out-Null

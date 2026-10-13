@@ -108,4 +108,32 @@ Set-Content "$D\session.txt" ([guid]::NewGuid().ToString()); Clear-Path "$D\even
 Drop @{ cmd = 'edit'; text = 'no transcript' } '012'
 RunAs
 Check 'no transcript to go back in: sent as a new message (said)' (@(Events | Where-Object t -eq 'status').text -contains 'Edited your last message (sent as a new one).' -and @(Events | Where-Object t -eq 'text').text -contains 'You said: no transcript') ''
+
+Section 'the chat''s speed (the app''s picker)'
+Remove-Item "$D\mode.txt" -ErrorAction SilentlyContinue; Clear-Path "$D\events.jsonl"
+Drop @{ text = 'hi' } '020'; Run
+Check 'nothing chosen: Opus at medium effort' ((Get-Content "$D\state.json" -Raw | ConvertFrom-Json).mode -eq 'opus/medium') (Get-Content "$D\state.json" -Raw)
+Set-Content "$D\mode.txt" 'sonnet/low'; Drop @{ cmd = 'mode' } '021'; Run
+Check 'a new speed: Claude starts again on it, said' ((Get-Content "$D\state.json" -Raw | ConvertFrom-Json).mode -eq 'sonnet/low' -and @(Events | Where-Object t -eq 'status').text -contains 'Now using Sonnet at low effort.') (Get-Content "$D\state.json" -Raw)
+Set-Content "$D\mode.txt" 'gpt/ultra'; Drop @{ text = 'again' } '022'; Run
+Check 'a speed that isn''t one: the default' ((Get-Content "$D\state.json" -Raw | ConvertFrom-Json).mode -eq 'opus/medium') ''
+Remove-Item "$D\mode.txt"
+Section 'a new version of the chat host takes over by itself (when Claude isn''t working)'
+# (a copy of the host, running for real in the background - not -Once)
+$D2 = "$Work\chat2"; New-Item "$D2\inbox" -ItemType Directory -Force | Out-Null; $ch2 = "$Work\host-copy.ps1"; Copy-Item $ch $ch2
+function State2 { try { Get-Content "$D2\state.json" -Raw -ErrorAction Stop | ConvertFrom-Json } catch { $null } }
+function WaitFor([scriptblock]$c, [int]$s = 20) { for ($i = 0; $i -lt $s * 4; $i++) { if (& $c) { return $true }; Start-Sleep -Milliseconds 250 }; $false }
+Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$ch2`"", '-Dir', "`"$D2`"", '-Exe', "`"$exe`"", '-ExeArgs', $fa
+$up = WaitFor { $s_ = State2; $s_ -and $s_.pid -and (Get-Process -Id $s_.pid -ErrorAction SilentlyContinue) }
+$pid1 = (State2).pid
+Add-Content $ch2 '# a newer version'; (Get-Item $ch2).LastWriteTime = (Get-Date).AddSeconds(-10)
+$moved = WaitFor { $s_ = State2; $s_ -and $s_.pid -and $s_.pid -ne $pid1 -and (Get-Process -Id $s_.pid -ErrorAction SilentlyContinue) }
+Check 'the file changed: a new host runs it, the old one has gone' ($up -and $moved -and -not (Get-Process -Id $pid1 -ErrorAction SilentlyContinue)) "up=$up moved=$moved"
+[IO.File]::WriteAllText("$D2\inbox\1.json", (@{ text = 'still here' } | ConvertTo-Json -Compress))
+$ans = WaitFor { @(Get-Content "$D2\events.jsonl" -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object t -eq 'text').text -contains 'You said: still here' }
+Check '... and answers the next message' $ans ''
+Add-Content $ch2 '}{ broken'; (Get-Item $ch2).LastWriteTime = (Get-Date).AddSeconds(-10); $pid2 = (State2).pid; Start-Sleep 3
+Check 'a version that doesn''t parse is not taken: the running host stays' ((State2).pid -eq $pid2 -and (Get-Process -Id $pid2 -ErrorAction SilentlyContinue)) ''
+[IO.File]::WriteAllText("$D2\inbox\2.json", (@{ cmd = 'quit' } | ConvertTo-Json -Compress)); [void](WaitFor { -not (Get-Process -Id $pid2 -ErrorAction SilentlyContinue) } 10)
+Get-Process -Id $pid2 -ErrorAction SilentlyContinue | Stop-Process -Force
 Finish

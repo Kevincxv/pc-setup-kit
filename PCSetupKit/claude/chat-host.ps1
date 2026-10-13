@@ -3,7 +3,7 @@
 # mode. The app and this host talk through files in .claude\chat (the main chat) or .claude\chats\<id> (more chats
 # running side by side, 10/11 - the app's chat menu):
 #   inbox\*.json   the app drops {"text": ...} (or {"cmd": "stop" | "new" | "start" | "quit" | "open", "session", "fork"},
-#                  or {"cmd": "edit", "text": ...} - the last message, changed);
+#                  or {"cmd": "edit", "text": ...} - the last message, changed; or {"cmd": "mode"} - mode.txt changed);
 #                  taken oldest first and deleted
 #   events.jsonl   what happened, one JSON object per line: {t: user|delta|text|tool|status|error|session, text, at}
 #   state.json     {pid, session, busy, step, since, remote, at} - rewritten as it changes; the app's "working on ..."
@@ -75,13 +75,19 @@ function Select-Session {
 function Test-RemoteWanted { if ($ExeArgs) { return $false }; $j = try { Get-Content "$cl\settings.json" -Raw | ConvertFrom-Json } catch { $null }; -not ($j -and $j.remoteControlAtStartup -eq $false) }
 function Get-ChatName { $n = "$(Get-Content "$Dir\name.txt" -ErrorAction SilentlyContinue)".Trim(); if ($n) { $n } else { 'Messiah' } }
 
-$script:proc = $null; $script:fork = $false; $script:resumeAt = $null; $script:sent = New-Object Collections.Generic.List[string]
+# the chat's speed (the app's picker; mode.txt "model/effort"): Opus at medium effort unless the owner chose otherwise
+function Get-Mode {
+    $m = "$(Get-Content "$Dir\mode.txt" -ErrorAction SilentlyContinue)".Trim() -split '/'
+    if ($m.Count -eq 2 -and $m[0] -in 'opus', 'sonnet', 'haiku', 'fable' -and $m[1] -in 'low', 'medium', 'high', 'xhigh', 'max') { $m } else { 'opus', 'medium' }
+}
+$script:proc = $null; $script:fork = $false; $script:resumeAt = $null; $script:modeWait = $false; $script:sent = New-Object Collections.Generic.List[string]
 function Start-Claude {
+    $script:mode = Get-Mode; $script:st.mode = $script:mode -join '/'
     $id = if ($script:st.session) { $script:st.session } elseif (-not $ExeArgs) { Select-Session }   # (tests: never another session)
     $new = -not $id -or -not (Test-Path "$proj\$id.jsonl")   # an id with no transcript can't be resumed: start it fresh
     if (-not $id) { $id = [guid]::NewGuid().ToString() }
     $psi = New-Object Diagnostics.ProcessStartInfo $Exe
-    $psi.Arguments = if ($ExeArgs) { $ExeArgs } else { "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --replay-user-messages --dangerously-skip-permissions --model opus --effort medium --fallback-model sonnet $(if ($new) { "--session-id $id" } else { "--resume $id$(if ($script:resumeAt) { " --resume-session-at $script:resumeAt" })$(if ($script:fork) { ' --fork-session' })" })" }
+    $psi.Arguments = if ($ExeArgs) { $ExeArgs } else { "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --replay-user-messages --dangerously-skip-permissions --model $($script:mode[0]) --effort $($script:mode[1]) --fallback-model sonnet $(if ($new) { "--session-id $id" } else { "--resume $id$(if ($script:resumeAt) { " --resume-session-at $script:resumeAt" })$(if ($script:fork) { ' --fork-session' })" })" }
     $script:fork = $false; $script:resumeAt = $null
     $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true   # (stderr not read: a full pipe would stall Claude)
     $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.WorkingDirectory = "$env:SystemRoot\System32"
@@ -172,6 +178,23 @@ function Read-Out([string]$l) {
     }
 }
 
+# (a new version of this file: settled for 5 s and parsing - one being written isn't run - else waited for)
+$script:selfTime = (Get-Item $PSCommandPath).LastWriteTime
+$script:selfArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"") + @(foreach ($k in 'Dir', 'Exe', 'ExeArgs', 'IdleHours') { if ($PSBoundParameters.ContainsKey($k)) { "-$k"; "`"$($PSBoundParameters[$k])`"" } })
+function Test-SelfUpdated {
+    $t = (Get-Item $PSCommandPath -ErrorAction SilentlyContinue).LastWriteTime
+    if (-not $t -or $t -eq $script:selfTime -or ((Get-Date) - $t).TotalSeconds -lt 5) { return $false }
+    $err = $null; [void][Management.Automation.Language.Parser]::ParseFile($PSCommandPath, [ref]$null, [ref]$err)
+    if ($err) { $script:selfTime = $t; return $false }   # (broken: keep running this one until the file changes again)
+    $true
+}
+function Switch-Mode {
+    $n = Get-Mode; if (($n -join '/') -eq $script:st.mode -and $script:proc) { return }
+    $had = [bool]$script:proc; Stop-Claude
+    if ($had -or $Once) { Start-Claude } else { $script:st.mode = $n -join '/' }
+    Add-Event 'status' "Now using $((Get-Culture).TextInfo.ToTitleCase($n[0])) at $($n[1]) effort."; Save-State
+}
+function Restart-Self { Stop-Claude; Save-State; $mutex.ReleaseMutex(); Start-Process powershell -WindowStyle Hidden -ArgumentList $script:selfArgs }
 Save-State
 if (-not $Once) { Start-Claude }   # (Remote Control from the start)
 $lastUse = Get-Date; $started = Get-Date
@@ -207,6 +230,8 @@ while ($true) {
             Save-State
             $m = [pscustomobject]@{ text = "$($m.text)" }
         }
+        # a new speed (mode.txt, written by the app): Claude starts again on it, same conversation - after its answer when busy
+        if ($m.cmd -eq 'mode') { if ($script:st.busy) { $script:modeWait = $true } else { Switch-Mode }; continue }
         if ($m.cmd -eq 'start') { if (-not $script:proc -and -not $Once) { Start-Claude }; continue }
         if ($m.cmd -eq 'quit') { Stop-Claude; Remove-Item $stateFile -Force; if (-not $main) { $mutex.ReleaseMutex(); Set-Location $env:TEMP; Remove-Item $Dir -Recurse -Force }; return }
         if ("$($m.text)".Trim()) {
@@ -232,6 +257,10 @@ while ($true) {
         # Claude Code updated itself: the new version takes over (same conversation)
         elseif (-not $script:st.busy -and (Get-Item $Exe).LastWriteTime -ne $script:exeTime) { Stop-Claude; if (-not $Once) { Start-Claude } }
     }
+    # this script was updated (a Messiah update, a fix): the new version takes over once Claude isn't working - the same
+    # conversation (session.txt), Remote Control on the same link (remote.txt). 10/12: a chat kept old code for a day.
+    if (-not $Once -and -not $script:st.busy -and -not (Get-ChildItem "$Dir\inbox\*.json") -and (Test-SelfUpdated)) { Restart-Self; return }
+    if ($script:modeWait -and -not $script:st.busy) { $script:modeWait = $false; Switch-Mode }
     if ($Once -and -not $script:st.busy -and -not (Get-ChildItem "$Dir\inbox\*.json")) { Stop-Claude; return }
     if ($Once -and ((Get-Date) - $started).TotalSeconds -gt 60) { Add-Event 'error' 'Test run stopped after 60 s'; Stop-Claude; return }   # (tests: never hang)
     if (-not $script:st.busy -and ((Get-Date) - $lastUse).TotalHours -ge $IdleHours) { Stop-Claude; Remove-Item $stateFile -Force; return }

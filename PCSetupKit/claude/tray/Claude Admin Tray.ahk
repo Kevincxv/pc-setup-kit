@@ -65,6 +65,7 @@ if AI {
     SetTimer SessionCheck, 300000
     SetTimer RefreshSession, 900000
     SetTimer ChatDone, 3000
+    SetTimer LiveTest, 600000
 }
 
 ; The optional Claude part is on when setup recorded it (kit-options.txt: claude=on); PCs installed before the option
@@ -294,6 +295,16 @@ LastReply(d) {
         }
     }
     return "-"
+}
+; --- The weekly live self-test (live-test.ps1): only while nobody uses the PC (30+ minutes without keyboard or mouse);
+; the script checks the rest (a week since the last one, no game, no busy chat, no hidden maintenance)
+LiveTest() {
+    f := CL "\live-test.json"
+    if EnvGet("PCKIT_IN_TESTS") != "" || A_TimeIdlePhysical < 1800000 || IsFullscreen() || !FileExist(CL "\live-test.ps1")
+        return
+    if FileExist(f) && DateDiff(A_Now, FileGetTime(f), "Days") < 7
+        return
+    try Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' CL '\live-test.ps1"', , "Hide"
 }
 OpenChat(tab) {
     try FileOpen(CL "\app-request.txt", "w", "UTF-8-RAW").Write("chat=" tab)
