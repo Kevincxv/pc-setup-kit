@@ -56,6 +56,11 @@ resumes it (the tray for interactive sessions, maint-requests.txt for hidden run
      `.claude\ram-test.log` and reports "RAM test: ... start(s), ... crash(es) on this setup" once a stick is out. Read
      that log for the per-stick verdict (identical sticks look the same, so ask the owner which one is in after a swap).
   Record which step each crash reached in the maintenance memory note so the ladder continues across runs.
+  `.claude\power-log.json` (power-log.ps1, each login) is the whole record: every blue screen and power-off with when it
+  went off, the owner's answer for power-offs without a blue screen (the app's Home asks "did you turn it off?":
+  `me` = they did - not a crash; `froze` = it froze or went off by itself; `unsure`; empty = not answered yet), and the
+  changes around them (graphics driver, BIOS, RAM sticks and speed, Driver Verifier). Read it instead of asking the owner
+  again; a `froze` power-off with no dump and no WHEA points at a hard freeze or power (PSU, cabling) rather than a driver.
 - **Leftovers pointing at deleted programs** (services/tasks): confirm the program is really gone, then remove the
   service (`sc.exe delete`) / task (`Unregister-ScheduledTask`). Leave anything owned by Microsoft alone.
 - **App or driver update failed / timed out**: find out why (logs, winget output) and fix or hide it.

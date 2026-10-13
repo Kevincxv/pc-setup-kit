@@ -25,6 +25,9 @@ if ($bsods -and (Test-Path "$PSScriptRoot\driver-guard.ps1")) { & "$PSScriptRoot
 $whea = (Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WHEA-Logger'; StartTime = $since }).Count
 if ($whea) { "WARNING: $whea hardware error(s) logged (WHEA) - possible RAM/CPU instability" }
 if (-not $bsods -and -not $hard -and -not $whea) { 'Crashes: none since last check' }
+# the stability record (power-log.json): every crash and power-off, the owner's "did you turn it off?" answers, and what
+# changed (driver, BIOS, RAM, Driver Verifier) - the app's Home question and Activity > Stability
+if (Test-Path "$PSScriptRoot\power-log.ps1") { & "$PSScriptRoot\power-log.ps1" -Update }
 # CPU slowed down by the firmware (heat or power limit; event 37). A laptop on battery does this on purpose.
 # (Windows logs one event per CPU thread: events in the same minute are one slowdown, not 16 on a 16-thread CPU)
 $slow = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Kernel-Processor-Power'; Id = 37; StartTime = $since } |

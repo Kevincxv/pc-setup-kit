@@ -962,10 +962,11 @@ try {
     # every start and crash to ram-test.log with the sticks fitted). The sticks have no serial numbers here, so a stick
     # is known by its slot: the first stick is tested in slot A, the other one in slot B.
     $ramNeed = 10   # starts without a crash before a stick counts as fine (with both in, about 1 start in 4 crashed)
-    function Get-RamTest([string[]]$log, [string]$now) {
+    function Get-RamTest([string[]]$log, [string]$now, [string[]]$mine) {   # mine: power-offs the owner made ("yyyy-MM-dd HH:mm") - not crashes
         $g = [ordered]@{}
         foreach ($l in $log) {
             if ($l -notmatch '^(\S+ \S+) \| (start|crash) \| (.+)$') { continue }
+            if ($Matches[2] -eq 'crash' -and $Matches[1] -in $mine) { continue }
             $s = $Matches[3].Trim(); if (-not $g.Contains($s)) { $g[$s] = @{ Starts = 0; Crashes = 0; Since = $Matches[1] } }
             if ($Matches[2] -eq 'start') { $g[$s].Starts++ } else { $g[$s].Crashes++ }
         }
@@ -1005,7 +1006,7 @@ try {
         if (-not $st -or -not [datetime]::TryParse("$($st.'ram-stick-test')", [ref]$since) -or $since -lt (Get-Date).AddDays(-60)) { return }
         $sticks = @(Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue)
         $now = "$($sticks.Count) stick(s), $([math]::Round(($sticks | Measure-Object Capacity -Sum).Sum / 1GB)) GB in $(@($sticks | ForEach-Object { "$($_.BankLabel)".Trim() }) -join ' + ')"   # (health-check.ps1's words)
-        Get-RamTest @(Get-Content "$cl\ram-test.log" -ErrorAction SilentlyContinue) $now
+        $pl_ = Read-Json "$cl\power-log.json"; $mine = @(if ($pl_) { $pl_.events | Where-Object answer -eq 'me' | ForEach-Object { ([datetime]$_.key).ToString('yyyy-MM-dd HH:mm') } })
     }
     function Get-Opt($k, $default) { $l = @(Get-Content "$cl\kit-options.txt" -ErrorAction SilentlyContinue) -match "^\s*$k\s*=" | Select-Object -First 1; if ($l) { ($l -split '=', 2)[1].Trim() } else { $default } }
     function Set-Opt($k, $v) {
@@ -1029,10 +1030,10 @@ try {
         $p.Home = 'E80F'; $p.Status = 'EA18'; $p.Activity = 'E81C'; $p.Settings = 'E713'
         $p
     }
-    $subPages = @{ Activity = @('Checks', 'Trends', 'Alerts'); Settings = @('General', 'Windows', 'Tools') }
+    $subPages = @{ Activity = @('Checks', 'Stability', 'Trends', 'Alerts'); Settings = @('General', 'Windows', 'Tools') }
     $subs = @{ Welcome = 'Your PC is set up. Here is what happened and what happens from now on.'
         Status = 'Every optimization Messiah keeps in place on this PC - and whether it still is.'
-        'Activity/Checks' = 'What the maintenance found, what it did, and when it runs next.'; 'Activity/Trends' = 'How this PC has been doing over time.'
+        'Activity/Checks' = 'What the maintenance found, what it did, and when it runs next.'; 'Activity/Trends' = 'How this PC has been doing over time.'; 'Activity/Stability' = 'Every blue screen and power-off, and what changed around them.'
         'Activity/Alerts' = 'What Messiah had to say - kept here instead of popping up.'
         'Settings/General' = 'Everything Messiah does is yours to switch on or off.'; 'Settings/Windows' = 'Each change Messiah makes in Windows - keep it or not.'
         'Settings/Tools' = 'Updates, repairs, drivers, the BIOS and the install USB.' }
@@ -1118,6 +1119,20 @@ try {
                 $pz = if (Test-Path "$cl\paused.ps1") { & "$cl\paused.ps1" }
                 if ($pz) { [void]$out.Add((New-Card 'Maintenance paused' 'E769' @(@{ Text = "Until $($pz.ToString('ddd h:mm tt')) - updates, checks and cleanup wait (the tray's Pause maintenance)."; Level = 'warn' }) @(New-Btn 'E768' 'Resume now' { Set-Opt 'pause-until' ''; Say 'Maintenance runs again as usual.'; Update-View -Force }) -Calm)) }
                 if ($todo) { [void]$out.Add((New-Card 'Needs you' 'E7BA' @(New-TodoLines $needs.Lines) $null -Calm)) }
+                # the PC went off without a blue screen: did the owner do that? (power-log.json) - one at a time, newest
+                # first, last 30 days. A freeze and a power-off point to different causes than a blue screen.
+                $plg = Read-Json "$cl\power-log.json"
+                $ask = @(if ($plg) { $plg.events | Where-Object { $_.kind -eq 'off' -and -not $_.answer -and [datetime]$_.key -gt (Get-Date).AddDays(-30) } | Sort-Object key -Descending })
+                if ($ask) {
+                    $q = $ask[0]; $qAt = [datetime]$q.at
+                    $ql = @(@{ Text = "The PC went off $(Format-When $qAt) without a blue screen$(if ($q.key -ne $q.at) { " (it started again $(Format-When ([datetime]$q.key)))" }). Did you turn it off - the power button, the switch, unplugged?"; Level = 'warn' },
+                        @{ Text = "Your answer tells a freeze or power problem apart from a normal power-off - that changes what the crash hunt looks at next.$(if ($ask.Count -gt 1) { " ($($ask.Count - 1) more after this one.)" })"; Level = 'dim' })
+                    $qb = foreach ($a in @(@('E7E8', 'Yes, I turned it off', 'me'), @('E7BA', 'No - it froze or went off by itself', 'froze'), @('E897', 'Not sure', 'unsure'))) {
+                        $b_ = New-Btn $a[0] $a[1] { $k_, $v_ = "$($this.Uid)" -split '\|', 2; & "$cl\power-log.ps1" -Answer $v_ -Key $k_; Say $(if ($v_ -eq 'froze') { 'Thanks - noted as a freeze. Claude looks at it with the crash hunt.' } else { 'Thanks - noted.' }); Update-View -Force } -Accent:($a[2] -eq 'froze')
+                        $b_.Uid = "$($q.key)|$($a[2])"; $b_
+                    }
+                    [void]$out.Add((New-Card 'Did you turn it off?' 'E7E8' $ql @($qb) -Calm))
+                }
                 # the RAM stick test, while it runs: where the owner is in it and what to do next
                 $rt = Get-RamTestNow
                 if ($rt) { [void]$out.Add((New-Card 'RAM stick test' 'E950' $rt @(if ($script:ai) { New-Btn 'E99A' 'Ask Claude about it' { Show-Chat $true; Send-Chat 'Help me with the RAM stick test: where am I, and what do I do next?' } }) -Calm)) }
@@ -1232,6 +1247,84 @@ try {
                 $tl = @(Get-MaintTimeline | Select-Object -First 40)
                 $rows = if ($tl) { $tl | ForEach-Object { , @($_.When, $_.Text, 'info') } } else { , @('', 'Nothing changed yet - the checks found everything in order.', 'dim') }
                 [void]$out.Add((New-Card 'What maintenance did' 'E90F' @(New-Rows $rows) $null))
+            }
+            'Activity/Stability' {
+                # power-log.json (power-log.ps1, at each login): every blue screen and power-off, the owner's answers, and what
+                # changed - the crash hunt at one glance
+                $pl = Read-Json "$cl\power-log.json"
+                $evs = @(if ($pl) { $pl.events | ForEach-Object { [pscustomobject]@{ At = [datetime]$_.at; Kind = $_.kind; Code = $_.code; Answer = $_.answer; Key = $_.key } } })
+                $chs = @(if ($pl) { $pl.changes | ForEach-Object { [pscustomobject]@{ At = [datetime]$_.at; What = $_.what; From = $_.from; To = $_.to; Approx = [bool]$_.approx } } })
+                if (-not $evs -and -not $chs) { [void]$out.Add((New-Card 'Stability' 'E9D9' @(@{ Text = 'Nothing recorded yet - the record is made at the next check.'; Level = 'dim' }) $null)); break }
+                $isCrash = { param($e) $e.Kind -eq 'bsod' -or $e.Answer -ne 'me' }   # (a power-off the owner made isn't one)
+                $crashes = @($evs | Where-Object { & $isCrash $_ })
+                $lastC = $crashes | Sort-Object At | Select-Object -Last 1
+                $d90 = (Get-Date).AddDays(-90)
+                # the numbers first: how long since the last one, and how many lately
+                $tiles = New-Object Windows.Controls.Primitives.UniformGrid -Property @{ Columns = 3; Margin = '0,0,-12,2' }
+                foreach ($tl in @(
+                        @('Days since the last crash', $(if ($lastC) { "$([int]((Get-Date) - $lastC.At).TotalDays)" } else { '-' }), $(if ($lastC) { "$(if ($lastC.Kind -eq 'bsod') { "Blue screen $($lastC.Code)" } elseif ($lastC.Answer -eq 'froze') { 'Went off by itself' } else { 'Went off - not answered yet' }), $(Format-When $lastC.At)" } else { 'None recorded' })),
+                        @('Blue screens, 90 days', "$(@($evs | Where-Object { $_.Kind -eq 'bsod' -and $_.At -gt $d90 }).Count)", 'Each with a crash dump'),
+                        @('Power-offs, 90 days', "$(@($evs | Where-Object { $_.Kind -eq 'off' -and $_.At -gt $d90 }).Count)", "$(@($evs | Where-Object { $_.Kind -eq 'off' -and $_.At -gt $d90 -and $_.Answer -eq 'me' }).Count) by you, $(@($evs | Where-Object { $_.Kind -eq 'off' -and $_.At -gt $d90 -and $_.Answer -eq 'froze' }).Count) froze, $(@($evs | Where-Object { $_.Kind -eq 'off' -and $_.At -gt $d90 -and -not $_.Answer }).Count) not answered"))) {
+                    $tsp = New-Object Windows.Controls.StackPanel
+                    [void]$tsp.Children.Add((New-Text $tl[0] $brush.Sub 12 'Normal' '0'))
+                    $big = New-Text $tl[1] $brush.Text 28 'SemiBold' '0,2,0,0'; $big.FontFamily = $display; [void]$tsp.Children.Add($big)
+                    [void]$tsp.Children.Add((New-Text $tl[2] $brush.Sub 12 'Normal' '0,2,0,0'))
+                    $tc = New-Card $null $null @($tsp) $null; $tc.Margin = '0,0,12,14'; [void]$tiles.Children.Add($tc)
+                }
+                [void]$out.Add($tiles)
+                # the timeline: three lanes - blue screens, power-offs, changes - over the last 120 days. Each kind has its own
+                # shape as well as its color (never color alone), a legend, and hover details on every mark.
+                $t1 = Get-Date; $t0 = $t1.AddDays(-120); $W = if ($ui.Content.ActualWidth -gt 600) { [Math]::Min(1400, $ui.Content.ActualWidth - 64) } else { 640 }; $L = 96; $H = 128; $lane = @{ bsod = 26; off = 62; change = 98 }   # (W: the card's width; narrower windows shrink it)
+                $toX = { param($d) $L + ($d.Ticks - $t0.Ticks) / ($t1.Ticks - $t0.Ticks) * ($W - $L - 10) }
+                $cv = New-Object Windows.Controls.Canvas -Property @{ Width = $W; Height = $H + 18 }
+                foreach ($ln in @(@('Blue screens', 'bsod'), @('Power-offs', 'off'), @('Changes', 'change'))) {
+                    $y = $lane[$ln[1]]
+                    [void]$cv.Children.Add((New-Object Windows.Shapes.Line -Property @{ X1 = $L; X2 = $W - 4; Y1 = $y; Y2 = $y; Stroke = $brush.Border; StrokeThickness = 1 }))
+                    $lt = New-Text $ln[0] $brush.Sub 12 'Normal' '0'; [Windows.Controls.Canvas]::SetLeft($lt, 0); [Windows.Controls.Canvas]::SetTop($lt, $y - 9); [void]$cv.Children.Add($lt)
+                }
+                for ($m = (Get-Date $t0 -Day 1).AddMonths(1); $m -lt $t1; $m = $m.AddMonths(1)) {   # month ticks, recessive
+                    $mx = & $toX $m
+                    [void]$cv.Children.Add((New-Object Windows.Shapes.Line -Property @{ X1 = $mx; X2 = $mx; Y1 = 10; Y2 = $H - 12; Stroke = $brush.Border; StrokeThickness = 1; StrokeDashArray = (New-Object Windows.Media.DoubleCollection (, [double[]](2, 3))) }))
+                    $mt = New-Text $m.ToString('MMM') $brush.Sub 11 'Normal' '0'; [Windows.Controls.Canvas]::SetLeft($mt, $mx - 10); [Windows.Controls.Canvas]::SetTop($mt, $H + 1); [void]$cv.Children.Add($mt)
+                }
+                $bg = if ($win.Background -is [Windows.Media.SolidColorBrush] -and $win.Background.Color.A -eq 255) { $win.Background } else { New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString($c.Bg)) }
+                $mark = { param($shape, $x, $y, $tip)
+                    $shape.ToolTip = $tip; $shape.Cursor = 'Hand'
+                    [Windows.Controls.Canvas]::SetLeft($shape, $x - $shape.Width / 2); [Windows.Controls.Canvas]::SetTop($shape, $y - $shape.Height / 2); [void]$cv.Children.Add($shape)
+                    $hit = New-Object Windows.Shapes.Rectangle -Property @{ Width = 18; Height = 22; Fill = [Windows.Media.Brushes]::Transparent; ToolTip = $tip; Cursor = 'Hand' }   # (a target bigger than the mark)
+                    [Windows.Controls.Canvas]::SetLeft($hit, $x - 9); [Windows.Controls.Canvas]::SetTop($hit, $y - 11); [void]$cv.Children.Add($hit) }
+                $ansText = @{ me = 'you turned it off'; froze = 'you said it froze or went off by itself'; unsure = 'you weren''t sure'; '' = 'not answered yet' }
+                foreach ($e in @($evs | Where-Object { $_.At -gt $t0 })) {
+                    $x = & $toX $e.At
+                    if ($e.Kind -eq 'bsod') { & $mark (New-Object Windows.Shapes.Ellipse -Property @{ Width = 12; Height = 12; Fill = $brush.Warn; Stroke = $bg; StrokeThickness = 2 }) $x $lane.bsod "$($e.At.ToString('ddd MMM d, h:mm tt')): blue screen $($e.Code)" }
+                    elseif ($e.Answer -eq 'me') { & $mark (New-Object Windows.Shapes.Ellipse -Property @{ Width = 9; Height = 9; Fill = $brush.Sub; Stroke = $bg; StrokeThickness = 2 }) $x $lane.off "$($e.At.ToString('ddd MMM d, h:mm tt')): went off - you turned it off" }
+                    else { & $mark (New-Object Windows.Shapes.Ellipse -Property @{ Width = 12; Height = 12; Fill = $bg; Stroke = $brush.Warn; StrokeThickness = 2 }) $x $lane.off "$($e.At.ToString('ddd MMM d, h:mm tt')): went off without a blue screen - $($ansText["$($e.Answer)"])" }
+                }
+                foreach ($c_ in @($chs | Where-Object { $_.At -gt $t0 })) {
+                    $dm = New-Object Windows.Shapes.Rectangle -Property @{ Width = 9; Height = 9; Fill = $brush.Chart; Stroke = $bg; StrokeThickness = 1.5; RenderTransformOrigin = '0.5,0.5'; RenderTransform = (New-Object Windows.Media.RotateTransform 45) }
+                    & $mark $dm (& $toX $c_.At) $lane.change "$($c_.At.ToString('ddd MMM d'))$(if ($c_.Approx) { ' (about)' }): $($c_.What) $($c_.From) $([char]0x2192) $($c_.To)"
+                }
+                $vb = New-Object Windows.Controls.Viewbox -Property @{ Stretch = 'Uniform'; StretchDirection = 'DownOnly'; HorizontalAlignment = 'Left'; Margin = '0,6,0,0' }; $vb.Child = $cv
+                # legend: shape + words for every kind
+                $lg = New-Object Windows.Controls.WrapPanel -Property @{ Margin = '0,10,0,0' }
+                foreach ($li in @(
+                        @((New-Object Windows.Shapes.Ellipse -Property @{ Width = 10; Height = 10; Fill = $brush.Warn }), 'Blue screen'),
+                        @((New-Object Windows.Shapes.Ellipse -Property @{ Width = 10; Height = 10; Stroke = $brush.Warn; StrokeThickness = 2 }), 'Went off by itself (or not answered)'),
+                        @((New-Object Windows.Shapes.Ellipse -Property @{ Width = 8; Height = 8; Fill = $brush.Sub }), 'You turned it off'),
+                        @((New-Object Windows.Shapes.Rectangle -Property @{ Width = 8; Height = 8; Fill = $brush.Chart; RenderTransformOrigin = '0.5,0.5'; RenderTransform = (New-Object Windows.Media.RotateTransform 45) }), 'A change (driver, BIOS, RAM)'))) {
+                    $li[0].VerticalAlignment = 'Center'; $li[0].Margin = '0,0,6,0'
+                    $lsp = New-Object Windows.Controls.StackPanel -Property @{ Orientation = 'Horizontal'; Margin = '0,0,18,4' }; [void]$lsp.Children.Add($li[0]); [void]$lsp.Children.Add((New-Text $li[1] $brush.Sub 12 'Normal' '0'))
+                    [void]$lg.Children.Add($lsp)
+                }
+                $tsp2 = New-Object Windows.Controls.StackPanel; [void]$tsp2.Children.Add($vb); [void]$tsp2.Children.Add($lg)
+                $tsp2.Tag = "CHART: Stability timeline | $(@($evs | Where-Object { $_.At -gt $t0 }).Count) event(s), $(@($chs | Where-Object { $_.At -gt $t0 }).Count) change(s)"
+                [void]$out.Add((New-Card 'Last 120 days' 'E9D9' @($tsp2) $null))
+                # the same, as a list (the table view: every event in words, newest first)
+                $rows = @(@($evs | ForEach-Object { , @($_.At, $(if ($_.Kind -eq 'bsod') { "Blue screen $($_.Code)" } else { "Went off without a blue screen - $($ansText["$($_.Answer)"])" }), $(if (& $isCrash $_) { 'info' } else { 'dim' })) }) +
+                    @($chs | ForEach-Object { , @($_.At, "$($_.What): $($_.From) $([char]0x2192) $($_.To)$(if ($_.Approx) { ' (date approximate)' })", 'dim') }) |
+                    Sort-Object { $_[0] } -Descending | Select-Object -First 40 | ForEach-Object { , @($_[0].ToString('ddd MMM d yyyy, h:mm tt'), $_[1], $_[2]) })
+                [void]$out.Add((New-Card 'What happened' 'E81C' @(New-Rows $rows) $null))
+                [void]$out.Add((New-Text 'From Windows'' own log (back to when it starts) - recorded at every login. Hover over a mark for details.' $brush.Sub 12 'Normal' '4,2,0,0'))
             }
             'Activity/Trends' {
                 $hh = Get-HealthHistory
@@ -2402,6 +2495,7 @@ try {
                 @('both clean', ($base + (& $st_ 10 $oA 0) + (& $st_ 10 $oB 0)), $oB), @('back too soon', ($base + (& $st_ 3 $oA 0)), $two))) {
             "RAMTEST $($case[0]): $(@(Get-RamTest $case[1] $case[2]) | Where-Object { $_.Level -ne 'dim' } | ForEach-Object { ($_.Text -split '[:.]')[0] })"
         }
+        "RAMTEST A off by the owner: $(@(Get-RamTest ($base + (& $st_ 2 $oA 1)) $oA @('2026-10-14 10:01')) | Where-Object { $_.Level -ne 'dim' } | ForEach-Object { ($_.Text -split '[:.]')[0] })"
         foreach ($p in @($pages.Keys)) {
             foreach ($s in @(if ($subPages.Contains($p)) { $subPages[$p] } else { '' })) {
                 $script:onPage = $p; if ($s) { $script:sub[$p] = $s }; Update-View -Force
