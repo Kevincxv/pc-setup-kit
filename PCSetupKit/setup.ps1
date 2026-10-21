@@ -133,6 +133,11 @@ Step 'Setting up the maintenance (scripts, login task, tray)'
 $cl = "$env:USERPROFILE\.claude"
 New-Item $cl -ItemType Directory -Force | Out-Null
 Copy-Item "$kit\claude\*.ps1" $cl -Force
+# the app window (MessiahApp.exe, compiled; a running copy is moved aside - it can't be overwritten - and quits by itself)
+if (Test-Path "$kit\claude\app\MessiahApp.exe") {
+    New-Item "$cl\app" -ItemType Directory -Force | Out-Null
+    foreach ($f in Get-ChildItem "$kit\claude\app" -File) { $d = "$cl\app\$($f.Name)"; try { Copy-Item $f.FullName $d -Force -ErrorAction Stop } catch { Move-Item $d "$d.$PID.old" -Force; Copy-Item $f.FullName $d -Force } }
+}
 # the AI assistant starts off (ai-enabled.ps1 reads it; -WithClaude switches it on below); running setup again keeps
 # the owner's choices in kit-options.txt (the switches in the app)
 $opts = "$cl\kit-options.txt"

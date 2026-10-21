@@ -121,4 +121,11 @@ $global:task = $null; [IO.File]::Delete("$startMenu\Messiah.lnk")
 $o = Run-App "$Work\none\AutoHotkey64.exe"
 Check 'AutoHotkey missing: no tray program, no task, nothing restarted' (-not $global:calls -and -not $global:reg) "$o"
 Check '... the app is still there (Start menu entry)' (Test-Path "$startMenu\Messiah.lnk") "$o"
+Section 'the compiled app installed (app\MessiahApp.exe - 10/20)'
+'claude=on' | Set-Content "$C\kit-options.txt"; New-Item "$C\app" -ItemType Directory -Force | Out-Null; 'x' | Set-Content "$C\app\MessiahApp.exe"
+$o = Run-App $ahk1 -NoRestart
+$sc = (New-Object -ComObject WScript.Shell).CreateShortcut("$startMenu\Messiah.lnk")
+Check 'Start menu "Messiah" now runs MessiahApp.exe --live (no PowerShell), with the app''s icon' ($sc.TargetPath -eq "$C\app\MessiahApp.exe" -and $sc.Arguments -eq '--live' -and $sc.IconLocation -match 'app\.ico,0$') "$($sc.TargetPath) $($sc.Arguments)"
+Check '... and says so; running again: silent' ("$o" -match "Start menu entry 'Messiah' opens the app" -and -not @(Run-App $ahk1 -NoRestart | Where-Object { $_ -match 'Start menu' })) "$o"
+Remove-Item "$C\app" -Recurse -Force
 Finish

@@ -9,7 +9,7 @@ Copy-Item "$Src\health-check.ps1" $d
 'if (Test-Path "$PSScriptRoot\reverted.flag") { ''iGPU disabled again'' }' | Set-Content "$d\tweaks-local.ps1"
 '' | Set-Content "$d\restart-check.ps1"
 $mocked = 'Get-WinEvent', 'Get-ChildItem', 'Get-CimInstance', 'Get-MpComputerStatus', 'Start-Process', 'w32tm', 'winget', 'Get-PnpDevice', 'Get-PnpDeviceProperty',
-    'Get-PSDrive', 'Get-PhysicalDisk', 'Get-StorageReliabilityCounter', 'Get-ScheduledTask', 'Get-NetAdapter', 'Get-Disk', 'Get-Partition',
+    'Get-PSDrive', 'Get-PhysicalDisk', 'Get-StorageReliabilityCounter', 'Get-ScheduledTask', 'Get-NetAdapter', 'Get-Disk', 'Get-Partition', 'Get-NetFirewallProfile',
     'Get-ItemProperty', 'Enable-ComputerRestore', 'reagentc', 'Confirm-SecureBootUEFI', 'Get-SecureBootUEFI', 'Get-AuthenticodeSignature'
 if (-not (Test-Tripwire "$d\health-check.ps1" $mocked -Guarded 'C:\PCSetupKit\tweaks.ps1', 'Get-Command')) { Finish }   # (Test-Path mock hides the real tweak guard; Get-Command only reads its parameters)
 
@@ -32,6 +32,7 @@ function Healthy {
         AllDisks = @([pscustomobject]@{ Number = 0; FriendlyName = 'TestNVMe'; BusType = 'NVMe'; Size = 2TB })
         Tasks = @([pscustomobject]@{ TaskName = 'Messiah Tray'; TaskPath = '\'; State = 'Ready' })
         Sp = '\\?\Volume{1}\:(C%3A)'; SpFail = $false; Re = 'Windows RE status:         Enabled'; WebView2 = '140.0.0.0'; WvExit = 0; SecureBoot = $true; Db = 'Microsoft Windows Production PCA 2011 ... Windows UEFI CA 2023'
+        Fw = @('Domain', 'Private', 'Public' | ForEach-Object { [pscustomobject]@{ Name = $_; Enabled = 'True' } }); OtherFw = @(); Lua = 1
     }
     $global:HCcalls = New-Object System.Collections.Generic.List[string]
 }
@@ -41,7 +42,8 @@ function Get-WinEvent { param($FilterHashtable, $MaxEvents, $ErrorAction)
 function Get-ChildItem { if ((@($args | ForEach-Object { $_ }) -join ' ') -match 'Minidump|MEMORY\.DMP') { return $M.Dumps }; Microsoft.PowerShell.Management\Get-ChildItem @args }
 function Test-Path { $a = @($args | ForEach-Object { $_ }) -join ' '; if ($a -match 'PCKitTest(Tool|Good)') { return $true }; if ($a -match 'PCSetupKit\\tweaks\.ps1') { return $false }; if ($a -match 'RebootPending|RebootRequired') { return $M.Reboot }; Microsoft.PowerShell.Management\Test-Path @args }
 function Get-CimInstance { if ("$args" -match 'Win32_PhysicalMemory') { return $M.Ram }; if ("$args" -match 'Win32_BIOS') { return $M.Bios }; if ("$args" -match 'Win32_Battery') { return $M.Battery }
-    if ("$args" -match 'Win32_OperatingSystem' -and $M.Boot) { return [pscustomobject]@{ LastBootUpTime = $M.Boot } }; CimCmdlets\Get-CimInstance @args }
+    if ("$args" -match 'Win32_OperatingSystem' -and $M.Boot) { return [pscustomobject]@{ LastBootUpTime = $M.Boot } }; if ("$args" -match 'FirewallProduct') { return $M.OtherFw }; CimCmdlets\Get-CimInstance @args }
+function Get-NetFirewallProfile { $M.Fw }
 function Get-MpComputerStatus { $M.Mp }
 function Start-Process { $global:HCcalls.Add("Start-Process $args") }
 function w32tm { if ("$args" -match 'resync') { $global:HCcalls.Add('w32tm resync') } else { $M.W32 } }
@@ -58,7 +60,7 @@ function Get-NetAdapter { $M.Nics }
 function Get-Disk { $M.AllDisks }
 function Get-Partition { [pscustomobject]@{ DiskNumber = 0 } }
 function Get-ScheduledTask { $M.Tasks }
-function Get-ItemProperty { if ("$args" -match 'SPP\\Clients') { [pscustomobject]@{ '{09F7EDC5-294E-4180-AF6A-FB0E6A0E9513}' = $M.Sp } }; if ("$args" -match 'F3017226') { [pscustomobject]@{ pv = $M.WebView2 } } }
+function Get-ItemProperty { if ("$args" -match 'SPP\\Clients') { [pscustomobject]@{ '{09F7EDC5-294E-4180-AF6A-FB0E6A0E9513}' = $M.Sp } }; if ("$args" -match 'F3017226') { [pscustomobject]@{ pv = $M.WebView2 } }; if ("$args" -match 'Policies\\System') { [pscustomobject]@{ EnableLUA = $M.Lua } } }
 function Enable-ComputerRestore { param($Drive) $global:HCcalls.Add("Enable-ComputerRestore $Drive"); if ($M.SpFail) { throw 'The service cannot be started' } }
 function reagentc { if ("$args" -match 'enable') { $global:HCcalls.Add('reagentc /enable'); $global:LASTEXITCODE = 0 } else { $M.Re } }
 function HC { $u = $env:USERPROFILE; $env:USERPROFILE = $H; try { @(& "$d\health-check.ps1" | Where-Object { $_ -notmatch 'Hz but supports' }) } finally { $env:USERPROFILE = $u } }   # (monitor Hz = the real screens)
@@ -90,6 +92,26 @@ $o = HC
 Check 'no read/write error line without disk errors' (-not ($o -match 'read/write error')) ($o -join ' / ')
 Check 'the next check does not report the same crashes again' (($o -contains 'Crashes: none since last check') -and -not ($o -match 'crash dump')) ($o -join ' / ')
 
+Section 'a check that never reached a report'
+# the last check started 10 min ago (its window began 2 h ago) but the PC crashed before the report was written (3 h old)
+function Lost($repAge) {
+    $now.AddMinutes(-10).ToString('o') | Set-Content "$d\health-check.last"; (Get-Item "$d\health-check.last").LastWriteTime = $now.AddMinutes(-10)
+    $now.AddHours(-2).ToString('o') | Set-Content "$d\health-check.last.from"
+    'Checked' | Set-Content "$d\maint-report.txt"; (Get-Item "$d\maint-report.txt").LastWriteTime = $now.AddMinutes(-$repAge)
+}
+Healthy; $M.Events = @($M.Events) + @(Ev 1001 60 'The computer has rebooted from a bugcheck.  The bugcheck was: 0x00000109 (0x...)' 'Microsoft-Windows-WER-SystemErrorReporting')
+Lost 180; $o = HC
+Check 'its blue screen is reported by this check' ([bool]($o -match 'WARNING: blue screen 0x00000109')) ($o -join ' / ')
+(Get-Item "$d\maint-report.txt").LastWriteTime = (Get-Date).AddSeconds(5); $o = HC   # (the maintenance wrote this check's report)
+Check '... and not again once a report was written after it' ($o -contains 'Crashes: none since last check') ($o -join ' / ')
+Lost 5; $o = HC
+Check 'the last check did reach its report: nothing looked at twice' ($o -contains 'Crashes: none since last check') ($o -join ' / ')
+@{ 'ram-stick-test' = $now.AddDays(-1).ToString('o') } | ConvertTo-Json | Set-Content "$d\maint-state.json"
+$M.Ram = @([pscustomobject]@{ ConfiguredClockSpeed = 6000; Speed = 4800; PartNumber = 'TESTKIT-6000  '; Capacity = 16GB; BankLabel = 'P0 CHANNEL A' }); $M.Boot = $now.AddMinutes(-59)
+Clear-Path "$d\ram-test.log"; Lost 180; [void](HC); Lost 180; [void](HC)
+Check '... a crash looked at twice is logged once in the RAM test' (@(Get-Content "$d\ram-test.log" | Where-Object { $_ -like '* | crash | *' }).Count -eq 1) ((Get-Content "$d\ram-test.log") -join ' / ')
+Clear-Path "$d\maint-state.json"; Clear-Path "$d\ram-test.log"; Clear-Path "$d\maint-report.txt"; Clear-Path "$d\health-check.last.from"
+
 Section 'RAM stick test'
 function Stick($bank) { [pscustomobject]@{ ConfiguredClockSpeed = 6000; Speed = 4800; PartNumber = 'TESTKIT-6000  '; Capacity = 16GB; BankLabel = $bank } }
 Healthy; $M.Ram = @((Stick 'P0 CHANNEL A'), (Stick 'P0 CHANNEL B')); $M.Boot = $now.AddHours(-30)
@@ -105,6 +127,12 @@ Clear-Path "$d\health-check.last"; $o = HC
 Check '... a blue screen on it is counted with the restart after it' ([bool]($o -match 'RAM test: 1 stick\(s\), 16 GB in P0 CHANNEL A - 2 start\(s\), 1 crash\(es\)')) ($o -join ' / ')
 $o = HC
 Check '... and not counted twice at the next check' ([bool]($o -match '2 start\(s\), 1 crash\(es\)')) ($o -join ' / ')
+# a start that blue-screened before any check ran in it (10/21): counted from Windows' boot events
+$M.Events = @($M.Events) + @(Ev 12 20 '' 'Microsoft-Windows-Kernel-General') + @(Ev 12 12.5 '' 'Microsoft-Windows-Kernel-General') + @(Ev 1001 12 'The computer has rebooted from a bugcheck.  The bugcheck was: 0x00000109 (0x...)' 'Microsoft-Windows-WER-SystemErrorReporting')
+$M.Boot = $now.AddMinutes(-12.5); Clear-Path "$d\health-check.last"; $o = HC
+Check '... a start that crashed before any check is counted too' ([bool]($o -match '4 start\(s\), 2 crash\(es\)')) (((Get-Content "$d\ram-test.log") -join ' / ') + ' // ' + ($o -join ' / '))
+$o = HC
+Check '... and only once' ([bool]($o -match '4 start\(s\), 2 crash\(es\)')) ($o -join ' / ')
 $M.Ram = @((Stick 'P0 CHANNEL A'), (Stick 'P0 CHANNEL B')); $M.Boot = $now.AddMinutes(-2); $o = HC
 Check 'both sticks back in: quiet again' (-not ($o -match 'RAM test')) ($o -join ' / ')
 Clear-Path "$d\maint-state.json"; Clear-Path "$d\ram-test.log"
@@ -247,4 +275,14 @@ Healthy; $M.Db = 'Microsoft Windows Production PCA 2011 / Microsoft Corporation 
 Check 'Secure Boot without the 2023 certificate: a reminder' ($o -match '^Reminder: Secure Boot doesn''t have Microsoft''s 2023 certificate') ($o -join ' / ')
 $M.SecureBoot = $false; Clear-Path "$d\health-check.last"; $o = HC
 Check '... Secure Boot off: nothing said about it' (-not ($o -match 'Secure Boot doesn')) ($o -join ' / ')
+
+Section 'firewall and UAC'
+Healthy; Clear-Path "$d\health-check.last"; $o = HC
+Check 'firewall on, UAC on: nothing said' (-not ($o -match 'Firewall|UAC')) ($o -join ' / ')
+Healthy; $M.Fw[1].Enabled = 'False'; $M.Fw[2].Enabled = 'False'; Clear-Path "$d\health-check.last"; $o = HC
+Check 'firewall off for two networks: one WARNING naming both' (@($o -match '^WARNING: Windows Firewall is OFF for the Private \+ Public network').Count -eq 1) ($o -join ' / ')
+$M.OtherFw = @([pscustomobject]@{ displayName = 'Test Firewall'; productState = 0x11000 }); Clear-Path "$d\health-check.last"; $o = HC
+Check '... another firewall is on: nothing said' (-not ($o -match 'Firewall is OFF')) ($o -join ' / ')
+Healthy; $M.Fw[0].Enabled = 'NotConfigured'; $M.Lua = 0; Clear-Path "$d\health-check.last"; $o = HC
+Check 'UAC off = WARNING; a NotConfigured profile is not "off"' (($o -match '^WARNING: UAC') -and -not ($o -match 'Firewall is OFF')) ($o -join ' / ')
 Finish

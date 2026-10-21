@@ -1,0 +1,360 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Management;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+
+namespace Messiah
+{
+    class Section { public string Title; public List<Line> Lines = new List<Line>(); }
+
+    // What the pages show, read in the background (never on the window's thread): status-lib.ps1's Get-KitStatus and the
+    // small readers dashboard.ps1 called while building a page
+    static class Data
+    {
+        [DllImport("kernel32.dll")] static extern ulong GetTickCount64();
+        public static DateTime BootTime => DateTime.Now - TimeSpan.FromMilliseconds(GetTickCount64());
+
+        // --- Claude Code's version: asked once (a process), then kept
+        static string claudeVer;
+        public static string ClaudeVersion()
+        {
+            if (claudeVer != null) return claudeVer;
+            try
+            {
+                var exe = Path.Combine(Kit.Home, @".local\bin\claude.exe");
+                if (!File.Exists(exe)) return claudeVer = "";
+                var p = Process.Start(new ProcessStartInfo(exe, "--version") { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true });
+                var o = p.StandardOutput.ReadToEnd(); p.WaitForExit(5000);
+                return claudeVer = (o.Trim().Split(' ').FirstOrDefault() ?? "");
+            }
+            catch { return claudeVer = ""; }
+        }
+
+        // --- the status sections (status-lib.ps1, the same titles and words)
+        public static List<Section> KitStatus(bool ai)
+        {
+            var secs = new List<Section>(); Section cur = null;
+            void Sec(string t) { cur = new Section { Title = t }; secs.Add(cur); }
+            void Ln(string t, string lv = "info") => cur.Lines.Add(new Line(t, lv));
+            var state = Kit.ReadJson(Kit.P("maint-state.json")) ?? new Dictionary<string, object>();
+            string Next(string key, int days) { var d = Kit.Date(Json.Get(state, key)); if (d == null) return "due now"; var n = d.Value.AddDays(days); return n < DateTime.Now ? "due now" : n.ToString("MMM d, yyyy"); }
+
+            if (ai) { Sec("Messiah"); Ln("Claude Code " + ClaudeVersion()); }
+
+            Sec("Needs you");
+            var todo = Kit.Lines(Kit.P("maint-todo.txt")).Where(x => x.Trim() != "").ToList();
+            if (todo.Count > 0) foreach (var t in todo) Ln("- " + t, "warn"); else Ln("Nothing", "ok");
+
+            Sec("Waiting for your next shutdown or restart");
+            var led = Kit.ReadJson(Kit.P("restart-ledger.json"));
+            var items = Json.L(led, "items").ToList();
+            if (items.Count > 0) { foreach (var i in items) Ln("- " + Json.S(i, "Name")); Ln("These finish by themselves the next time you turn the PC off; the check after that confirms it.", "dim"); }
+            else Ln("Nothing", "ok");
+
+            Sec("Last background check");
+            if (!Kit.InTests && Mutex.TryOpenExisting(@"Global\ClaudeBgMaint", out var m)) { m.Dispose(); Ln("Background maintenance is running right now - the result shows here when it finishes", "ok"); }
+            var r = Kit.Lines(Kit.P("maint-report.txt"));
+            if (r.Length > 0)
+            {
+                Ln(r[0]);
+                var notable = r.Where(x => Regex.IsMatch(x, "WARNING|FAILED|REBOOT|Reminder|Restart check|installed|Updated|re-applied|rolled back|Driver guard")).ToList();
+                if (notable.Count > 0) foreach (var x in notable) Ln(x, Regex.IsMatch(x, "WARNING|FAILED") ? "warn" : "info"); else Ln("All fine", "ok");
+            }
+            else Ln("No report yet");
+
+            if (ai)
+            {
+                Sec("Hidden Claude maintenance (about 2 minutes after each login)");
+                var busy = Kit.P("maint-claude-running");
+                if (File.Exists(busy) && File.GetLastWriteTime(busy) > BootTime) Ln("Running now (tray menu > Watch maintenance live)", "warn");
+                try
+                {
+                    var last = Directory.Exists(Kit.P("maint-claude-log")) ? new DirectoryInfo(Kit.P("maint-claude-log")).GetFiles("*.md").OrderByDescending(f => f.Name).FirstOrDefault() : null;
+                    if (last != null) Ln($"Last run: {last.LastWriteTime:g} ({Regex.Replace(Path.GetFileNameWithoutExtension(last.Name), @"^\d+-\d+-?", "")})");
+                }
+                catch { }
+                if (File.Exists(Kit.P("selfimprove-last"))) { var si = File.GetLastWriteTime(Kit.P("selfimprove-last")); Ln($"Self-improvement: last {si:g}; next at the first login after {si.AddHours(20):g}"); }
+            }
+
+            Sec("Scheduled checks");
+            Ln($"App updates:       {Next("weekly-apps", 7)}");
+            Ln($"Monthly cleanup:   {Next("monthly-cleanup", 30)}");
+            Ln($"Quarterly check:   {Next("claude-quarterly", 90)}  (benchmark vs setup; hardware)");
+            Ln($"Half-year check:   {Next("claude-halfyear", 180)}  (dusting reminder)");
+            Ln($"Yearly re-optimize: {Next("claude-yearly", 365)}");
+            var st = Kit.ReadJson(Kit.P("self-test.json")); var std = Kit.Date(Json.Get(st, "date"));
+            if (st != null && std != null)
+            {
+                var ok = Json.B(st, "ok"); var failed = Json.L(st, "failed").Select(x => x.ToString()).ToList();
+                var next = std.Value.AddDays(7) < DateTime.Now ? "at the next login" : std.Value.AddDays(7).ToString("d");
+                Ln($"Self-test:         {(ok ? $"passed {std.Value:d} ({Json.S(st, "result")})" : $"FAILED {std.Value:d} ({Json.S(st, "result")}{(failed.Count > 0 ? " in " + string.Join(", ", failed) : "")})")}; next {next} or after a kit update", ok ? "info" : "warn");
+            }
+            else Ln("Self-test:         at the next login (tests the maintenance scripts, weekly)");
+            var kv = Kit.FirstLine(Path.Combine(Kit.KitDir, "kit-version.txt"));
+            if (kv != "") Ln($"Kit version:       {kv} (updates itself)", "dim");
+            return secs;
+        }
+
+        // --- a game running right now (game-check.ps1 -NoLearn: read-only; this window in front never counts as one)
+        static readonly string[] NotGames = { "explorer", "ApplicationFrameHost", "ShellExperienceHost", "StartMenuExperienceHost", "SearchHost", "LockApp", "chrome", "msedge", "firefox",
+            "opera", "brave", "vivaldi", "vlc", "mpc-hc64", "mpc-be64", "PotPlayerMini64", "mpv", "Video.UI", "Microsoft.Media.Player", "POWERPNT", "Teams",
+            "Discord", "steamwebhelper", "powershell", "WindowsTerminal", "conhost", "AutoHotkey64", "Messiah", "MessiahApp", "PC Setup Kit", "obs64",
+            "steam", "EpicGamesLauncher", "Battle.net", "EADesktop", "GalaxyClient", "upc", "RiotClientServices", "Better2k", "SaveTheGame", "revival-client", "Slums 2K Launcher" };
+        static readonly Regex Libs = new Regex(@"\\steamapps\\common\\|\\Epic Games\\(?!Launcher\\)|\\XboxGames\\(?!GameSave\\)|\\EA Games\\|\\GOG Galaxy\\Games\\|\\GOG Games\\|\\Ubisoft Game Launcher\\games\\", RegexOptions.IgnoreCase);
+        static readonly string[] Tools = { "wallpaper32", "wallpaper64", "webwallpaper32", "ui32", "LosslessScaling", "UnityCrashHandler64", "UnityCrashHandler32", "CrashReportClient" };
+        public static string Playing()
+        {
+            var t = Environment.GetEnvironmentVariable("PCKIT_GAME_TEST"); if (!string.IsNullOrEmpty(t)) return t;
+            if (Kit.InTests) return "";
+            try
+            {
+                string fgName = null; bool covers = false; int state = 0;
+                var fg = Native.GetForegroundWindow();
+                if (fg != IntPtr.Zero)
+                {
+                    Native.GetWindowThreadProcessId(fg, out var pid);
+                    try { using (var p = Process.GetProcessById((int)pid)) fgName = p.ProcessName; } catch { }
+                    var cls = new StringBuilder(64); Native.GetClassName(fg, cls, 64);
+                    Native.GetWindowRect(fg, out var r);
+                    var mi = new Native.MONITORINFO { cbSize = 40 }; Native.GetMonitorInfo(Native.MonitorFromWindow(fg, 2), ref mi);
+                    covers = r.Left <= mi.rcMonitor.Left && r.Top <= mi.rcMonitor.Top && r.Right >= mi.rcMonitor.Right && r.Bottom >= mi.rcMonitor.Bottom;
+                    Native.SHQueryUserNotificationState(out state);
+                    if (Regex.IsMatch(cls.ToString(), "^(Progman|WorkerW|Shell_TrayWnd|Shell_SecondaryTrayWnd)$")) { covers = false; state = 0; }
+                }
+                bool why = covers || state == 2 || state == 3 || state == 4, own = covers || state == 3;
+                if (why && own && fgName != null && !NotGames.Contains(fgName, StringComparer.OrdinalIgnoreCase)) return fgName;
+                if (why) return fgName ?? "";
+                var known = Kit.Lines(Kit.P("games.txt")).Select(x => x.Split('#')[0].Trim()).Where(x => x != "" && !NotGames.Contains(x, StringComparer.OrdinalIgnoreCase)).ToList();
+                foreach (var k in known) { var ps = Process.GetProcessesByName(k); if (ps.Length > 0) { foreach (var p in ps) p.Dispose(); return k; } }
+                foreach (var p in Process.GetProcesses())
+                {
+                    using (p)
+                    {
+                        if (Tools.Contains(p.ProcessName, StringComparer.OrdinalIgnoreCase) || NotGames.Contains(p.ProcessName, StringComparer.OrdinalIgnoreCase)) continue;
+                        string path = null; try { path = p.MainModule?.FileName; } catch { }
+                        if (path != null && Libs.IsMatch(path)) return p.ProcessName;
+                    }
+                }
+            }
+            catch { }
+            return "";
+        }
+
+        // --- paused (paused.ps1): kit-options "pause-until=<local time>", while it's still ahead
+        public static DateTime? PausedUntil() { var d = Kit.Date(Kit.Opt("pause-until", "")); return d != null && d > DateTime.Now ? d : null; }
+
+        // --- what's new after an update (whats-new.json from kit-update.ps1): until "Got it", three weeks at most
+        public static Dictionary<string, object> WhatsNew()
+        {
+            var w = Kit.ReadJson(Kit.P("whats-new.json")); if (w == null || Json.S(w, "version") == "") return null;
+            var d = Kit.Date(Json.Get(w, "date")); if (d != null && d < DateTime.Now.AddDays(-21)) return null;
+            if (Kit.Opt("newsseen", "") == Json.S(w, "version")) return null;
+            return w;
+        }
+
+        // --- crash-hunting modes left on (diag-modes.ps1, read-only here - the script keeps diag-state.json)
+        public class Diag { public string Id, Name; public DateTime Since; public int Days; }
+        public static List<Diag> DiagModes()
+        {
+            var on = new List<(string, string)>();
+            try
+            {
+                // (tests: PCKIT_DIAG_TEST="<VerifyDrivers>|<SystemStartOptions>" stands in for the registry)
+                var t = Kit.InTests ? Environment.GetEnvironmentVariable("PCKIT_DIAG_TEST") : null; var tp = t != null && t.Contains("|") ? t.Split('|') : null;
+                var vd = tp != null ? tp[0].Trim() : (Microsoft.Win32.Registry.GetValue(@"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management", "VerifyDrivers", "") ?? "").ToString().Trim();
+                var opts = tp != null ? tp[1] : (Microsoft.Win32.Registry.GetValue(@"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control", "SystemStartOptions", "") ?? "").ToString();
+                if (vd != "") { var n = vd.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Length; on.Add(("verifier", vd == "*" ? "Driver Verifier (every driver)" : $"Driver Verifier ({n} driver{Kit.S(n)})")); }
+                if (Regex.IsMatch(opts, @"(^|\s)DEBUG(\s|=|$)")) on.Add(("debug", "Kernel debugging"));
+                if (Regex.IsMatch(opts, @"(^|\s)TESTSIGNING(\s|$)")) on.Add(("testsigning", "Test signing (unsigned drivers allowed)"));
+            }
+            catch { }
+            var st = Kit.ReadJson(Kit.P("diag-state.json"));
+            return on.Select(x => { var s = Kit.Date(Json.Get(st, x.Item1)) ?? DateTime.Today; return new Diag { Id = x.Item1, Name = x.Item2, Since = s.Date, Days = (int)(DateTime.Today - s.Date).TotalDays }; }).ToList();
+        }
+        public static List<string> DiagOffPending()
+        {
+            var st = Kit.ReadJson(Kit.P("diag-state.json")); var boot = BootTime; var l = new List<string>();
+            if (st != null) foreach (var kv in st) if (kv.Key.EndsWith("-off") && Kit.Date(kv.Value) is DateTime t && t > boot) l.Add(kv.Key.Substring(0, kv.Key.Length - 4));
+            return l;
+        }
+
+        // --- the health over time (health-history.json, perf-history.json, net-history.json): rows with a readable date
+        public static List<Dictionary<string, object>> History(string name = "health-history.json")
+        {
+            var o = Kit.ParseJson(Kit.Text(Kit.P(name)));
+            return Json.L(o).OfType<Dictionary<string, object>>().Where(x => Kit.Date(Json.Get(x, "date")) != null).ToList();
+        }
+
+        // --- what maintenance changed, newest first (the last 30 saved reports; routine "all fine" lines left out)
+        static readonly Regex TimelineRx = new Regex(@"PC Setup Kit updated|went back to|re-applied|Updated app|installed|Driver:|Driver rolled back|Removed|Created a monthly|Restore point created|fetched it again|Restart check: .*finished at");
+        public static List<(string When, string Text)> MaintTimeline()
+        {
+            var o = new List<(string, string)>();
+            try
+            {
+                if (!Directory.Exists(Kit.P("maint-history"))) return o;
+                foreach (var f in new DirectoryInfo(Kit.P("maint-history")).GetFiles("report-*.txt").OrderByDescending(x => x.Name))
+                {
+                    var l = Kit.Lines(f.FullName);
+                    var m = l.Length > 0 ? Regex.Match(l[0], "^Checked (.+?) in ") : Match.Empty;
+                    var when = m.Success ? m.Groups[1].Value : f.LastWriteTime.ToString("g");
+                    foreach (var x in l) if (TimelineRx.IsMatch(x) && !Regex.IsMatch(x, "up to date|all still applied")) o.Add((when, x.Trim()));
+                    if (o.Count >= 40) break;
+                }
+            }
+            catch { }
+            return o.Take(40).ToList();
+        }
+        // --- the alerts kept for the app (notifications.log, "yyyy-MM-dd HH:mm|text", newest last)
+        public static List<(DateTime When, string Text)> Notes() =>
+            Kit.Lines(Kit.P("notifications.log")).Select(l => Regex.Match(l, @"^(\d{4}-\d\d-\d\d \d\d:\d\d)\|(.*)$")).Where(m => m.Success)
+                .Select(m => (DateTime.ParseExact(m.Groups[1].Value, "yyyy-MM-dd HH:mm", null), m.Groups[2].Value)).ToList();
+
+        // --- Settings > Tools: the graphics driver, the BIOS (bios-info.ps1's words and pages), the settings backups. The
+        // driver and the board don't change while the app runs: read once (Win32_PnPSignedDriver takes about a second).
+        public class Gpu { public string Name, Version; public DateTime? Date; }
+        public class Bios { public string Maker, Model, Version, Date, Url, Steps; }
+        static Gpu gpu; static bool gpuRead; static Bios bios; static bool biosRead;
+        public static Gpu GraphicsDriver()
+        {
+            if (gpuRead || Kit.InTests) return gpu; gpuRead = true;
+            try
+            {
+                using (var s = new ManagementObjectSearcher("SELECT DeviceName, DriverVersion, DriverDate, InfName FROM Win32_PnPSignedDriver WHERE DeviceClass='DISPLAY'"))
+                    gpu = s.Get().Cast<ManagementObject>().Where(o => Regex.IsMatch((o["InfName"] ?? "").ToString(), @"^oem\d+\.inf$", RegexOptions.IgnoreCase))
+                        .OrderBy(o => Regex.IsMatch((o["DeviceName"] ?? "").ToString(), "NVIDIA") ? 0 : Regex.IsMatch((o["DeviceName"] ?? "").ToString(), "Radeon|AMD") ? 1 : 2)
+                        .Select(o => new Gpu { Name = (o["DeviceName"] ?? "").ToString(), Version = (o["DriverVersion"] ?? "").ToString(), Date = o["DriverDate"] != null ? ManagementDateTimeConverter.ToDateTime(o["DriverDate"].ToString()) : (DateTime?)null }).FirstOrDefault();
+            }
+            catch { }
+            return gpu;
+        }
+        public static Bios BiosInfo()
+        {
+            if (biosRead) return bios; biosRead = true;
+            try
+            {
+                string One(string q, string p) { using (var s = new ManagementObjectSearcher(q)) return s.Get().Cast<ManagementObject>().Select(o => (o[p] ?? "").ToString().Trim()).FirstOrDefault() ?? ""; }
+                var maker = One("SELECT Manufacturer FROM Win32_BaseBoard", "Manufacturer"); var model = One("SELECT Product FROM Win32_BaseBoard", "Product");
+                var ver = One("SELECT SMBIOSBIOSVersion FROM Win32_BIOS", "SMBIOSBIOSVersion"); var rd = One("SELECT ReleaseDate FROM Win32_BIOS", "ReleaseDate");
+                var date = rd != "" ? ManagementDateTimeConverter.ToDateTime(rd).ToString("yyyy-MM-dd") : "";
+                var serial = One("SELECT SerialNumber FROM Win32_BIOS", "SerialNumber"); var cpu = One("SELECT Name FROM Win32_Processor", "Name");
+                if (maker == "") return null;
+                var m = Uri.EscapeDataString(model); var dash = Regex.Replace(Regex.Replace(model, "[()]", ""), @"\s+", "-");
+                var platform = Regex.IsMatch(cpu, "AMD|Ryzen") ? "AMD" : "Intel";
+                var hasSerial = serial != "" && !Regex.IsMatch(serial, "^(Default|To be filled|System Serial|0+|None)");
+                (string Url, string How) r =
+                    Regex.IsMatch(maker, "ASUS") ? ($"https://www.asus.com/supportonly/{m}/helpdesk_bios/", "press Del (or F2) while the logo shows, press F7 for Advanced Mode, then Tool > ASUS EZ Flash 3 Utility") :
+                    Regex.IsMatch(maker, "ASRock") ? ($"https://www.asrock.com/mb/{platform}/{m}/index.asp#BIOS", "press F2 (or Del) while the logo shows, then Tool > Instant Flash") :
+                    Regex.IsMatch(maker, "Micro-Star|MSI") ? ($"https://www.msi.com/Motherboard/{dash}/support#bios", "press Del while the logo shows, then M-Flash (bottom left); the PC restarts into the flash tool") :
+                    Regex.IsMatch(maker, "Gigabyte") ? ($"https://www.gigabyte.com/Motherboard/{dash}/support#support-dl-bios", "press End (or Del) while the logo shows, then Q-Flash") :
+                    Regex.IsMatch(maker, "Dell") ? (hasSerial ? $"https://www.dell.com/support/home/product-support/servicetag/{serial}/drivers" : "https://www.dell.com/support/home/", "run the downloaded BIOS file in Windows - it restarts and updates by itself (keep a laptop plugged in)") :
+                    Regex.IsMatch(maker, "HP|Hewlett") ? ("https://support.hp.com/drivers", $"enter the serial number {(hasSerial ? $"({serial}) " : "")}on the page, then run the downloaded BIOS file in Windows - it restarts and updates by itself") :
+                    Regex.IsMatch(maker, "Lenovo") ? (hasSerial ? $"https://pcsupport.lenovo.com/products/{serial}/downloads" : "https://pcsupport.lenovo.com/", "run the downloaded BIOS file in Windows - it restarts and updates by itself (keep a laptop plugged in)") :
+                    ($"https://www.google.com/search?q={Uri.EscapeDataString($"{maker} {model} BIOS download")}", "follow the maker's steps on the page");
+                var steps = Regex.IsMatch(maker, "Dell|HP|Hewlett|Lenovo")
+                    ? $"1. Open {r.Url} and download the newest BIOS (newer than {ver} from {date}). 2. Close your games and apps, {r.How}. 3. Never turn the PC off while it updates (a few minutes)."
+                    : $"1. Open {r.Url} and download the newest BIOS (newer than {ver} from {date}). 2. Unzip it onto a USB stick (FAT32). 3. Restart, {r.How}, and pick the file. 4. Never turn the PC off while it updates (a few minutes; it restarts by itself). 5. Afterwards the BIOS settings are back to defaults: turn EXPO/XMP (the RAM speed) back on.";
+                bios = new Bios { Maker = maker, Model = model, Version = ver, Date = date, Url = r.Url, Steps = steps };
+            }
+            catch { }
+            return bios;
+        }
+        // the newest settings backup (settings-backup.ps1: Documents\PC Setup Kit Backup, or a drive's root folder)
+        public static FileInfo LastSettingsBackup()
+        {
+            var dirs = new List<string> { Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PC Setup Kit Backup") };
+            try { foreach (var d in DriveInfo.GetDrives()) if (d.DriveType == DriveType.Fixed || d.DriveType == DriveType.Removable) dirs.Add(Path.Combine(d.RootDirectory.FullName, "PC Setup Kit Backup")); } catch { }
+            return dirs.Where(Directory.Exists).SelectMany(d => { try { return new DirectoryInfo(d).GetFiles("*.zip"); } catch { return new FileInfo[0]; } }).OrderByDescending(f => f.LastWriteTime).FirstOrDefault();
+        }
+
+        // --- the chat's state (chat\state.json while its host runs)
+        public static Dictionary<string, object> ChatState(string dir = null)
+        {
+            var j = Kit.ReadJson(Path.Combine(dir ?? Kit.P("chat"), "state.json"));
+            var pid = (int)(Json.N(j, "pid") ?? 0);
+            if (pid == 0) return null;
+            try { using (Process.GetProcessById(pid)) return j; } catch { return null; }
+        }
+
+        // --- the RAM stick test (Get-RamTest / Get-RamTestNow: the same steps and words)
+        public const int RamNeed = 10;   // starts without a crash before a stick counts as fine
+        public static List<Line> RamTest(string[] log, string now, ICollection<string> mine)
+        {
+            var g = new Dictionary<string, (int Starts, int Crashes, string Since)>(); var order = new List<string>();
+            foreach (var l in log)
+            {
+                var m = Regex.Match(l, @"^(\S+ \S+) \| (start|crash) \| (.+)$"); if (!m.Success) continue;
+                if (m.Groups[2].Value == "crash" && mine != null && mine.Contains(m.Groups[1].Value)) continue;
+                var s = m.Groups[3].Value.Trim(); if (!g.ContainsKey(s)) { g[s] = (0, 0, m.Groups[1].Value); order.Add(s); }
+                var v = g[s]; g[s] = m.Groups[2].Value == "start" ? (v.Starts + 1, v.Crashes, v.Since) : (v.Starts, v.Crashes + 1, v.Since);
+            }
+            string Slot(string s) { var m = Regex.Match(s, @"CHANNEL ([A-Z])\s*$"); if (m.Success) return m.Groups[1].Value; m = Regex.Match(s, " in (.+)$"); return m.Success ? m.Groups[1].Value : "?"; }
+            var one = new Dictionary<string, (int Starts, int Crashes, string Since)>();
+            foreach (var k in order) if (k.StartsWith("1 stick(s)")) one[Slot(k)] = g[k];
+            var both = order.FirstOrDefault(k => k.StartsWith("2 stick(s)"));
+            var L = new List<Line>();
+            if (both != null) { var b = g[both]; L.Add(new Line($"With both sticks in: {b.Starts} start{Kit.S(b.Starts)}, {b.Crashes} blue screen{Kit.S(b.Crashes)} or sudden restart{Kit.S(b.Crashes)} (counted since {Kit.FormatWhen(DateTime.Parse(b.Since), dateOnly: true)}).", "dim")); }
+            foreach (var k in new[] { "A", "B" }) if (one.TryGetValue(k, out var o)) L.Add(new Line($"Only the stick in slot {k}: {o.Starts} start{Kit.S(o.Starts)}, {o.Crashes} crash{(o.Crashes == 1 ? "" : "es")}.", o.Crashes > 0 ? "warn" : "dim"));
+            bool Done(string k) => one.TryGetValue(k, out var r) && (r.Crashes > 0 || r.Starts >= RamNeed);
+            bool Bad(string k) => one.TryGetValue(k, out var r) && r.Crashes > 0;
+            const string shut = "shut the PC down (Start > Power > Shut down) and unplug it, then";
+            const string warranty = "Keep using the good stick (16 GB is plenty for games) and get the faulty one replaced under Corsair's lifetime warranty (corsair.com > Support > RMA; they usually replace the pair).";
+            if (Done("A") && Done("B"))
+            {
+                if (Bad("A") && !Bad("B")) L.Add(new Line($"Result: the stick from slot A is faulty - the other one ran clean on its own. {warranty} To be extra sure it's the stick and not the slot: put the faulty stick in slot B - if it crashes there too, it's the stick.", "warn"));
+                else if (Bad("B") && !Bad("A")) L.Add(new Line($"Result: the stick tested in slot B is faulty - the other one ran clean on its own. {warranty} To be extra sure it's the stick and not the slot: put the faulty stick in slot A - if it crashes there too, it's the stick.", "warn"));
+                else if (Bad("A") && Bad("B")) L.Add(new Line("Result: both sticks crashed on their own, so the sticks are most likely fine - the processor's memory controller or the motherboard is the likely cause. That's a warranty case for AMD or ASRock; Claude can help you with it.", "warn"));
+                else L.Add(new Line($"Result: neither stick crashed on its own ({RamNeed}+ starts each). The fault may only show with both sticks in, or be rarer than the test caught. Put both sticks back in; Claude can help with the next step."));
+            }
+            else if (now.StartsWith("1 stick(s)"))
+            {
+                var k = Slot(now); var other = k == "A" ? "B" : "A";
+                if (Done(k)) { var r = one[k]; L.Add(new Line($"Next: {shut} take this stick out and put the OTHER stick in slot {other} on its own. {(Bad(k) ? "This stick crashed on its own - the other one will show whether it's the stick." : $"This stick ran {r.Starts} starts without a crash, so it looks fine.")}", "warn")); }
+                else { var n = one.TryGetValue(k, out var r) ? r.Starts : 0; L.Add(new Line($"Now: just use the PC as usual with this stick - {RamNeed - n} more start{Kit.S(RamNeed - n)} to go. Messiah counts them by itself.", "ok")); }
+            }
+            else if (one.Count == 0) L.Add(new Line($"Step 1 of 2: {shut} take out the stick in slot B (the slot marked B on the motherboard, e.g. DDR5_B1) and leave the other one where it is. Then use the PC as usual for about {RamNeed} starts; Messiah counts them and the crashes by itself. Leave EXPO off during the test.", "warn"));
+            else L.Add(new Line($"Both sticks are back in, but the test isn't finished: {shut} put only the stick you haven't tested yet in slot {(one.ContainsKey("A") ? "B" : "A")}.", "warn"));
+            return L;
+        }
+        public static List<Line> RamTestNow()
+        {
+            var st = Kit.ReadJson(Kit.P("maint-state.json"));
+            var since = Kit.Date(Json.Get(st, "ram-stick-test")); if (since == null || since < DateTime.Now.AddDays(-60)) return null;
+            var labels = new List<string>(); long total = 0;
+            try { using (var s = new ManagementObjectSearcher("SELECT BankLabel, Capacity FROM Win32_PhysicalMemory")) foreach (ManagementObject o in s.Get()) { labels.Add((o["BankLabel"] ?? "").ToString().Trim()); total += Convert.ToInt64(o["Capacity"] ?? 0); } } catch { }
+            var now = $"{labels.Count} stick(s), {Math.Round(total / 1073741824.0)} GB in {string.Join(" + ", labels)}";   // (health-check.ps1's words)
+            var mine = new HashSet<string>(PowerEvents().Where(e => e.Answer == "me").Select(e => e.Key.ToString("yyyy-MM-dd HH:mm")));
+            return RamTest(Kit.Lines(Kit.P("ram-test.log")), now, mine);
+        }
+
+        // --- the stability record (power-log.json, power-log.ps1)
+        public class PowerEvent { public DateTime Key, At; public string Kind, Code, Answer, KeyText; }
+        public class Change { public DateTime At; public string What, From, To; public bool Approx; }
+        public static List<PowerEvent> PowerEvents()
+        {
+            var j = Kit.ReadJson(Kit.P("power-log.json"));
+            return Json.L(j, "events").Select(e => new PowerEvent { KeyText = Json.S(e, "key"), Key = Kit.Date(Json.Get(e, "key")) ?? DateTime.MinValue, At = Kit.Date(Json.Get(e, "at")) ?? DateTime.MinValue, Kind = Json.S(e, "kind"), Code = Json.S(e, "code"), Answer = Json.S(e, "answer") })
+                .Where(e => e.Key > DateTime.MinValue).ToList();
+        }
+        public static List<Change> PowerChanges()
+        {
+            var j = Kit.ReadJson(Kit.P("power-log.json"));
+            return Json.L(j, "changes").Select(c => new Change { At = Kit.Date(Json.Get(c, "at")) ?? DateTime.MinValue, What = Json.S(c, "what"), From = Json.S(c, "from"), To = Json.S(c, "to"), Approx = Json.B(c, "approx") }).Where(c => c.At > DateTime.MinValue).ToList();
+        }
+
+        // --- a script of the kit, hidden (the actions: todo.ps1, power-log.ps1 ...), optionally waiting for its output
+        public static string RunPs(string file, string args, bool wait = true)
+        {
+            var psi = new ProcessStartInfo("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \"{Kit.P(file)}\" {args}") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = wait };
+            var p = Process.Start(psi); if (!wait) return "";
+            var o = p.StandardOutput.ReadToEnd(); p.WaitForExit(60000); return o.Trim();
+        }
+        public static string Q(string s) => "\"" + (s ?? "").Replace("\"", "\\\"") + "\"";
+    }
+}

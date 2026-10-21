@@ -12,6 +12,6 @@ $changed = @(& git -C $repo diff --name-only $Base 2>$null) + @(& git -C $repo l
 $install = '^(install\.ps1|autounattend\.xml|PCSetupKit/(setup|tweaks|setup-progress)\.ps1|PCSetupKit/tests/(fresh|sandbox)/|' +
     'PCSetupKit/claude/(optimize|claude-bg-maint|tray-app|ai-toggle|ai-enabled|app-icon|settings-backup|display-refresh|junk-apps|' +
     'driver-check|vendor-updates|health-check|periodic-maint|ensure-schedule|self-test|todo|maint-actions)\.ps1|' +
-    'PCSetupKit/claude/tray/|PCSetupKit/claude/(skills|hooks)/|docs/.*\.cmd$)'
+    'PCSetupKit/claude/tray/|PCSetupKit/claude/(skills|hooks|app)/|docs/.*\.cmd$)'
 $hits = @($changed | Where-Object { $_ -match $install })
 if ($hits) { 'yes'; $hits | ForEach-Object { "  $_" } } else { 'no'; "  (changed since $($Base): $(@($changed).Count) file(s), none that a new install runs)" }

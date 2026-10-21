@@ -60,6 +60,13 @@ foreach ($j in $jobs) {
     if ($j.TimedOut) { $out = @('WARNING: timed out') + $out }
     if ($out) { $lines += "[$($j.Name)]"; $lines += $out }   # a job with nothing to say (e.g. no kit update) leaves no empty section
 }
+# A driver installed by this run can bring back what the tweak guard removes (the disabled iGPU's Windows Update driver
+# restarted AMD's External Events + Crash Defender, 10/13). The guard (PC health) ran next to the install and the
+# update guard task stands down while this runs, so one more guard pass now, after the install.
+if (($lines -match '^(Driver: .* - installed$|NVIDIA: installed|AMD (Radeon|chipset): installed)') -and (Test-Path "$dir\after-update.ps1")) {
+    $ag = @(& "$dir\after-update.ps1" -Now | Where-Object { $_ })
+    if ($ag) { $lines += '[After the driver install]'; $lines += $ag }
+}
 # Self-test (weekly, and after a kit update - so after the jobs): the kit's test suite against the installed scripts.
 # A failure is a WARNING, so /maintain looks at it at this same login.
 $st = @(if (-not $NoSelfTest -and (Test-Path "$dir\self-test.ps1")) { & "$dir\self-test.ps1" | Where-Object { $_ } })

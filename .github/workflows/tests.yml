@@ -16,6 +16,14 @@ jobs:
         shell: powershell
         continue-on-error: true
         run: choco install autohotkey -y --no-progress
+      - name: Build the app from its source (app\Messiah.App - the release ships the copy built with it)
+        shell: powershell
+        run: |
+          & .\tools\app\build.ps1 -Out "$env:RUNNER_TEMP\app"
+          $env:PCKIT_IN_TESTS = '1'; $env:PCKIT_CLAUDE_DIR = "$env:RUNNER_TEMP\empty"; New-Item $env:PCKIT_CLAUDE_DIR -ItemType Directory -Force | Out-Null
+          $o = & "$env:RUNNER_TEMP\app\MessiahApp.exe" --test | Out-String
+          if ($LASTEXITCODE -or $o -match 'PAGE ERROR' -or $o -notmatch 'PAGE: Settings/Tools') { $o; throw 'The freshly built app failed its own test' }
+          'The app builds from its source and passes its own test'
       - name: Unit tests (Windows PowerShell 5.1, like the real PCs)
         shell: powershell
         run: |

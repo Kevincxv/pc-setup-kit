@@ -48,6 +48,16 @@ Run
 $r = Get-Content "$C\maint-report.txt"
 Check 'self-test runs after the jobs (it sees the kit update of the same run)' (($r -join "`n") -match '\[Self-test\]\s+WARNING: self-test .*kit update seen: True') ($r -join ' / ')
 Check '... and its WARNING wakes /maintain at the same login' ((Runs) -match 'ran maintain') ((Runs) -join ' / ')
+New-Case -Jobs @{ 'driver-check' = '"Driver: AMD Display Driver Update (32.0) - installed"'; 'health-check' = '"Tweaks: all still applied"' }
+'param([switch]$Now) "Tweaks: an update had reverted 1 - re-applied: AMD External Events service off (now=$Now)"' | Set-Content "$C\after-update.ps1"
+Run @('-Force')
+$r = Get-Content "$C\maint-report.txt"
+Check 'a driver installed during the run: one more guard pass after it (the guard job ran next to the install)' (($r -join "`n") -match '\[After the driver install\]\s+Tweaks: an update had reverted 1 .*now=True') ($r -join ' / ')
+New-Case -Jobs @{ 'driver-check' = '"Other drivers: all up to date (Windows Update)"' }
+'"guard ran" | Set-Content "$PSScriptRoot\guard-ran.txt"' | Set-Content "$C\after-update.ps1"; Clear-Path "$C\guard-ran.txt"
+Run @('-Force')
+Check '... no driver installed: no extra guard pass' (-not (Test-Path "$C\guard-ran.txt")) ''
+Clear-Path "$C\after-update.ps1"
 New-Case; '' | Set-Content "$C\self-test.ps1"; Run @('-Force')
 Check 'self-test with nothing to say (not due): no section' (-not ((Get-Content "$C\maint-report.txt") -contains '[Self-test]')) ''
 New-Case; Run @('-Force'); $t1 = (Get-Item "$C\maint-report.txt").LastWriteTime; Start-Sleep 1; Run @()

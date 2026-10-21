@@ -13,7 +13,7 @@ function Reset-D {
 }
 function Rec($updates, [int]$ageDays = 0) { @{ checkTime = (Get-Date).ToUniversalTime().AddDays(-$ageDays).ToString('o'); updates = $updates } | ConvertTo-Json -Depth 4 | Set-Content "$rec\DriverRecommendations.dat" }
 function Drv($v, [switch]$Beta, $type = 0) { @{ version = $v; isBeta = [bool]$Beta; driverType = $type; downloadURL = "https://example.invalid/$v-desktop-win11-64bit-international-dch-whql.exe" } }
-function Get-CimInstance { if ("$args" -match 'Win32_PnPEntity') { if ($DC.NoAmdChipset) { return } else { return [pscustomobject]@{ PNPDeviceID = 'PCI\VEN_1022&DEV_14D8' } } }; if ("$args" -match 'Win32_VideoController') { return [pscustomobject]@{ Name = $DC.Gpu } }; if ("$args" -match 'Win32_Processor') { return [pscustomobject]@{ Name = $DC.Cpu } }; CimCmdlets\Get-CimInstance @args }
+function Get-CimInstance { if ("$args" -match 'ConfigManagerErrorCode=22') { return $DC.Disabled }; if ("$args" -match 'Win32_PnPEntity') { if ($DC.NoAmdChipset) { return } else { return [pscustomobject]@{ PNPDeviceID = 'PCI\VEN_1022&DEV_14D8' } } }; if ("$args" -match 'Win32_VideoController') { return [pscustomobject]@{ Name = $DC.Gpu } }; if ("$args" -match 'Win32_Processor') { return [pscustomobject]@{ Name = $DC.Cpu } }; CimCmdlets\Get-CimInstance @args }
 function nvidia-smi { if ($DC.Installed) { $DC.Installed } }
 function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing, $UserAgent, $Headers, $TimeoutSec) if (-not $OutFile) { return [pscustomobject]@{ Content = $DC.AmdPage } }; $global:DCcalls.Add("download $Uri"); 'fake installer' | Set-Content $OutFile }
 function Get-AuthenticodeSignature { param($FilePath) [pscustomobject]@{ Status = $DC.Sig; SignerCertificate = [pscustomobject]@{ Subject = $DC.Signer } } }
@@ -109,6 +109,14 @@ $DC.Updates = @($bad, $other); $DC.Results = @{ 'Realtek - Net - 10.72' = 2 }
 $o = DC; [IO.File]::Delete("$d\driver-blocklist.txt")
 Check 'a driver rolled back after a blue screen (driver-blocklist.txt) is hidden, not installed again' ($bad.IsHidden -and ($o -match "'Realtek - Net - 10.71' was rolled back after a blue screen - hidden") -and -not ($o -match 'Driver: Realtek - Net - 10.71 -')) ($o -join ' / ')
 Check '... a different version from the same maker still installs' ((-not $other.IsHidden) -and ($o -contains 'Driver: Realtek - Net - 10.72 - installed')) ($o -join ' / ')
+Reset-D; Rec @((Drv '617.14'))
+$igpu = New-WUUpdate 'AMD - Display - 32.0.21042'; $igpu | Add-Member DriverHardwareID 'PCI\VEN_1002&DEV_164E'
+$net = New-WUUpdate 'Realtek - Net - 10.73'; $net | Add-Member DriverHardwareID 'PCI\VEN_10EC&DEV_8125'
+$DC.Updates = @($igpu, $net); $DC.Results = @{ 'Realtek - Net - 10.73' = 2 }
+$DC.Disabled = @([pscustomobject]@{ HardwareID = @('PCI\VEN_1002&DEV_164E&SUBSYS_364E1849&REV_CB', 'PCI\VEN_1002&DEV_164E&SUBSYS_364E1849'); CompatibleID = @('PCI\VEN_1002&DEV_164E') })
+$o = DC
+Check 'a driver for a device switched off in Device Manager is hidden, not installed' ($igpu.IsHidden -and ($o -match "'AMD - Display - 32.0.21042' is for a device that is switched off - hidden") -and -not ($o -match 'Driver: AMD - Display - 32.0.21042 -')) ($o -join ' / ')
+Check '... drivers for working devices still install' ((-not $net.IsHidden) -and ($o -contains 'Driver: Realtek - Net - 10.73 - installed')) ($o -join ' / ')
 Section 'a game is running: installs wait (moved here from game-aware: mocked, so it also runs without an NVIDIA card)'
 '"TestGame"' | Set-Content "$d\game-check.ps1"
 Reset-D; Rec @((Drv '620.36')); $DC.Updates = @((New-WUUpdate 'Realtek - Net - 10.70')); $o = DC

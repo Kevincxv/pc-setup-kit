@@ -1,4 +1,4 @@
-﻿# setup.ps1 and autounattend.xml: the parts that only run on a fresh install.
+# setup.ps1 and autounattend.xml: the parts that only run on a fresh install.
 # (The full fresh install runs on GitHub for every release: tests\fresh, fresh-install.yml.) Online checks are skipped offline.
 . "$PSScriptRoot\..\lib.ps1"
 $repoRoot = Split-Path $Kit
@@ -110,7 +110,9 @@ Check '... Claude Code not downloaded, no skills, no hook, no Claude settings' (
 Check '... no session shortcut' (-not (Test-Path "$cl\Messiah Session.lnk")) ''
 $ws = New-Object -ComObject WScript.Shell
 $app = "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk"
-Check '... Start menu and desktop "Messiah" (the one app) open the app window, with its own icon' ((Test-Path $app) -and (Test-Path "$H\Desktop\Messiah.lnk") -and $ws.CreateShortcut($app).Arguments -match 'dashboard\.ps1"$' -and $ws.CreateShortcut($app).IconLocation -match 'Messiah Tray\\app\.ico,0$' -and (Test-Path "$H\Documents\Messiah Tray\app.ico")) "$(if (Test-Path $app) { $ws.CreateShortcut($app).IconLocation })"
+# the app: the compiled MessiahApp.exe where the kit has it (installed to .claude\app, run --live), else dashboard.ps1
+$opensApp = { param($s) if (Test-Path "$Kit\claude\app\MessiahApp.exe") { $s.TargetPath -eq "$H\.claude\app\MessiahApp.exe" -and $s.Arguments -eq '--live' -and (Test-Path "$H\.claude\app\MessiahApp.exe") } else { $s.Arguments -match 'dashboard\.ps1"$' } }
+Check '... Start menu and desktop "Messiah" (the one app) open the app window, with its own icon' ((Test-Path $app) -and (Test-Path "$H\Desktop\Messiah.lnk") -and (& $opensApp $ws.CreateShortcut($app)) -and $ws.CreateShortcut($app).IconLocation -match 'Messiah Tray\\app\.ico,0$' -and (Test-Path "$H\Documents\Messiah Tray\app.ico")) "$(if (Test-Path $app) { $ws.CreateShortcut($app).IconLocation })"
 $bg = $global:tasks['Claude Background Maintenance']
 Check '... login maintenance task: hidden (conhost --headless), unattended, elevated, 2 min delay, 4 h limit' ($bg -and $bg.Action.Arguments -match '^--headless powershell\.exe .*claude-bg-maint\.ps1" -Force -Unattended$' -and $bg.Principal.RunLevel -eq 'Highest' -and $bg.Settings.ExecutionTimeLimit -eq 'PT4H') ''
 Check '... and once a day at 12:00, catching up after a missed start (PCs that stay on for days)' ($bg.Trigger.Count -eq 2 -and ($bg.Trigger | Where-Object { $_.DaysInterval -eq 1 -and $_.StartBoundary -match 'T12:00:00$' }) -and $bg.Settings.StartWhenAvailable) ''
@@ -135,7 +137,7 @@ $sc = if (Test-Path $lnk) { (New-Object -ComObject WScript.Shell).CreateShortcut
 Check '... it starts the launcher in System32 with PowerShell' ($sc -and $sc.TargetPath -match 'powershell\.exe$' -and $sc.Arguments -match '\\user-True\\\.claude\\claude-admin-launch\.ps1"$' -and $sc.WorkingDirectory -match 'System32$') "target=$($sc.TargetPath) | dir=$($sc.WorkingDirectory) | args=$($sc.Arguments)"
 $app = "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk"
 $sc = if (Test-Path $app) { (New-Object -ComObject WScript.Shell).CreateShortcut($app) }
-Check '... Start menu and desktop "Messiah" open the app window (not elevated: no UAC prompt)' ($sc -and $sc.Arguments -match 'dashboard\.ps1"$' -and (Test-Path "$H\Desktop\Messiah.lnk") -and (([IO.File]::ReadAllBytes($app)[0x15] -band 0x20) -eq 0)) "$($sc.Arguments)"
+Check '... Start menu and desktop "Messiah" open the app window (not elevated: no UAC prompt)' ($sc -and (& $opensApp $sc) -and (Test-Path "$H\Desktop\Messiah.lnk") -and (([IO.File]::ReadAllBytes($app)[0x15] -band 0x20) -eq 0)) "$($sc.Arguments)"
 Check '... the same login maintenance task' ([bool]$global:tasks['Claude Background Maintenance']) ''
 if ($global:tasks['Messiah Tray']) { Check '... the tray runs as "Messiah.exe", no separate "Messiah Status" entry' ($global:tasks['Messiah Tray'].Action.Execute -eq "$H\Documents\Messiah Tray\Messiah.exe" -and -not (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah Status.lnk")) "$($global:tasks['Messiah Tray'].Action.Execute)" }
 

@@ -1,6 +1,6 @@
 # The tray as its own app: AutoHotkey runs the tray script under the app's name (Messiah.exe; PC Setup Kit.exe on
 # older installs without the AI assistant - replaced). Windows keeps one tray entry per program, and every AutoHotkey script otherwise shares AutoHotkey's
-# (in the hidden ^ area) - with its own name the app has its own entry there, with its own icon. Also: the login task that starts it, the app's icon, and its Start menu entry (the app window, dashboard.ps1).
+# (in the hidden ^ area) - with its own name the app has its own entry there, with its own icon. Also: the login task that starts it, the app's icon, and its Start menu entry (the app window).
 # Safe to run again (setup, background maintenance): changes only what's missing or outdated, one line per change.
 param([string]$TrayDir = "$env:USERPROFILE\Documents\Messiah Tray", [string]$ClaudeDir = $PSScriptRoot,
     [string]$Ahk = "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe", [switch]$NoRestart, [switch]$Desktop)   # -NoRestart: setup starts the tray itself; -Desktop: also a desktop entry (setup)
@@ -21,12 +21,13 @@ if ($iconVer -and (-not (Test-Path $ico) -or "$(Get-Content "$ico.version" -Erro
 }
 $iconLoc = if (Test-Path $ico) { "$ico,0" } else { "$env:SystemRoot\System32\imageres.dll,110" }
 
-# One app: the Start menu entry "<name>" (and the desktop one, where there is one) opens the app window (dashboard.ps1,
-# no console: conhost --headless). With Claude, the elevated session launcher those entries used to open is kept as
+# One app: the Start menu entry "<name>" (and the desktop one, where there is one) opens the app window (MessiahApp.exe;
+# before it dashboard.ps1, with no console: conhost --headless). With Claude, the elevated session launcher those entries used to open is kept as
 # .claude\Messiah Session.lnk (the app's "New session" and the tray use it). The old "<name> Status" entry goes.
 $sm = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
 $ws = New-Object -ComObject WScript.Shell
-$appArgs = "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$ClaudeDir\dashboard.ps1`""
+# (the compiled app, app\MessiahApp.exe - 10/20; installs from before it: dashboard.ps1)
+$appTarget, $appArgs = if (Test-Path "$ClaudeDir\app\MessiahApp.exe") { "$ClaudeDir\app\MessiahApp.exe", '--live' } else { "$env:SystemRoot\System32\conhost.exe", "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$ClaudeDir\dashboard.ps1`"" }
 $session = "$ClaudeDir\Messiah Session.lnk"
 $launcher = "$ClaudeDir\claude-admin-launch.ps1"
 if ($ai -and (Test-Path $launcher)) {
@@ -46,11 +47,11 @@ if ($ai -and (Test-Path $launcher)) {
     }
 }
 function Set-AppShortcut($lnk) {
-    if ((Test-Path -LiteralPath $lnk) -and ($s = $ws.CreateShortcut($lnk)).Arguments -eq $appArgs -and $s.IconLocation -eq $iconLoc) { return $false }
+    if ((Test-Path -LiteralPath $lnk) -and ($s = $ws.CreateShortcut($lnk)).Arguments -eq $appArgs -and $s.TargetPath -eq $appTarget -and $s.IconLocation -eq $iconLoc) { return $false }
     New-Item (Split-Path $lnk) -ItemType Directory -Force | Out-Null
     if (Test-Path -LiteralPath $lnk) { Remove-Item -LiteralPath $lnk -Force }   # a fresh one: an old launcher's "Run as administrator" flag must not stay
     $s = $ws.CreateShortcut($lnk)
-    $s.TargetPath = "$env:SystemRoot\System32\conhost.exe"; $s.Arguments = $appArgs; $s.WorkingDirectory = $ClaudeDir
+    $s.TargetPath = $appTarget; $s.Arguments = $appArgs; $s.WorkingDirectory = $ClaudeDir
     $s.IconLocation = $iconLoc; $s.Description = "$name - what the PC's maintenance is doing, and anything that needs you"
     $s.Save(); $true
 }

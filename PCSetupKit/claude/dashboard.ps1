@@ -2586,7 +2586,7 @@ try {
     $showTimer = New-Object Windows.Threading.DispatcherTimer -Property @{ Interval = [TimeSpan]::FromMilliseconds(100) }
     $showTimer.Add_Tick({ try {
                 if ($showEvt.WaitOne(0)) { Show-App; return }
-                if ((++$script:showN % 300) -eq 0 -and $win.Visibility -ne 'Visible' -and (Get-Item $script:selfPath).LastWriteTime -ne $selfAt) { $script:quit = $true; $win.Close() }   # (every 30 s, hidden: updated?)
+                if ((++$script:showN % 300) -eq 0 -and $win.Visibility -ne 'Visible' -and ((Get-Item $script:selfPath).LastWriteTime -ne $selfAt -or (Test-Path "$cl\app\MessiahApp.exe"))) { $script:quit = $true; $win.Close() }   # (every 30 s, hidden: updated? or the compiled app is here - it takes over)
             } catch {} })
     $showTimer.Start()
     if ($Background) { [void](New-Object Windows.Interop.WindowInteropHelper $win).EnsureHandle() } else { Show-App }   # (the handle: app-window.txt, for the tray)

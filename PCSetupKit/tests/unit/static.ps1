@@ -55,7 +55,8 @@ Check 'no $null passed as a Windows API argument (it arrives as "" - use [NullSt
 # only where the kit is published from (the repo) or in CI - an installed PC's kit folder holds its own setup log etc.
 if ($inRepo) {
     $personal = 'Kevin|gmail|@[a-z0-9-]+\.(com|net|org)|B650I|7800X3D|RTX 5080|G2725D|PG27AQDM|CMK32|Seagate ZP|gho_|ghp_|sk-ant-'
-    $hits = @(Get-ChildItem $repoRoot -Recurse -File | Where-Object { $_.FullName -notmatch '\\\.git\\' -and $_.Name -ne 'last-run.txt' } | Select-String -Pattern $personal |
+    # (the compiled app's build output - app\**\bin, app\**\obj - is in .gitignore, never published; its caches hold the build path)
+    $hits = @(Get-ChildItem $repoRoot -Recurse -File | Where-Object { $_.FullName -notmatch '\\\.git\\|\\app\\.*\\(bin|obj)\\' -and $_.Name -ne 'last-run.txt' } | Select-String -Pattern $personal |
             Where-Object { $_.Line -notmatch 'Kevincxv/pc-setup-kit|kevincxv\.github\.io/pc-setup-kit|noreply@anthropic\.com' -and $_.Line -notmatch '^\s*\$personal = ' } | ForEach-Object { "$($_.Filename):$($_.LineNumber)" })   # (the pattern line itself)
     Check 'nothing personal in the kit (names, email, hardware, tokens)' (-not $hits) ($hits -join ', ')
     # the install page (GitHub Pages, docs\): its download buttons point at files that run the real one-line installer

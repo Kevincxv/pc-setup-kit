@@ -1,0 +1,195 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Interop;
+using System.Windows.Threading;
+
+namespace Messiah
+{
+    public class App : Application
+    {
+        // While the PowerShell app is still the live one, this one runs side by side under names of its own (its own
+        // single-instance lock, show signal, window-handle file - the tray reads app-window.txt for the live app).
+        // --live: the names of the app (the switch-over).
+        public static class Names
+        {
+            public static string Mutex = @"Local\MessiahApp.Next", ShowEvent = @"Local\MessiahAppShow.Next", HwndFile = "app-window-next.txt", RequestFile = "app-request-next.txt", PlaceFile = "app-window-place.txt", LastFile = "app-last-next.txt";
+            public static void Live() { Mutex = @"Local\PCSetupKitStatusWindow"; ShowEvent = @"Local\MessiahAppShow"; HwndFile = "app-window.txt"; RequestFile = "app-request.txt"; LastFile = "app-last.txt"; }
+        }
+
+        [STAThread]
+        public static int Main(string[] args)
+        {
+            var sw = Stopwatch.StartNew();
+            string page = null; bool background = false, test = false, timing = false;
+            for (int i = 0; i < args.Length; i++)
+            {
+                var a = args[i].TrimStart('-', '/').ToLowerInvariant();
+                if (a == "page" && i + 1 < args.Length) page = args[++i];
+                else if (a == "background") background = true;
+                else if (a == "test") test = true;
+                else if (a == "timing") timing = true;
+                else if (a == "live") Names.Live();
+            }
+            AppDomain.CurrentDomain.UnhandledException += (s, e) => Log("crash: " + e.ExceptionObject);
+            if (test) return RunTest(page);
+
+            // one window: a second start hands over to the open one (it may be hidden - closing only hides it)
+            // (both open to this user by name: the tray starts it with admin rights, the Start menu without - an admin
+            // process's objects are otherwise closed to the same user's normal ones)
+            var me = System.Security.Principal.WindowsIdentity.GetCurrent().User;
+            var ms = new System.Security.AccessControl.MutexSecurity();
+            ms.AddAccessRule(new System.Security.AccessControl.MutexAccessRule(me, System.Security.AccessControl.MutexRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+            Mutex mutex; try { mutex = new Mutex(false, Names.Mutex, out _, ms); } catch (UnauthorizedAccessException) { mutex = null; }
+            bool first; try { first = mutex != null && mutex.WaitOne(0); } catch (AbandonedMutexException) { first = true; }
+            if (!first)
+            {
+                if (background) return 0;
+                if (page != null) try { File.WriteAllText(Kit.P(Names.RequestFile), "page=" + page); } catch { }
+                if (EventWaitHandle.TryOpenExisting(Names.ShowEvent, out var sig)) { Native.AllowSetForegroundWindow(-1); sig.Set(); }
+                return 0;
+            }
+            var es = new System.Security.AccessControl.EventWaitHandleSecurity();
+            es.AddAccessRule(new System.Security.AccessControl.EventWaitHandleAccessRule(me, System.Security.AccessControl.EventWaitHandleRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+            var showEvt = new EventWaitHandle(false, EventResetMode.AutoReset, Names.ShowEvent, out _, es);
+
+            Theme.Load();
+            var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            // a fault in a click or a page never closes the window: logged, said
+            app.DispatcherUnhandledException += (s, e) => { Log("ui: " + e.Exception); e.Handled = true; Shell.Say("Something went wrong there - it's logged; try again."); };
+            app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/MessiahApp;component/Styles.xaml") });
+            Theme.Apply(app.Resources);
+            AppLast.Load(); if (page == null && AppLast.Page != "") page = AppLast.Page;
+            var w = new MainWindow();
+            if (page == "Welcome") { w.startPage = "Welcome"; w.BuildNav(); }
+            if (page == "Chat") w.ContentRendered += (s, e) => w.ShowChat(true);   // (-page Chat: open with the chat - the tray's Ask Claude)
+            else if (page != null) w.ShowPage(page.Split('/')[0], page.Contains("/") ? page.Split('/')[1] : null);
+            w.Refresh(true);
+            // another start (the tray, Ctrl+Alt+M, the Start menu) asks it to show itself: waited for on a thread of its own
+            var t = new Thread(() => { while (true) { showEvt.WaitOne(); w.Dispatcher.BeginInvoke(new Action(w.ShowApp)); } }) { IsBackground = true }; t.Start();
+            // an update to this program: the hidden copy ends, so the next open runs the new one
+            var self = Process.GetCurrentProcess().MainModule.FileName; var selfAt = File.GetLastWriteTime(self);
+            var upd = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+            upd.Tick += (s, e) => { try { if (w.Visibility != Visibility.Visible && File.GetLastWriteTime(self) != selfAt) { w.Quit = true; w.Close(); } } catch { } };
+            upd.Start();
+            if (background) new WindowInteropHelper(w).EnsureHandle();
+            else
+            {
+                if (timing) w.ContentRendered += (s, e) => { try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "messiah-app-timing.txt"), $"{DateTime.Now:s} on screen after {sw.ElapsedMilliseconds} ms\r\n"); } catch { } };
+                w.ShowApp();
+            }
+            app.Run();
+            GC.KeepAlive(mutex);
+            return 0;
+        }
+
+        // what went wrong, for /self-improve (.claude\app-errors.log, kept short)
+        public static void Log(string what)
+        {
+            try { var f = Kit.P("app-errors.log"); if (File.Exists(f) && new FileInfo(f).Length > 200000) File.Delete(f); File.AppendAllText(f, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {what}\r\n"); } catch { }
+        }
+        // --test: every page built once and printed as text - what the tests read (the PowerShell app's -Test format)
+        static int RunTest(string page)
+        {
+            var o = new StringBuilder();
+            var t = new Thread(() =>
+            {
+                Theme.Load();
+                var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+                app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/MessiahApp;component/Styles.xaml") });
+                Theme.Apply(app.Resources);
+                var w = new MainWindow();
+                if (page == "Welcome") { w.startPage = "Welcome"; w.BuildNav(); }
+                o.AppendLine("WINDOW: " + w.Title);
+                o.AppendLine("NAV: " + string.Join(" | ", w.NavList.Children.OfType<RadioButton>().Select(r => r.Tag)));
+                var sw = Stopwatch.StartNew(); var snap = Snapshot.Load(); o.AppendLine($"DATA: read in {sw.ElapsedMilliseconds} ms");
+                foreach (var key in new[] { "Welcome", "Home", "Status", "Activity/Checks", "Activity/Stability", "Activity/Trends", "Activity/Alerts", "Settings/General", "Settings/Windows", "Settings/Tools" })
+                {
+                    sw.Restart();
+                    List<UIElement> els; string err = null;
+                    try { els = w.BuildPage(key, snap); } catch (Exception e) { els = new List<UIElement>(); err = e.ToString(); }
+                    o.AppendLine($"PAGE: {key}  (built in {sw.ElapsedMilliseconds} ms)"); if (err != null) o.AppendLine("PAGE ERROR: " + err);
+                    foreach (var el in els) Dump(el, o);
+                }
+                foreach (var l in w.ChatSelfTest()) o.AppendLine(l);
+                // the RAM stick test, each stage (made-up logs - dashboard.ps1's same cases)
+                string two = "2 stick(s), 32 GB in P0 CHANNEL A + P0 CHANNEL B", oA = "1 stick(s), 16 GB in P0 CHANNEL A", oB = "1 stick(s), 16 GB in P0 CHANNEL B";
+                var bas = new[] { $"2026-10-05 09:54 | start | {two}", $"2026-10-10 11:30 | crash | {two}", $"2026-10-10 11:30 | start | {two}" };
+                Func<int, string, int, string[]> st = (n, s, c) => Enumerable.Range(1, n).Select(i => $"2026-10-13 10:{i:d2} | start | {s}").Concat(Enumerable.Range(1, c).Select(i => $"2026-10-14 10:0{i} | crash | {s}")).ToArray();
+                Func<string[][], string[]> cat = parts => parts.SelectMany(x => x).ToArray();
+                Func<List<Line>, string> firsts = ls => string.Join(" ", ls.Where(x => x.Level != "dim").Select(x => x.Text.Split(':', '.')[0]));
+                foreach (var (name, log, now) in new[] {
+                    ("not started", bas, two), ("A running", cat(new[] { bas, st(3, oA, 0) }), oA), ("A clean", cat(new[] { bas, st(10, oA, 0) }), oA),
+                    ("A crashed", cat(new[] { bas, st(2, oA, 1) }), oA), ("B running", cat(new[] { bas, st(10, oA, 0), st(4, oB, 0) }), oB),
+                    ("A bad", cat(new[] { bas, st(2, oA, 1), st(10, oB, 0) }), oB), ("both bad", cat(new[] { bas, st(2, oA, 1), st(3, oB, 1) }), oB),
+                    ("both clean", cat(new[] { bas, st(10, oA, 0), st(10, oB, 0) }), oB), ("back too soon", cat(new[] { bas, st(3, oA, 0) }), two) })
+                    o.AppendLine($"RAMTEST {name}: {firsts(Data.RamTest(log, now, new string[0]))}");
+                o.AppendLine($"RAMTEST A off by the owner: {firsts(Data.RamTest(cat(new[] { bas, st(2, oA, 1) }), oA, new[] { "2026-10-14 10:01" }))}");
+                // the help report (Settings > Tools > Copy a report for help), on one line
+                if (Environment.GetEnvironmentVariable("PCKIT_REPORT_TEST") != null) o.AppendLine("REPORT: " + Actions.Report().Replace("\r", "").Replace("\n", " // "));
+            });
+            t.SetApartmentState(ApartmentState.STA); t.Start(); t.Join();
+            var outp = Console.OpenStandardOutput(); var bytes = new UTF8Encoding(false).GetBytes(o.ToString()); outp.Write(bytes, 0, bytes.Length); outp.Flush();
+            return 0;
+        }
+        static void Dump(UIElement el, StringBuilder o)
+        {
+            if (el is Border fb && (fb.Tag as string) == "filters") { o.AppendLine("FILTERS: " + string.Join(" | ", Find<RadioButton>(fb.Child).Select(r => r.Content + (r.IsChecked == true ? "*" : "")))); return; }
+            if (el is TextBlock note && note.Visibility == Visibility.Visible) { o.AppendLine("NOTE: " + note.Text); return; }
+            if (el is UniformGrid ug) { foreach (UIElement c in ug.Children) if (c is Border b && b.Tag is CardInfo ci && ci.Tile != null) o.AppendLine("  TILE: " + ci.Tile); else Dump(c, o); return; }
+            if (el is Border card && card.Tag is CardInfo info)
+            {
+                o.AppendLine("CARD: " + (string.IsNullOrEmpty(info.Title) ? "-" : info.Title));
+                // a Status row: its words on one line, its details (behind a click) on the next
+                var rowEls = Find<DockPanel>(card.Child).Where(x => x.Tag is Pages.RowInfo).ToList();
+                if (rowEls.Count > 0)
+                {
+                    foreach (var re in rowEls)
+                    {
+                        var ri = ((Pages.RowInfo)re.Tag).Row;
+                        o.AppendLine($"  {ri.Title} / {ri.State}{(string.IsNullOrEmpty(ri.Detail) ? "" : " / " + ri.Detail)}{(ri.Fix != null ? " [" + ri.Fix.Value.Label + "]" : "")}");
+                        if (ri.More != null && ri.More.Count > 0) o.AppendLine("    MORE: " + string.Join(" | ", ri.More.Select(m => m.Action != null ? "[" + m.Text + "]" : (m.Label + "  " + m.Text).Trim())));
+                    }
+                    return;
+                }
+                var chart = All<StackPanel>(card.Child).FirstOrDefault(x => (x.Tag as string ?? "").StartsWith("CHART:"));
+                if (chart != null) { o.AppendLine("  " + chart.Tag); return; }
+                foreach (var g in Find<Grid>(card.Child).Where(x => (x.Tag as string) == "rows"))
+                    foreach (var rr in g.Children.OfType<TextBlock>().GroupBy(x => Grid.GetRow(x))) o.AppendLine("  " + string.Join(": ", rr.Select(x => x.Text).Where(x => x != "")));
+                foreach (var tb in Texts(card.Child).SkipWhile((x, i) => i == 0 && x == info.Title)) o.AppendLine("  " + tb);
+                var btns = Find<Button>(card.Child).Select(b => b.ToolTip?.ToString()).Where(x => x != null).ToList();
+                if (btns.Count > 0) o.AppendLine("  BUTTONS: " + string.Join(" | ", btns));
+                return;
+            }
+        }
+        // the words in an element, in order (icons and button labels left out)
+        static IEnumerable<string> Texts(object el)
+        {
+            if (el is Button) yield break;
+            if (el is TextBlock tb) { if ((tb.Tag as string) != "icon" && tb.Visibility == Visibility.Visible && tb.Text != "") yield return tb.Text; yield break; }
+            if (el is Grid gr && (gr.Tag as string) == "rows") yield break;
+            if (el is Panel p) { foreach (var c in p.Children) foreach (var s in Texts(c)) yield return s; yield break; }
+            if (el is Decorator d) foreach (var s in Texts(d.Child)) yield return s;
+        }
+        static IEnumerable<T> All<T>(object el) where T : class   // (every one, also inside another)
+        {
+            if (el is T x) yield return x;
+            if (el is Panel p) foreach (var c in p.Children) foreach (var y in All<T>(c)) yield return y;
+            if (el is Decorator d) foreach (var y in All<T>(d.Child)) yield return y;
+        }
+        static IEnumerable<T> Find<T>(object el) where T : class
+        {
+            if (el is T x) { yield return x; yield break; }
+            if (el is Panel p) foreach (var c in p.Children) foreach (var y in Find<T>(c)) yield return y;
+            if (el is Decorator d) foreach (var y in Find<T>(d.Child)) yield return y;
+            if (el is ContentControl cc && !(el is Button)) foreach (var y in Find<T>(cc.Content)) yield return y;
+        }
+    }
+}

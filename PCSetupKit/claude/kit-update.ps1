@@ -30,6 +30,13 @@ function Restart-Tray {   # reload the tray (it won't open a second session)
     Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe' OR Name='Messiah.exe' OR Name='PC Setup Kit.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
     Start-ScheduledTask 'Messiah Tray'
 }
+# the app window (MessiahApp.exe): a running copy can be renamed, not overwritten - moved aside (it quits by itself
+# once it sees the new one); the copies moved aside before are deleted
+function Install-App($from, $to) {
+    New-Item $to -ItemType Directory -Force | Out-Null
+    Get-ChildItem "$to\*.old" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    foreach ($f in Get-ChildItem -LiteralPath $from -File) { $d = Join-Path $to $f.Name; try { Copy-Item -LiteralPath $f.FullName $d -Force -ErrorAction Stop } catch { Move-Item -LiteralPath $d "$d.$PID.old" -Force; Copy-Item -LiteralPath $f.FullName $d -Force } }
+}
 # the saved version back in place (-Rollback, and an install that failed half-way)
 function Restore-Saved {
     $prev = if (Test-Path "$Saved\version.txt") { (Get-Content "$Saved\version.txt" -Raw).Trim() }
@@ -43,7 +50,8 @@ function Restore-Saved {
         $from = (Get-Item -LiteralPath $from -Force).FullName   # the long form: a short 8.3 path (RUNNER~1 on GitHub) would shift every relative path
         foreach ($f in Get-ChildItem -LiteralPath $from -Recurse -File -Force) {
             $dest = Join-Path $to $f.FullName.Substring($from.Length).TrimStart('\')
-            try { New-Item (Split-Path $dest) -ItemType Directory -Force -ErrorAction Stop | Out-Null; Copy-Item -LiteralPath $f.FullName $dest -Force -ErrorAction Stop } catch { $script:held += (Split-Path $dest -Leaf) }
+            try { New-Item (Split-Path $dest) -ItemType Directory -Force -ErrorAction Stop | Out-Null; Copy-Item -LiteralPath $f.FullName $dest -Force -ErrorAction Stop }
+            catch { try { Move-Item -LiteralPath $dest "$dest.$PID.old" -Force -ErrorAction Stop; Copy-Item -LiteralPath $f.FullName $dest -Force -ErrorAction Stop } catch { $script:held += (Split-Path $dest -Leaf) } }   # (a running program - the app - can be moved aside)
         }
     }
     Copy-Back "$Saved\kit" $KitDir
@@ -94,7 +102,7 @@ try {
         if (Test-Path $Saved) { [IO.Directory]::Delete($Saved, $true) }
         New-Item "$Saved\kit", "$Saved\claude", "$Saved\tray" -ItemType Directory -Force | Out-Null
         Copy-Item "$KitDir\*.ps1" "$Saved\kit\"; foreach ($d in 'tests', 'claude') { if (Test-Path "$KitDir\$d") { Copy-Item "$KitDir\$d" "$Saved\kit\" -Recurse } }
-        Copy-Item "$ClaudeDir\*.ps1" "$Saved\claude\"; foreach ($d in 'hooks', 'skills') { if (Test-Path "$ClaudeDir\$d") { Copy-Item "$ClaudeDir\$d" "$Saved\claude\" -Recurse } }
+        Copy-Item "$ClaudeDir\*.ps1" "$Saved\claude\"; foreach ($d in 'hooks', 'skills', 'app') { if (Test-Path "$ClaudeDir\$d") { Copy-Item "$ClaudeDir\$d" "$Saved\claude\" -Recurse } }
         if (Test-Path "$TrayDir\Messiah Tray.ahk") { Copy-Item "$TrayDir\Messiah Tray.ahk" "$Saved\tray\" }
         $cur | Set-Content "$Saved\version.txt"
         $savedNow = $true
@@ -105,6 +113,7 @@ try {
     foreach ($d in 'tests', 'claude') { if (Test-Path "$k\$d") { Remove-Item "$KitDir\$d" -Recurse -Force -ErrorAction SilentlyContinue; Copy-Item "$k\$d" $KitDir -Recurse -Force } }
     if (Test-Path "$KitDir\tests") { $tag | Set-Content "$KitDir\tests\tests-version.txt" }   # which release these tests belong to (self-test.ps1)
     Copy-Item "$k\claude\*.ps1" $ClaudeDir -Force                         # maintenance scripts
+    if (Test-Path "$k\claude\app\MessiahApp.exe") { Install-App "$k\claude\app" "$ClaudeDir\app" }   # the app window
     # Claude's skills and its no-shutdown hook only where the optional Claude part is on
     $ai = if (Test-Path "$ClaudeDir\ai-enabled.ps1") { & "$ClaudeDir\ai-enabled.ps1" } else { $true }
     if ($ai) {

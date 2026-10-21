@@ -2,7 +2,7 @@
 #SingleInstance Force
 Persistent
 ; The Messiah app's tray side: it starts at login in the hidden tray (the ^ area) and runs the PC's maintenance on its own; small alerts when something needs the owner, and the
-; parts of the app window (dashboard.ps1) that need admin rights. Clicking the icon opens the app window.
+; parts of the app window (MessiahApp.exe) that need admin rights. Clicking the icon opens the app window.
 ; With the AI assistant switched on (the app's Settings, or setup.ps1 -WithClaude) it also holds the Messiah sessions (Claude Code with
 ; admin rights): minimizing one sends it to the tray, and at login it opens one hidden (continuing a conversation a
 ; restart cut off). Runs elevated (scheduled task) so it can hide admin windows and start maintenance without a prompt.
@@ -123,8 +123,9 @@ AppCommand(wParam, *) {
     return 1
 }
 
-; The app window (dashboard.ps1; one window - starting it again brings it to the front; it falls back to the text
-; status.ps1 by itself). Installs from before it: text.
+; The app window (app\MessiahApp.exe, compiled - 10/20; installs from before it: dashboard.ps1; before that: the text
+; status.ps1). One window - starting it again brings it to the front.
+AppExe() => FileExist(CL "\app\MessiahApp.exe") ? CL "\app\MessiahApp.exe" : ""
 ShowApp(page := "") {
     ; already running (closing only hides it): told to show itself directly - instant, no new PowerShell
     if h := DllCall("OpenEventW", "UInt", 0x0002, "Int", 0, "Str", "Local\MessiahAppShow", "Ptr") {
@@ -133,7 +134,9 @@ ShowApp(page := "") {
         DllCall("AllowSetForegroundWindow", "Int", -1), DllCall("SetEvent", "Ptr", h), DllCall("CloseHandle", "Ptr", h)
         return
     }
-    if FileExist(CL "\dashboard.ps1")
+    if AppExe() != ""
+        Run '"' AppExe() '" --live' (page != "" ? " --page " page : "")
+    else if FileExist(CL "\dashboard.ps1")
         Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\dashboard.ps1"' (page != "" ? " -Page " page : ""), , "Hide"
     else
         Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\status.ps1"'
@@ -168,14 +171,17 @@ StatusAtLogin() {
         ShowApp()
 }
 
-; The app window, started hidden a minute after login (dashboard.ps1 -Background): opening it is instant from then on,
-; the first time too - closing it only hides it. Not under a fullscreen game (tried again a minute later), not in tests.
+; The app window, started hidden a minute after login (--background): opening it is instant from then on, the first
+; time too - closing it only hides it. Not under a fullscreen game (tried again a minute later), not in tests.
 PreloadApp() {
-    if EnvGet("PCKIT_IN_TESTS") != "" || !FileExist(CL "\dashboard.ps1")
+    if EnvGet("PCKIT_IN_TESTS") != "" || (AppExe() = "" && !FileExist(CL "\dashboard.ps1"))
         return
     if IsFullscreen()
         return SetTimer(PreloadApp, -60000)
-    Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\dashboard.ps1" -Background', , "Hide"
+    if AppExe() != ""
+        Run '"' AppExe() '" --live --background'
+    else
+        Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\dashboard.ps1" -Background', , "Hide"
 }
 
 ; The icon lives in the hidden tray (the ^ area next to the clock), which is where Windows puts a new program's icon.
@@ -260,7 +266,7 @@ Alert(text) {
 
 ; --- "Claude finished": a chat in the app that was working is done while the owner isn't looking at the app (its window
 ; isn't the one in front) - a note about something the owner asked for, so it shows even with corner alerts off. It
-; waits while a game or video is fullscreen. Clicking it opens that chat (app-request.txt, read by dashboard.ps1).
+; waits while a game or video is fullscreen. Clicking it opens that chat (app-request.txt, read by the app).
 ChatDone() {
     static busy := Map(), pending := "", pendingTab := ""
     dirs := [CL "\chat"]
@@ -290,7 +296,7 @@ ChatDone() {
         return
     ShowNote("Claude finished" (txt = "-" ? "." : ": " txt), (*) => OpenChat(tab), 15)
 }
-; the window of the app (dashboard.ps1 keeps its handle in app-window.txt) is the one in front
+; the window of the app (it keeps its handle in app-window.txt) is the one in front
 AppInFront() {
     try {
         h := Trim(FileRead(CL "\app-window.txt"))

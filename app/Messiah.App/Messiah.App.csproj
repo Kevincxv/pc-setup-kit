@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Messiah app window, compiled (10/12: the PowerShell window took 2.3 s to open and 1.4 s to build Home).
+       .NET Framework 4.8 is part of every Windows 10/11, so nothing extra is installed on a PC. Built by
+       tools\app\build.ps1 (here and on GitHub for each release). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>MessiahApp</AssemblyName>
+    <RootNamespace>Messiah</RootNamespace>
+    <Product>Messiah</Product>
+    <Company>Messiah (PC Setup Kit)</Company>
+    <Description>Messiah - keeps this PC updated, tuned and checked by itself</Description>
+    <Version>0.0.0</Version>
+    <DebugType>embedded</DebugType>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Web" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Management" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+</Project>

@@ -10,6 +10,13 @@ $state = "$env:USERPROFILE\.claude\health-check.last"
 $ignore = @(Get-Content "$env:USERPROFILE\.claude\health-ignore.txt" | Where-Object { $_.Trim() })
 $since = (Get-Date).AddDays(-7)   # first run, or an unreadable file: look back a week
 if (Test-Path $state) { $prev = [datetime]::MinValue; if ([datetime]::TryParse("$(Get-Content $state -Raw)".Trim(), [ref]$prev)) { $since = $prev } }
+# The last check never reached a report (the PC crashed or was turned off before the maintenance wrote it - 10/20: a
+# blue screen 2 min into the run lost the 10/16 one): look back from where that check started, so nothing goes unsaid
+$from = "$state.from"; $rep = "$env:USERPROFILE\.claude\maint-report.txt"
+if ((Test-Path $state) -and (Test-Path $from) -and (Test-Path $rep) -and (Get-Item $rep).LastWriteTime -lt (Get-Item $state).LastWriteTime) {
+    $prev = [datetime]::MinValue; if ([datetime]::TryParse("$(Get-Content $from -Raw)".Trim(), [ref]$prev) -and $prev -lt $since) { $since = $prev }
+}
+$since.ToString('o') | Set-Content $from
 (Get-Date).ToString('o') | Set-Content $state
 
 # --- Crashes ---
@@ -51,6 +58,15 @@ if ($ramTest -and $ramTest -gt (Get-Date).AddDays(-60)) {
     $new = @(@($bsods) + @($hard) | Where-Object { $_ } | ForEach-Object { "$($_.TimeCreated.ToString('yyyy-MM-dd HH:mm')) | crash | $setup" })
     $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('yyyy-MM-dd HH:mm')
     if (-not ($entries -like "$boot | start | *")) { $new += "$boot | start | $setup" }
+    # a start that crashed before any check ran in it (10/21: started 8:15, blue screen 8:18, before the login check) is
+    # taken from Windows' boot events (Kernel-General 12): the one before the restart that logged each crash
+    $starts = @(@($entries) + @($new) -like '* | start | *' | ForEach-Object { try { [datetime]($_ -split ' \| ')[0] } catch { } })
+    $boots = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 12; ProviderName = 'Microsoft-Windows-Kernel-General'; StartTime = $since.AddDays(-1) } -ErrorAction SilentlyContinue | ForEach-Object { $_.TimeCreated } | Sort-Object)
+    foreach ($cr in @(@($bsods) + @($hard) | Where-Object { $_ })) {
+        $sb = @($boots | Where-Object { $_ -le $cr.TimeCreated }) | Select-Object -Last 2
+        if ($sb.Count -eq 2 -and -not ($starts | Where-Object { [Math]::Abs(($_ - $sb[0]).TotalMinutes) -lt 2 })) { $new += "$($sb[0].ToString('yyyy-MM-dd HH:mm')) | start | $setup"; $starts += $sb[0] }
+    }
+    $new = @($new | Where-Object { $_ -notin $entries } | Sort-Object -Unique)   # (a crash looked at again after a check that never reached a report)
     if ($new) { Add-Content $rlog $new }
     $all = @($entries) + $new
     $cur = @(for ($i = $all.Count - 1; $i -ge 0 -and $all[$i] -like "* | $setup"; $i--) { $all[$i] })
@@ -81,6 +97,15 @@ elseif ($fixed) { "Tweaks: Windows had reverted $($fixed.Count) - re-applied: $(
 $mp = Get-MpComputerStatus
 if (Test-Path "$PSScriptRoot\defender-check.ps1") { & "$PSScriptRoot\defender-check.ps1" }   # (switched back on when nothing else protects the PC)
 elseif ($mp -and -not $mp.RealTimeProtectionEnabled) { 'WARNING: Defender real-time protection is OFF' }
+# Windows Firewall and UAC: only said, never switched by this check (a tweak tool or a person turned them off; another
+# firewall registered with Windows Security turns Windows' own off, as it should)
+$fwOff = @(Get-NetFirewallProfile -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Where-Object { "$($_.Enabled)" -eq 'False' } | ForEach-Object Name)
+if ($fwOff -and -not @(Get-CimInstance -Namespace root\SecurityCenter2 -ClassName FirewallProduct -ErrorAction SilentlyContinue | Where-Object { (([int]$_.productState -shr 12) -band 0xF) -eq 1 })) {
+    "WARNING: Windows Firewall is OFF for the $($fwOff -join ' + ') network(s) (Windows Security > Firewall & network protection)"
+}
+if ((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -ErrorAction SilentlyContinue).EnableLUA -eq 0) {
+    'WARNING: UAC (User Account Control) is switched off - every app runs with full admin rights (Control Panel > User Accounts > Change User Account Control settings, then restart)'
+}
 if ($mp -and $mp.QuickScanAge -gt 7 -and -not (& "$PSScriptRoot\game-check.ps1")) {   # never scan under a running game
     Start-Process "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -ArgumentList '-Scan', '-ScanType', '1' -WindowStyle Hidden
     "Security: started a quick virus scan (last one $(if ($mp.QuickScanAge -ge 10000) { 'never' } else { "$($mp.QuickScanAge) days ago" }))"

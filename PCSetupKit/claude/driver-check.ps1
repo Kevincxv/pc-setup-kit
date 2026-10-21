@@ -141,8 +141,12 @@ try {
     # A driver version driver-guard.ps1 rolled back after a blue screen ("provider|yyyy-MM-dd|version|inf" lines) is
     # hidden too, instead of coming back (Windows Update shows a driver's provider and date, not its version)
     $blocked = @(Get-Content "$PSScriptRoot\driver-blocklist.txt" -ErrorAction SilentlyContinue | Where-Object { $_ -match '\|' } | ForEach-Object { $p = $_ -split '\|'; "$($p[0])|$($p[1])" })
+    # A driver for a device switched off in Device Manager (e.g. an unused iGPU) is hidden too: installing it brings the
+    # vendor's services back and makes a restore point for nothing (10/13: AMD display driver for the disabled iGPU)
+    $offIds = @(Get-CimInstance Win32_PnPEntity -Filter 'ConfigManagerErrorCode=22' -ErrorAction SilentlyContinue | ForEach-Object { $_.HardwareID; $_.CompatibleID } | Where-Object { $_ })
     foreach ($u in @($result.Updates)) {
         if ($failed -contains $u.Title) { $u.IsHidden = $true; "Driver: '$($u.Title)' failed before - hidden so it stops retrying" }
+        elseif ($u.DriverHardwareID -and $offIds -contains $u.DriverHardwareID) { $u.IsHidden = $true; "Driver: '$($u.Title)' is for a device that is switched off - hidden, not installed" }
         elseif ($blocked -contains "$($u.DriverProvider)|$(try { ([datetime]$u.DriverVerDate).ToString('yyyy-MM-dd') } catch {})") {
             $u.IsHidden = $true; "Driver: '$($u.Title)' was rolled back after a blue screen - hidden so it isn't installed again"
         }

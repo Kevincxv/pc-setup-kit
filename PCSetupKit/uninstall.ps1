@@ -50,7 +50,7 @@ if (-not $RevertOnly) {
     Write-Host "`n=== Stopping Messiah" -ForegroundColor Cyan
     # ourselves and our parents stay alive (the uninstaller may be run from inside a Messiah session)
     $keep = @(); $p = $PID; while ($p) { $keep += $p; $p = (Get-CimInstance Win32_Process -Filter "ProcessId=$p").ParentProcessId; if ($p -in $keep) { break } }
-    foreach ($pr in Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -notin $keep -and ($_.CommandLine -match 'Messiah Tray\.ahk|Claude Admin Tray\.ahk|claude-admin-launch\.ps1|claude-bg-maint\.ps1|claude-unattended\.ps1') }) {
+    foreach ($pr in Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -notin $keep -and ($_.CommandLine -match 'Messiah Tray\.ahk|Claude Admin Tray\.ahk|claude-admin-launch\.ps1|claude-bg-maint\.ps1|claude-unattended\.ps1|dashboard\.ps1|chat-host\.ps1|MessiahApp\.exe') }) {
         Do-It "stop $($pr.Name) $($pr.ProcessId)" { Stop-Process -Id $pr.ProcessId -Force }
     }
     Write-Host "`n=== Scheduled tasks" -ForegroundColor Cyan
@@ -88,8 +88,8 @@ if (-not $RevertOnly) {
         'settings-restored.txt', 'display-state.json', 'notifications.log', 'gaming-check.ps1', 'gaming-state.json', 'make-usb.ps1', 'after-update.ps1', 'update-check.ps1', 'kit-repair.ps1', 'update-state.json', 'paused.ps1', 'weekly-summary.ps1', 'diag-modes.ps1', 'diag-state.json', 'update-cause.ps1', 'game-saves.ps1', 'game-saves.json', 'live-test.ps1', 'live-test.json', 'live-test.log', 'power-log.ps1', 'power-log.json', 'tweak-status.json', 'whats-new.json', 'app-last.txt', 'bios-info.ps1', 'activation-check.ps1', 'activation-state.txt', 'ai-toggle.ps1', 'ai-toggle.log', 'gpu-rollback.ps1', 'gpu-hold.txt', 'vendor-updates.ps1', 'vendor-state.json', 'restart-night.ps1', 'restart-night.log', 'junk-apps.ps1', 'junk-state.json', 'files-backup.ps1', 'files-backup-state.json', 'defender-check.ps1', 'release-issues.ps1', 'release-issues.txt', 'weekly-summary.last', 'tray-news.txt', 'self-test-retry.log', 'nvidia-settings.ps1', 'nvidia-settings.txt', 'apps-before-update.json', 'autoruns-check.ps1', 'chat-host.ps1', 'autoruns-state.json', 'autoruns-baseline.json',
         'maint-report.txt', 'maint-state.json', 'maint-todo.txt', 'maint-todo.shown', 'maint-requests.txt', 'maint-claude-running', 'maint-claude-session',
         'maint-history', 'maint-claude-log', 'restart-ledger.json', 'restart-canary.txt', 'admin-sessions.txt', 'resume-after-login.txt', 'rehearsal.txt',
-        'games.txt', 'tray-notified.ini', 'tray-errors.log', 'selfimprove-last', 'selfimprove-journal.md', 'selfimprove-backup', 'chat', 'chats', 'chat-attachments', 'app-request.txt', 'ludusavi', 'session-refresh.log', 'benchmarks.json',
-        'health-check.last', 'health-ignore.txt', 'startup-baseline.txt', 'kit-version.txt', 'hooks\no-power-off.ps1', 'skills\maintain', 'skills\pc-optimize', 'skills\self-improve'
+        'games.txt', 'tray-notified.ini', 'tray-errors.log', 'selfimprove-last', 'selfimprove-journal.md', 'selfimprove-backup', 'chat', 'chats', 'chat-attachments', 'app-request.txt', 'ludusavi', 'app', 'app-last-next.txt', 'app-request-next.txt', 'app-window-next.txt', 'app-window-place.txt', 'app-errors.log', 'session-refresh.log', 'benchmarks.json',
+        'health-check.last', 'health-check.last.from', 'health-ignore.txt', 'startup-baseline.txt', 'kit-version.txt', 'hooks\no-power-off.ps1', 'skills\maintain', 'skills\pc-optimize', 'skills\self-improve'
     foreach ($f in $files) { Stash "$cl\$f" }
     Stash "$env:USERPROFILE\Documents\PC Setup Kit report.txt"
 }

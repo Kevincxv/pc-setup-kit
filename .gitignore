@@ -6,3 +6,7 @@ PCSetupKit/tests/last-run.txt
 
 tools/installer/out/
 PCSetupKit/Microsoft/
+
+# the compiled app's build output (built here and on GitHub)
+app/**/bin/
+app/**/obj/

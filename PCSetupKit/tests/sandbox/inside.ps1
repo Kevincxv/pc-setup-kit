@@ -60,8 +60,10 @@ try {
     }
     Save-Screen '1-desktop'
     $n = 2
-    foreach ($pg in 'Welcome', 'Home', 'Maintenance', 'Settings', 'History') {
-        $p = Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "$env:USERPROFILE\.claude\dashboard.ps1", '-Page', $pg -PassThru
+    $appExe = "$env:USERPROFILE\.claude\app\MessiahApp.exe"   # (the compiled app; before it dashboard.ps1)
+    foreach ($pg in 'Welcome', 'Home', 'Status', 'Activity', 'Settings') {
+        $p = if (Test-Path $appExe) { Start-Process $appExe -ArgumentList '--live', '--page', $pg -PassThru }
+             else { Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "$env:USERPROFILE\.claude\dashboard.ps1", '-Page', $pg -PassThru }
         Start-Sleep 15; Save-Screen "$n-app-$($pg.ToLower())"; $n++
         Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; Start-Sleep 2
     }
