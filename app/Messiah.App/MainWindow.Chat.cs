@@ -25,7 +25,7 @@ namespace Messiah
         DockPanel lastUser; bool editing, sendBusy, renaming; string tabsKey, nowChat; int nowTick, fastN;
         readonly List<string> attach = new List<string>(); readonly Dictionary<string, string> lastSent = new Dictionary<string, string>();
         double chatW = 440, chatZoom = 1.0;
-        readonly DispatcherTimer fast = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        readonly DispatcherTimer fast = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };   // (the NowBar's dot; answers arrive through the file watch)
         const string AttachRx = "^Attached: (.+)$";
         string AttDir => Kit.P("chat-attachments");
 
@@ -78,7 +78,7 @@ namespace Messiah
             AiPill.Click += (s, e) => ShowChat(ChatPanel.Visibility != Visibility.Visible);
             NowBar.MouseLeftButtonUp += (s, e) => { if ((NowBar.Tag as string) == "chat" && snap != null && snap.Ai) { if (nowChat != null && nowChat != chatDir) chatDir = nowChat; ShowChat(true); } else ShowPage("Activity", "Checks"); };
             PreviewKeyDown += WindowKeys;
-            fast.Tick += (s, e) => { try { if (ChatPanel.Visibility == Visibility.Visible) UpdateChat(); if (fastN++ % 5 == 0) UpdateNow(); } catch (Exception ex) { App.Log("chat tick: " + ex.Message); } };
+            fast.Tick += (s, e) => { try { if (ChatPanel.Visibility == Visibility.Visible && fastN % 3 == 0) UpdateChat(); fastN++; UpdateNow(); } catch (Exception ex) { App.Log("chat tick: " + ex.Message); } };
         }
         void IconBtn(Button b, string glyph, bool accent = false)
         {

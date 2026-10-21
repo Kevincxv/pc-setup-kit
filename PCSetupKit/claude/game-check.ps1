@@ -58,7 +58,7 @@ namespace GameCheck { public static class Cover {
 # Never learned as games: shells, browsers, video players, office/presentation apps
 $notGames = 'explorer', 'ApplicationFrameHost', 'ShellExperienceHost', 'StartMenuExperienceHost', 'SearchHost', 'LockApp', 'chrome', 'msedge', 'firefox',
     'opera', 'brave', 'vivaldi', 'vlc', 'mpc-hc64', 'mpc-be64', 'PotPlayerMini64', 'mpv', 'Video.UI', 'Microsoft.Media.Player', 'POWERPNT', 'Teams',
-    'Discord', 'steamwebhelper', 'powershell', 'WindowsTerminal', 'conhost', 'AutoHotkey64', 'Messiah', 'PC Setup Kit', 'obs64',
+    'Discord', 'steamwebhelper', 'powershell', 'WindowsTerminal', 'conhost', 'AutoHotkey64', 'Messiah', 'MessiahApp', 'PC Setup Kit', 'obs64',
     # game launchers: open next to their game, or hidden in the tray all day - never the game itself
     'steam', 'EpicGamesLauncher', 'Battle.net', 'EADesktop', 'GalaxyClient', 'upc', 'RiotClientServices', 'Better2k', 'SaveTheGame', 'revival-client', 'Slums 2K Launcher'
 

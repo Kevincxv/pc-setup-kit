@@ -48,7 +48,6 @@ Check 'Google Chrome' ((Test-Path "$env:ProgramFiles\Google\Chrome\Application\c
 Check 'Steam' ((Test-Path "${env:ProgramFiles(x86)}\Steam\steam.exe") -or (Test-Path "$env:ProgramFiles\Steam\steam.exe")) ''
 Check 'Discord' (Test-Path "$env:LOCALAPPDATA\Discord\Update.exe") ''
 Check 'WinDbg (crash-dump diagnosis)' ([bool](Get-AppxPackage Microsoft.WinDbg -ErrorAction SilentlyContinue) -or [bool](Get-Command windbgx -ErrorAction SilentlyContinue)) ''
-Check 'AutoHotkey v2 (the tray icon)' (Test-Path "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe") ''
 
 Section 'maintenance (no AI needed)'
 $missing = @(Get-ChildItem "$src\claude\*.ps1" | Where-Object { -not (Test-Path "$cl\$($_.Name)") } | ForEach-Object Name)
@@ -86,10 +85,9 @@ Section 'scheduled tasks'
 $bm = Get-ScheduledTask 'Claude Background Maintenance' -ErrorAction SilentlyContinue
 Check 'background maintenance at every login and once a day: 2 min delay, windowless, elevated, below-normal priority, 4 h limit' ($bm -and $bm.Triggers.Count -eq 2 -and $bm.Settings.StartWhenAvailable -and $bm.Triggers[0].Delay -eq 'PT2M' -and $bm.Actions[0].Execute -match 'conhost\.exe' -and $bm.Actions[0].Arguments -match '--headless .*claude-bg-maint\.ps1.* -Unattended' -and $bm.Principal.RunLevel -eq 'Highest' -and $bm.Settings.Priority -eq 7 -and $bm.Settings.ExecutionTimeLimit -eq 'PT4H') ''
 $tt = Get-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue
-Check 'tray at every login: elevated, no time limit, restarts on failure' ($tt -and $tt.Actions[0].Arguments -match 'Messiah Tray\\Messiah Tray\.ahk' -and $tt.Principal.RunLevel -eq 'Highest' -and $tt.Settings.ExecutionTimeLimit -eq 'PT0S' -and $tt.Settings.RestartCount -eq 3) ''
-Check 'tray script in Documents\Messiah Tray' (Test-Path "$env:USERPROFILE\Documents\Messiah Tray\Messiah Tray.ahk") ''
+Check 'tray at every login (the app, --tray): elevated, no time limit, restarts on failure' ($tt -and $tt.Actions[0].Arguments -eq '--live --tray' -and $tt.Principal.RunLevel -eq 'Highest' -and $tt.Settings.ExecutionTimeLimit -eq 'PT0S' -and $tt.Settings.RestartCount -eq 3) ''
 $app = 'Messiah'   # one app, with or without the AI assistant
-Check "the tray runs as its own program ($app.exe: its own tray entry next to the clock)" ($tt -and $tt.Actions[0].Execute -eq "$env:USERPROFILE\Documents\Messiah Tray\$app.exe" -and (Test-Path $tt.Actions[0].Execute)) "$($tt.Actions[0].Execute)"
+Check "the tray is the app itself (MessiahApp.exe: its own tray entry next to the clock)" ($tt -and $tt.Actions[0].Execute -like '*\.claude\app\MessiahApp.exe' -and (Test-Path $tt.Actions[0].Execute)) "$($tt.Actions[0].Execute)"
 $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$app.lnk"
 $sc = if (Test-Path $lnk) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk) }
 Check "Start menu and desktop '$app' open the app window (MessiahApp.exe), with the app's icon" ($sc -and $sc.TargetPath -like "*\.claude\app\MessiahApp.exe" -and $sc.Arguments -eq '--live' -and $sc.IconLocation -match 'app\.ico,0$' -and (Test-Path "$env:USERPROFILE\Documents\Messiah Tray\app.ico") -and (Test-Path "$env:USERPROFILE\Desktop\$app.lnk")) "$($sc.TargetPath) $($sc.Arguments) | $($sc.IconLocation)"

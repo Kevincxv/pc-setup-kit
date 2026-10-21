@@ -81,7 +81,7 @@ namespace Messiah
                 else if (e.Key == Key.Escape && tourOver.Visibility == Visibility.Visible) { ShowTour(-1); e.Handled = true; }
             };
             // the tour, once: after setup's Welcome is done (not over it), not while a game runs
-            ContentRendered += (s, e) => { if (Kit.Opt("tour", "") != "done" && Kit.Opt("welcome", "") != "pending" && onPage != "Welcome" && Data.Playing() == "") ShowTour(0); };
+            ContentRendered += (s, e) => { if (Kit.Opt("tour", "") != "done" && Kit.Opt("welcome", "") != "pending" && onPage != "Welcome" && !pageAsked && Data.Playing() == "") ShowTour(0); };   // (not over a page the window was opened for - a notification's, the tray's)
         }
         void UpdateSearch()
         {

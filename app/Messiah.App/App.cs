@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -20,15 +21,15 @@ namespace Messiah
         // --live: the names of the app (the switch-over).
         public static class Names
         {
-            public static string Mutex = @"Local\MessiahApp.Next", ShowEvent = @"Local\MessiahAppShow.Next", HwndFile = "app-window-next.txt", RequestFile = "app-request-next.txt", PlaceFile = "app-window-place.txt", LastFile = "app-last-next.txt";
-            public static void Live() { Mutex = @"Local\PCSetupKitStatusWindow"; ShowEvent = @"Local\MessiahAppShow"; HwndFile = "app-window.txt"; RequestFile = "app-request.txt"; LastFile = "app-last.txt"; }
+            public static string Mutex = @"Local\MessiahApp.Next", ShowEvent = @"Local\MessiahAppShow.Next", QuitEvent = @"Local\MessiahAppQuit.Next", HwndFile = "app-window-next.txt", RequestFile = "app-request-next.txt", PlaceFile = "app-window-place.txt", LastFile = "app-last-next.txt";
+            public static void Live() { Mutex = @"Local\PCSetupKitStatusWindow"; ShowEvent = @"Local\MessiahAppShow"; QuitEvent = @"Local\MessiahAppQuit"; HwndFile = "app-window.txt"; RequestFile = "app-request.txt"; LastFile = "app-last.txt"; }
         }
 
         [STAThread]
         public static int Main(string[] args)
         {
             var sw = Stopwatch.StartNew();
-            string page = null; bool background = false, test = false, timing = false;
+            string page = null, uri = null, trayTest = null; bool background = false, test = false, timing = false, tray = false, fs = false;
             for (int i = 0; i < args.Length; i++)
             {
                 var a = args[i].TrimStart('-', '/').ToLowerInvariant();
@@ -37,7 +38,12 @@ namespace Messiah
                 else if (a == "test") test = true;
                 else if (a == "timing") timing = true;
                 else if (a == "live") Names.Live();
+                else if (a == "tray") tray = true;   // (the "Messiah Tray" task at login: the app with its tray icon - TrayHost)
+                else if (a == "uri" && i + 1 < args.Length) uri = Regex.Replace(args[++i], "^messiah:/*", "", RegexOptions.IgnoreCase).TrimEnd('/');   // (a notification clicked)
+                else if (a == "tray-test" && i + 1 < args.Length) trayTest = args[++i];
+                else if (a == "fs") fs = true;
             }
+            if (trayTest != null) return Tray.TrayLogic.Test(trayTest, fs);
             AppDomain.CurrentDomain.UnhandledException += (s, e) => Log("crash: " + e.ExceptionObject);
             if (test) return RunTest(page);
 
@@ -49,16 +55,31 @@ namespace Messiah
             ms.AddAccessRule(new System.Security.AccessControl.MutexAccessRule(me, System.Security.AccessControl.MutexRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
             Mutex mutex; try { mutex = new Mutex(false, Names.Mutex, out _, ms); } catch (UnauthorizedAccessException) { mutex = null; }
             bool first; try { first = mutex != null && mutex.WaitOne(0); } catch (AbandonedMutexException) { first = true; }
+            // the tray (at login, or after an update): it is the app - a copy already running (opened from the Start menu, or the
+            // version before an update) is asked to make way; one that can't yet (open on screen, from before 10/21) ends once
+            // it is closed and hidden: waited for as long as that takes
+            if (!first && tray && mutex != null)
+            {
+                bool logged = false;
+                while (!first)
+                {
+                    if (EventWaitHandle.TryOpenExisting(Names.QuitEvent, out var q)) q.Set();
+                    try { first = mutex.WaitOne(TimeSpan.FromSeconds(30)); } catch (AbandonedMutexException) { first = true; }
+                    if (!first && !logged) { Log("tray: waiting for the open app window to close (an older copy)"); logged = true; }
+                }
+            }
             if (!first)
             {
                 if (background) return 0;
-                if (page != null) try { File.WriteAllText(Kit.P(Names.RequestFile), "page=" + page); } catch { }
+                var req = uri != null && Regex.IsMatch(uri, @"^(page|chat)=[\w/-]*$") ? uri : page != null ? "page=" + page : null;
+                if (req != null) try { File.WriteAllText(Kit.P(Names.RequestFile), req); } catch { }
                 if (EventWaitHandle.TryOpenExisting(Names.ShowEvent, out var sig)) { Native.AllowSetForegroundWindow(-1); sig.Set(); }
                 return 0;
             }
             var es = new System.Security.AccessControl.EventWaitHandleSecurity();
             es.AddAccessRule(new System.Security.AccessControl.EventWaitHandleAccessRule(me, System.Security.AccessControl.EventWaitHandleRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
             var showEvt = new EventWaitHandle(false, EventResetMode.AutoReset, Names.ShowEvent, out _, es);
+            var quitEvt = new EventWaitHandle(false, EventResetMode.AutoReset, Names.QuitEvent, out _, es);
 
             Theme.Load();
             var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -74,12 +95,27 @@ namespace Messiah
             w.Refresh(true);
             // another start (the tray, Ctrl+Alt+M, the Start menu) asks it to show itself: waited for on a thread of its own
             var t = new Thread(() => { while (true) { showEvt.WaitOne(); w.Dispatcher.BeginInvoke(new Action(w.ShowApp)); } }) { IsBackground = true }; t.Start();
+            // the tray starting asks this copy to make way: an open window comes back on the same page in the new copy
+            var tq = new Thread(() => { quitEvt.WaitOne(); w.Dispatcher.BeginInvoke(new Action(() => { if (w.IsVisible) try { File.WriteAllText(Kit.P(Names.RequestFile), "page=" + AppLast.Page); } catch { } w.Quit = true; w.Close(); })); }) { IsBackground = true }; tq.Start();
+            Tray.TrayHost host = null;
+            if (tray) { host = new Tray.TrayHost(w); host.Start(); w.Closed += (s, e) => host.Stop(); }
             // an update to this program: the hidden copy ends, so the next open runs the new one
             var self = Process.GetCurrentProcess().MainModule.FileName; var selfAt = File.GetLastWriteTime(self);
             var upd = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
-            upd.Tick += (s, e) => { try { if (w.Visibility != Visibility.Visible && File.GetLastWriteTime(self) != selfAt) { w.Quit = true; w.Close(); } } catch { } };
+            upd.Tick += (s, e) =>
+            {
+                try
+                {
+                    if (w.Visibility == Visibility.Visible || File.GetLastWriteTime(self) == selfAt) return;
+                    // (the tray: the new version starts right away and takes over - it waits for this one to end)
+                    if (tray && File.Exists(self)) Process.Start(new ProcessStartInfo(self, string.Join(" ", args.Select(x => x.Contains(" ") ? "\"" + x + "\"" : x))) { UseShellExecute = false });
+                    w.Quit = true; w.Close();
+                }
+                catch (Exception ex) { Log("update: " + ex.Message); }
+            };
             upd.Start();
-            if (background) new WindowInteropHelper(w).EnsureHandle();
+            if (uri != null) w.ContentRendered += (s, e) => Tray.Notes.Open(uri);
+            if (background || (tray && uri == null)) { new WindowInteropHelper(w).EnsureHandle(); if (tray && File.Exists(Kit.P(Names.RequestFile))) w.ShowApp(); }   // (the tray: hidden - unless the copy it replaced was open)
             else
             {
                 if (timing) w.ContentRendered += (s, e) => { try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "messiah-app-timing.txt"), $"{DateTime.Now:s} on screen after {sw.ElapsedMilliseconds} ms\r\n"); } catch { } };

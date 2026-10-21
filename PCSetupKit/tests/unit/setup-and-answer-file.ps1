@@ -118,9 +118,9 @@ Check '... login maintenance task: hidden (conhost --headless), unattended, elev
 Check '... and once a day at 12:00, catching up after a missed start (PCs that stay on for days)' ($bg.Trigger.Count -eq 2 -and ($bg.Trigger | Where-Object { $_.DaysInterval -eq 1 -and $_.StartBoundary -match 'T12:00:00$' }) -and $bg.Settings.StartWhenAvailable) ''
 if (Test-Path "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe") {
     $tr = $global:tasks['Messiah Tray']
-    Check '... tray task: runs the tray script at login, elevated, no time limit' ($tr -and $tr.Action.Arguments -match [regex]::Escape("$H\Documents\Messiah Tray\Messiah Tray.ahk") -and $tr.Settings.ExecutionTimeLimit -eq 'PT0S') ''
-    Check '... tray script copied to Documents' (Test-Path "$H\Documents\Messiah Tray\Messiah Tray.ahk") ''
-    Check '... the tray runs as its own program "Messiah.exe" (own tray entry next to the clock)' ($tr.Action.Execute -eq "$H\Documents\Messiah Tray\Messiah.exe" -and (Test-Path $tr.Action.Execute)) "$($tr.Action.Execute)"
+    Check '... tray task: the app with its tray icon at login (--tray), elevated, no time limit' ($tr -and $tr.Action.Arguments -eq '--live --tray' -and $tr.Settings.ExecutionTimeLimit -eq 'PT0S') "$($tr.Action.Arguments)"
+    Check '... no AutoHotkey tray script any more (the tray is the app''s own since 10/21)' (-not (Test-Path "$H\Documents\Messiah Tray\Messiah Tray.ahk")) ''
+    Check '... the tray is the app itself (MessiahApp.exe: its own tray entry next to the clock)' ($tr.Action.Execute -eq "$H\.claude\app\MessiahApp.exe" -and (Test-Path $tr.Action.Execute)) "$($tr.Action.Execute)"
     Check '... no separate "Status" entry (one app)' (-not (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\PC Setup Kit Status.lnk")) ''
 } else { Skip 'tray task' 'AutoHotkey not installed here (setup installs it first)' }
 
@@ -139,7 +139,7 @@ $app = "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk"
 $sc = if (Test-Path $app) { (New-Object -ComObject WScript.Shell).CreateShortcut($app) }
 Check '... Start menu and desktop "Messiah" open the app window (not elevated: no UAC prompt)' ($sc -and (& $opensApp $sc) -and (Test-Path "$H\Desktop\Messiah.lnk") -and (([IO.File]::ReadAllBytes($app)[0x15] -band 0x20) -eq 0)) "$($sc.Arguments)"
 Check '... the same login maintenance task' ([bool]$global:tasks['Claude Background Maintenance']) ''
-if ($global:tasks['Messiah Tray']) { Check '... the tray runs as "Messiah.exe", no separate "Messiah Status" entry' ($global:tasks['Messiah Tray'].Action.Execute -eq "$H\Documents\Messiah Tray\Messiah.exe" -and -not (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah Status.lnk")) "$($global:tasks['Messiah Tray'].Action.Execute)" }
+if ($global:tasks['Messiah Tray']) { Check '... the tray is the app (MessiahApp.exe), no separate "Messiah Status" entry' ($global:tasks['Messiah Tray'].Action.Execute -eq "$H\.claude\app\MessiahApp.exe" -and -not (Test-Path "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah Status.lnk")) "$($global:tasks['Messiah Tray'].Action.Execute)" }
 
 Section 'setup.ps1: things on the internet it depends on'
 if (-not (Test-Online)) { Skip 'online checks' $OfflineWhy; Finish }

@@ -107,7 +107,6 @@ namespace Messiah
         // the chat isn't in this window yet: the current app opens on it
         public static void OpenChat() => Shell.W.ShowChat(true);
         public static void AskClaude(string text) { Shell.W.ShowChat(true); Shell.W.SendChat(text); }
-        public static void OpenOld(string page) => Open("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{Kit.P("dashboard.ps1")}\" -Page {page}");
 
         // the preview of tweaks.ps1 (-Audit): what Messiah would change right now, in a window of its own - nothing is changed
         public static void PreviewTweaks()

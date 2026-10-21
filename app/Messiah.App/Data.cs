@@ -104,7 +104,7 @@ namespace Messiah
         // --- a game running right now (game-check.ps1 -NoLearn: read-only; this window in front never counts as one)
         static readonly string[] NotGames = { "explorer", "ApplicationFrameHost", "ShellExperienceHost", "StartMenuExperienceHost", "SearchHost", "LockApp", "chrome", "msedge", "firefox",
             "opera", "brave", "vivaldi", "vlc", "mpc-hc64", "mpc-be64", "PotPlayerMini64", "mpv", "Video.UI", "Microsoft.Media.Player", "POWERPNT", "Teams",
-            "Discord", "steamwebhelper", "powershell", "WindowsTerminal", "conhost", "AutoHotkey64", "Messiah", "MessiahApp", "PC Setup Kit", "obs64",
+            "Discord", "steamwebhelper", "powershell", "WindowsTerminal", "conhost", "AutoHotkey64", "Messiah", "MessiahApp", "MessiahApp", "PC Setup Kit", "obs64",
             "steam", "EpicGamesLauncher", "Battle.net", "EADesktop", "GalaxyClient", "upc", "RiotClientServices", "Better2k", "SaveTheGame", "revival-client", "Slums 2K Launcher" };
         static readonly Regex Libs = new Regex(@"\\steamapps\\common\\|\\Epic Games\\(?!Launcher\\)|\\XboxGames\\(?!GameSave\\)|\\EA Games\\|\\GOG Galaxy\\Games\\|\\GOG Games\\|\\Ubisoft Game Launcher\\games\\", RegexOptions.IgnoreCase);
         static readonly string[] Overlays = { "TextInputHost", "ShellExperienceHost", "StartMenuExperienceHost", "SearchHost", "LockApp", "NVIDIA Overlay", "GameBar", "XboxGameBar", "codex-computer-use" };
@@ -133,21 +133,29 @@ namespace Messiah
                 if (!covers && state != 3 && behind != "") fgName = behind;
                 if (why && own && fgName != null && !NotGames.Contains(fgName, StringComparer.OrdinalIgnoreCase)) return fgName;
                 if (why) return fgName ?? "";
-                var known = Kit.Lines(Kit.P("games.txt")).Select(x => x.Split('#')[0].Trim()).Where(x => x != "" && !NotGames.Contains(x, StringComparer.OrdinalIgnoreCase)).ToList();
-                foreach (var k in known) { var ps = Process.GetProcessesByName(k); if (ps.Length > 0) { foreach (var p in ps) p.Dispose(); return k; } }
-                foreach (var p in Process.GetProcesses())
+                // (the process list once - not a full scan per known game - and each program's path the quick way, not
+                // through its loaded modules: 820 ms -> a few ms; the answer kept 30 s, as game-check.ps1's callers do)
+                if (DateTime.Now < bgUntil) return bgGame;
+                var procs = Process.GetProcesses(); bgUntil = DateTime.Now.AddSeconds(30); bgGame = "";
+                try
                 {
-                    using (p)
+                    var running = new HashSet<string>(procs.Select(p => p.ProcessName), StringComparer.OrdinalIgnoreCase);
+                    var known = Kit.Lines(Kit.P("games.txt")).Select(x => x.Split('#')[0].Trim()).Where(x => x != "" && !NotGames.Contains(x, StringComparer.OrdinalIgnoreCase));
+                    bgGame = known.FirstOrDefault(running.Contains) ?? "";
+                    if (bgGame != "") return bgGame;
+                    foreach (var p in procs)
                     {
                         if (Tools.Contains(p.ProcessName, StringComparer.OrdinalIgnoreCase) || NotGames.Contains(p.ProcessName, StringComparer.OrdinalIgnoreCase)) continue;
-                        string path = null; try { path = p.MainModule?.FileName; } catch { }
-                        if (path != null && Libs.IsMatch(path)) return p.ProcessName;
+                        var path = Native.ImagePath(p.Id);
+                        if (path != null && Libs.IsMatch(path)) return bgGame = p.ProcessName;
                     }
                 }
+                finally { foreach (var p in procs) p.Dispose(); }
             }
             catch { }
             return "";
         }
+        static DateTime bgUntil = DateTime.MinValue; static string bgGame = "";
 
         // --- paused (paused.ps1): kit-options "pause-until=<local time>", while it's still ahead
         public static DateTime? PausedUntil() { var d = Kit.Date(Kit.Opt("pause-until", "")); return d != null && d > DateTime.Now ? d : null; }
@@ -223,10 +231,10 @@ namespace Messiah
         // driver and the board don't change while the app runs: read once (Win32_PnPSignedDriver takes about a second).
         public class Gpu { public string Name, Version; public DateTime? Date; }
         public class Bios { public string Maker, Model, Version, Date, Url, Steps; }
-        static Gpu gpu; static bool gpuRead; static Bios bios; static bool biosRead;
+        static Gpu gpu; static bool gpuRead; static DateTime gpuUntil; static Bios bios; static bool biosRead;
         public static Gpu GraphicsDriver()
         {
-            if (gpuRead || Kit.InTests) return gpu; gpuRead = true;
+            if ((gpuRead && DateTime.Now < gpuUntil) || Kit.InTests) return gpu; gpuRead = true; gpuUntil = DateTime.Now.AddMinutes(10);   // (a driver update or rollback shows within 10 min)
             try
             {
                 using (var s = new ManagementObjectSearcher("SELECT DeviceName, DriverVersion, DriverDate, InfName FROM Win32_PnPSignedDriver WHERE DeviceClass='DISPLAY'"))
@@ -325,13 +333,18 @@ namespace Messiah
             else L.Add(new Line($"Both sticks are back in, but the test isn't finished: {shut} put only the stick you haven't tested yet in slot {(one.ContainsKey("A") ? "B" : "A")}.", "warn"));
             return L;
         }
+        static string sticks;
         public static List<Line> RamTestNow()
         {
             var st = Kit.ReadJson(Kit.P("maint-state.json"));
             var since = Kit.Date(Json.Get(st, "ram-stick-test")); if (since == null || since < DateTime.Now.AddDays(-60)) return null;
-            var labels = new List<string>(); long total = 0;
-            try { using (var s = new ManagementObjectSearcher("SELECT BankLabel, Capacity FROM Win32_PhysicalMemory")) foreach (ManagementObject o in s.Get()) { labels.Add((o["BankLabel"] ?? "").ToString().Trim()); total += Convert.ToInt64(o["Capacity"] ?? 0); } } catch { }
-            var now = $"{labels.Count} stick(s), {Math.Round(total / 1073741824.0)} GB in {string.Join(" + ", labels)}";   // (health-check.ps1's words)
+            if (sticks == null)   // (read once: sticks only change with the PC off)
+            {
+                var labels = new List<string>(); long total = 0;
+                try { using (var s = new ManagementObjectSearcher("SELECT BankLabel, Capacity FROM Win32_PhysicalMemory")) foreach (ManagementObject o in s.Get()) { labels.Add((o["BankLabel"] ?? "").ToString().Trim()); total += Convert.ToInt64(o["Capacity"] ?? 0); } } catch { }
+                sticks = $"{labels.Count} stick(s), {Math.Round(total / 1073741824.0)} GB in {string.Join(" + ", labels)}";   // (health-check.ps1's words)
+            }
+            var now = sticks;
             var mine = new HashSet<string>(PowerEvents().Where(e => e.Answer == "me").Select(e => e.Key.ToString("yyyy-MM-dd HH:mm")));
             return RamTest(Kit.Lines(Kit.P("ram-test.log")), now, mine);
         }

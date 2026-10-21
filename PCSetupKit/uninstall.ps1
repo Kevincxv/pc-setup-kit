@@ -65,6 +65,10 @@ if (-not $RevertOnly) {
         # from before the rename to Messiah
         "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk", "$env:USERPROFILE\Desktop\Claude (Admin).lnk",
         "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Claude (Admin).lnk", "$env:USERPROFILE\Documents\Claude Admin Tray") { Stash $l }
+    # the app as a sender of notifications, and the "messiah:" links its notifications open (Tray\Notes.cs)
+    foreach ($k in 'HKCU:\Software\Classes\messiah', 'HKCU:\Software\Classes\AppUserModelId\Messiah.PCSetupKit') {
+        if (Test-Path $k) { Do-It "remove $k" { Remove-Item $k -Recurse -Force } }
+    }
 
     Write-Host "`n=== No-shutdown block (Claude settings)" -ForegroundColor Cyan
     $sf = "$cl\settings.json"

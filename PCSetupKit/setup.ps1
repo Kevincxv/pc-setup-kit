@@ -104,8 +104,8 @@ function Install-App([string]$Id) {
     }
     "  $Id`: winget couldn't find it (its package list didn't load) - run setup.ps1 again later"
 }
-# WinDbg: automatic crash-dump diagnosis; AutoHotkey (v2): the tray icon
-foreach ($id in 'Git.Git', 'Valve.Steam', 'Discord.Discord', 'Google.Chrome', 'Microsoft.WinDbg', 'AutoHotkey.AutoHotkey') {
+# WinDbg: automatic crash-dump diagnosis (the tray icon is the app's own since 10/21: no AutoHotkey any more)
+foreach ($id in 'Git.Git', 'Valve.Steam', 'Discord.Discord', 'Google.Chrome', 'Microsoft.WinDbg') {
     if (-not $hasWinget) { break }
     Write-Host "  $id"
     Install-App $id
@@ -178,12 +178,10 @@ Register-ScheduledTask -TaskName 'Claude Background Maintenance' -Action $act -T
 # Tray icon (hidden tray, the ^ next to the clock): status, the to-do list and small alerts when something needs the owner; with Claude
 # it also keeps a Messiah session open hidden from every login and continues work a shutdown cut off
 $trayDir = "$env:USERPROFILE\Documents\Messiah Tray"
-New-Item $trayDir -ItemType Directory -Force | Out-Null
-Copy-Item "$kit\claude\tray\Messiah Tray.ahk" $trayDir -Force
+New-Item $trayDir -ItemType Directory -Force | Out-Null   # (the app's icon lives here)
 # the app: its icon, Start menu and desktop entries (the app window; with Claude also the session shortcut), and the
-# tray under its own program name (its own entry in the hidden tray) with its login task
+# login task that starts it with its tray icon
 & "$cl\tray-app.ps1" -TrayDir $trayDir -NoRestart -Desktop | Out-Null
-if (-not (Test-Path "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe")) { '  AutoHotkey is missing - no tray icon (run setup.ps1 again once winget works)' }
 
 if (-not $WithClaude) {
     # Without Claude the optimization is a script too: monitors, benchmark baseline, drivers, app updates, checks,

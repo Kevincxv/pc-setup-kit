@@ -30,7 +30,7 @@ function Stop-Tree([int]$ProcId) {
     Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcId" | ForEach-Object { Stop-Tree $_.ProcessId }
     Stop-Process -Id $ProcId -Force -ErrorAction SilentlyContinue
 }
-function Get-Tray { @(Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe' OR Name='Messiah.exe' OR Name='PC Setup Kit.exe'" | Where-Object CommandLine -match 'Messiah Tray\.ahk') }
+function Get-Tray { @(Get-CimInstance Win32_Process -Filter "Name='MessiahApp.exe' OR Name='AutoHotkey64.exe' OR Name='Messiah.exe'" | Where-Object CommandLine -match '--tray|Messiah Tray\.ahk') }   # (the app's tray; before 10/21 AutoHotkey's)
 # The tray task ignores a start while Task Scheduler still counts the killed run as running (IgnoreNew): 10/10 the second
 # scenario's start was dropped that way and its session came up at the third. So: wait for the task to stop, start it,
 # and make sure the tray is really back (once more if not).

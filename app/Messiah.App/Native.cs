@@ -33,8 +33,32 @@ namespace Messiah
         [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
         [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
         [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i);
+        [DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr h, int i, int v);
         [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h, int a, out int v, int s);
 
+        // a program's path without opening its modules (Process.MainModule reads every loaded DLL - slow, and refused for
+        // protected processes); null when it can't be read
+        [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool QueryFullProcessImageName(IntPtr h, int flags, StringBuilder s, ref int size);
+        [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+        public static string ImagePath(int pid)
+        {
+            var h = OpenProcess(0x1000, false, pid); if (h == IntPtr.Zero) return null;   // PROCESS_QUERY_LIMITED_INFORMATION
+            try { var sb = new StringBuilder(1024); int n = sb.Capacity; return QueryFullProcessImageName(h, 0, sb, ref n) ? sb.ToString() : null; }
+            finally { CloseHandle(h); }
+        }
+        // the tray's: admin commands from a window without admin rights, Ctrl+Alt+M, time since the last keyboard or mouse input
+        [DllImport("user32.dll")] public static extern bool ChangeWindowMessageFilterEx(IntPtr h, uint msg, uint action, IntPtr info);
+        [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr h, int id, uint mods, uint vk);
+        [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr h, int id);
+        [StructLayout(LayoutKind.Sequential)] struct LASTINPUTINFO { public uint cbSize, dwTime; }
+        [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO i);
+        public static long IdleMs() { var i = new LASTINPUTINFO { cbSize = 8 }; return GetLastInputInfo(ref i) ? (uint)Environment.TickCount - i.dwTime : 0; }
+        // a shortcut's arguments (Windows Script Host - part of Windows); "" when it can't be read
+        public static string ShortcutArgs(string lnk)
+        {
+            try { dynamic sh = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")); return (string)sh.CreateShortcut(lnk).Arguments ?? ""; } catch { return ""; }
+        }
         // a window covering its whole monitor
         public static bool Covers(IntPtr h)
         {

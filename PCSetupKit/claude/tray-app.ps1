@@ -1,15 +1,11 @@
-# The tray as its own app: AutoHotkey runs the tray script under the app's name (Messiah.exe; PC Setup Kit.exe on
-# older installs without the AI assistant - replaced). Windows keeps one tray entry per program, and every AutoHotkey script otherwise shares AutoHotkey's
-# (in the hidden ^ area) - with its own name the app has its own entry there, with its own icon. Also: the login task that starts it, the app's icon, and its Start menu entry (the app window).
+# The app's place in Windows: the login task that starts it with its tray icon (MessiahApp.exe --tray, in the hidden ^
+# area next to the clock), the app's icon, and its Start menu entry (the app window).
 # Safe to run again (setup, background maintenance): changes only what's missing or outdated, one line per change.
 param([string]$TrayDir = "$env:USERPROFILE\Documents\Messiah Tray", [string]$ClaudeDir = $PSScriptRoot,
-    [string]$Ahk = "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe", [switch]$NoRestart, [switch]$Desktop)   # -NoRestart: setup starts the tray itself; -Desktop: also a desktop entry (setup)
-$script = "$TrayDir\Messiah Tray.ahk"
+    [string]$Ahk, [switch]$NoRestart, [switch]$Desktop)   # (-Ahk: no longer used - the tray was an AutoHotkey script before 10/21)   # -NoRestart: setup starts the tray itself; -Desktop: also a desktop entry (setup)
 if (-not (Test-Path "$ClaudeDir\app\MessiahApp.exe")) { return }   # (the app window; not installed: nothing to make entries for)
-$hasAhk = (Test-Path $Ahk) -and (Test-Path $script)   # without AutoHotkey: the app (window, icon, Start menu) but no tray icon
 $ai = if (Test-Path "$ClaudeDir\ai-enabled.ps1") { & "$ClaudeDir\ai-enabled.ps1" } else { $true }
 $name = 'Messiah'   # one app, with or without the AI assistant (before: "PC Setup Kit" without it - moved over below)
-$exe = "$TrayDir\$name.exe"
 $changed = $false
 
 # the app's icon (drawn by app-icon.ps1; drawn again when its drawing changes)
@@ -64,47 +60,28 @@ foreach ($old in "$sm\Messiah Status.lnk", "$sm\PC Setup Kit Status.lnk") {
     if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Force; "App: removed the old Start menu entry '$([IO.Path]::GetFileNameWithoutExtension($old))'" }
 }
 
-if ($hasAhk) {
-    # AutoHotkey under the app's name (a plain copy, signature intact); refreshed after AutoHotkey updates
-    $from = Get-Item $Ahk
-    $have = Get-Item $exe -ErrorAction SilentlyContinue
-    if (-not $have -or $have.Length -ne $from.Length -or $have.VersionInfo.FileVersion -ne $from.VersionInfo.FileVersion) {
-        # the running tray holds the old copy: stop it first (the task starts it again below)
-        Get-CimInstance Win32_Process -Filter "Name='$name.exe'" -ErrorAction SilentlyContinue | Where-Object ExecutablePath -eq $exe | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $changed = $true }
-        # a killed process lets go of its file a moment later: try for up to 10 s
-        $err = $null
-        for ($i = 0; $i -lt 20; $i++) { try { Copy-Item $Ahk $exe -Force -ErrorAction Stop; $err = $null; break } catch { $err = $_; Start-Sleep -Milliseconds 500 } }
-        if (-not $err) { "Tray: runs as $name.exe$(if ($have) { " (AutoHotkey $($from.VersionInfo.FileVersion))" } else { ' - its own icon in the tray' })"; $changed = $true }
-        else {
-            "Tray: couldn't copy AutoHotkey to $name.exe ($($err.Exception.Message)) - will retry"
-            if ($have -and -not $NoRestart) { Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue }   # the old copy still works: never leave the tray off
-            return
-        }
-    }
-
-    # the login task: elevated (it hides admin windows), no time limit, restarts if it ever stops
-    $arg = "`"$script`""
-    $t = Get-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue
-    if (-not $t -or $t.Actions[0].Execute -ne $exe -or $t.Actions[0].Arguments -ne $arg) {
-        $act = New-ScheduledTaskAction -Execute $exe -Argument $arg
-        $trg = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
-        $prn = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
-        $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable
-        Register-ScheduledTask -TaskName 'Messiah Tray' -Action $act -Trigger $trg -Principal $prn -Settings $set -Force | Out-Null
-        if ($t) { "Tray: login task now starts $name.exe" }
-        $changed = $true
-    }
+# the login task: the app with its tray icon (MessiahApp.exe --tray - before 10/21 an AutoHotkey script under the name
+# Messiah.exe); elevated (it hides admin windows and starts what needs admin rights), no time limit, restarts if it stops
+$t = Get-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue
+if (-not $t -or $t.Actions[0].Execute -ne $appTarget -or $t.Actions[0].Arguments -ne '--live --tray') {
+    $act = New-ScheduledTaskAction -Execute $appTarget -Argument '--live --tray' -WorkingDirectory $ClaudeDir
+    $trg = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+    $prn = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
+    $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable
+    Register-ScheduledTask -TaskName 'Messiah Tray' -Action $act -Trigger $trg -Principal $prn -Settings $set -Force | Out-Null
+    "Tray: $(if ($t) { 'now part of the app (MessiahApp.exe) - AutoHotkey no longer runs it' } else { 'starts with Windows' })"
+    $changed = $true
 }
-
-# restart the tray on the new program (it sees an open Messiah session and won't open a second one)
-if ($hasAhk -and $changed -and -not $NoRestart) {
+# the tray restarted on the app (the AutoHotkey tray before it stopped: one icon, one keeper of the sessions)
+if ($changed -and -not $NoRestart) {
     Stop-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue
     Get-CimInstance Win32_Process -Filter "Name='AutoHotkey64.exe' OR Name='Messiah.exe' OR Name='PC Setup Kit.exe'" -ErrorAction SilentlyContinue |
         Where-Object CommandLine -match 'Messiah Tray\.ahk' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     Start-ScheduledTask 'Messiah Tray' -ErrorAction SilentlyContinue
 }
-# the old "PC Setup Kit.exe" copy, once nothing runs it any more
-$oldExe = "$TrayDir\PC Setup Kit.exe"
-if ($hasAhk -and (Test-Path -LiteralPath $oldExe) -and -not (Get-CimInstance Win32_Process -Filter "Name='PC Setup Kit.exe'" -ErrorAction SilentlyContinue)) {
-    try { [IO.File]::Delete($oldExe); "Tray: removed the old PC Setup Kit.exe" } catch {}
+# AutoHotkey's copies under the app's old names, once nothing runs them
+foreach ($old in "$TrayDir\$name.exe", "$TrayDir\PC Setup Kit.exe") {
+    if ((Test-Path -LiteralPath $old) -and -not (Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object ExecutablePath -eq $old)) {
+        try { [IO.File]::Delete($old); "Tray: removed $(Split-Path $old -Leaf) (AutoHotkey's copy)" } catch {}
+    }
 }

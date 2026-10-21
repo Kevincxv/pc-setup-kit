@@ -1,64 +1,16 @@
-# The tray script's own logic (alerts, tooltip, "maintenance running", rehearsal ignore list), run in an AutoHotkey
-# harness: the real functions are copied out of the tray script; the on-screen parts (fullscreen check, the alert
-# window) are replaced by stand-ins that record what would be shown.
+# The tray's own logic (alerts, tooltip, "maintenance running", the rehearsal ignore list, pausing, the welcome page and
+# "Open at login", the menu and the app's admin commands) - in the app since 10/21 (MessiahApp.exe --tray-test <what>
+# prints what the tray would do; before: an AutoHotkey script). On-screen parts are left out: nothing pops up here.
 . "$PSScriptRoot\..\lib.ps1"
-$ahk = "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe"
-if (-not (Test-Path $ahk)) { Skip 'tray logic' 'AutoHotkey not installed'; Finish }
+if (-not $AppExe) { Skip 'tray logic' 'the app is not built here (tools\app\build.ps1)'; Finish }
 $C = "$Work\cl"; New-Item $C -ItemType Directory -Force | Out-Null
-$traySrc = Get-Content $Tray -Raw -Encoding UTF8
-function Get-AhkFunction([string]$Name) {
-    $m = [regex]::Match($traySrc, "(?ms)^$Name\([^)\r\n]*\)\s*\{.*?^\}")
-    if (-not $m.Success) { $m = [regex]::Match($traySrc, "(?m)^$Name\([^)\r\n]*\)\s*=>.*$") }
-    $m.Value
+function T([string]$What, [switch]$Fs, [hashtable]$Env = @{}) {
+    $psi = New-Object Diagnostics.ProcessStartInfo $AppExe, ("--tray-test $What" + $(if ($Fs) { ' --fs' }))
+    $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.RedirectStandardOutput = $true; $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
+    $psi.EnvironmentVariables['PCKIT_CLAUDE_DIR'] = $C; $psi.EnvironmentVariables['PCKIT_IN_TESTS'] = '1'
+    foreach ($k in $Env.Keys) { $psi.EnvironmentVariables[$k] = $Env[$k] }
+    $p = [Diagnostics.Process]::Start($psi); $o = $p.StandardOutput.ReadToEnd(); [void]$p.WaitForExit(30000); $o.Trim()
 }
-$funcs = foreach ($n in 'MaintRunning', 'TodoTip', 'Notify', 'RehearsalPids', 'TrayError', 'AiEnabled', 'StatusAtLogin', 'LogNote', 'SetPause', 'Alert') { $f = Get-AhkFunction $n; Check "tray function $n found" ([bool]$f) ''; $f }
-@"
-#Requires AutoHotkey v2.0
-#NoTrayIcon
-CL := "$C"
-NAME := "Messiah"
-LNK := "$Work\no-shortcut.lnk"
-AI := EnvGet("TEST_AI") != "0"
-FS := A_Args.Length > 1 && A_Args[2] = "fs"
-Shown := []
-IsFullscreen() => FS
-ShowApp(page := "") => FileAppend("OPENED" (page != "" ? " " page : ""), "*")
-ShowNote(text, *) {
-    global Shown
-    Shown.Push(StrReplace(text, "``n", " \n "))
-}
-$($funcs -join "`n")
-switch A_Args[1] {
-    case "tip": TodoTip(), FileAppend(A_IconTip, "*", "UTF-8")
-    case "running": FileAppend(MaintRunning() ? "yes" : "no", "*")
-    case "notify":
-        Notify()
-        for s in Shown
-            FileAppend(s "``n", "*", "UTF-8")
-    case "error":   ; a window that vanished mid-look: logged, no error box, the tray keeps running
-        OnError TrayError
-        SetTimer () => FileAppend("still running", "*"), -300
-        SetTimer () => ExitApp(), -600
-        SetTimer () => WinGetPID(0x7FFFFFF0), -50
-        Persistent
-    case "ai": FileAppend(AiEnabled() ? "on" : "off", "*")
-    case "login": StatusAtLogin()
-    case "log": LogNote("First line``nsecond line")
-    case "log250":
-        Loop 250
-            LogNote("note " A_Index " " StrReplace(Format("{:300}", ""), " ", "x"))
-    case "pause":
-        SetPause(Integer(A_Args[2]))
-        for s in Shown
-            FileAppend(s "``n", "*", "UTF-8")
-    case "pids":
-        for k in RehearsalPids()
-            FileAppend(k ",", "*")
-}
-"@ | Set-Content "$Work\harness.ahk" -Encoding UTF8
-function T([string]$What, [string]$Extra) { $o = & $ahk /ErrorStdOut "$Work\harness.ahk" $What $Extra 2>&1 | Out-String; $o.Trim() }
-$v = Start-Process $ahk -ArgumentList '/ErrorStdOut', '/Validate', "`"$Work\harness.ahk`"" -Wait -PassThru -WindowStyle Hidden
-Check 'harness with the real tray functions validates' ($v.ExitCode -eq 0) "exit $($v.ExitCode)"
 $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
 function Todo([string[]]$lines) { [IO.File]::WriteAllLines("$C\maint-todo.txt", $lines, (New-Object Text.UTF8Encoding $false)) }
 
@@ -76,9 +28,9 @@ Check 'nothing recorded, no Messiah: off (a plain PC Setup Kit tray)' ((T ai) -e
 'claude=off' | Set-Content "$C\kit-options.txt"; Check 'claude=off: off' ((T ai) -eq 'off') (T ai)
 Clear-Path "$C\kit-options.txt"; 'id' | Set-Content "$C\admin-sessions.txt"; Check 'installed before the option (Messiah was used): on' ((T ai) -eq 'on') (T ai)
 Clear-Path "$C\admin-sessions.txt"
-'x' | Set-Content "$C\maint-claude-running"; $env:TEST_AI = '0'
-Check 'without Claude the tooltip never mentions hidden Claude runs' ((T tip) -notmatch 'Hidden maintenance') (T tip)
-$env:TEST_AI = $null; 'x' | Set-Content "$C\maint-claude-running"   # the next section starts from a fresh marker
+'x' | Set-Content "$C\maint-claude-running"
+Check 'without Claude the tooltip never mentions hidden Claude runs' ((T tip -Env @{ TEST_AI = '0' }) -notmatch 'Hidden maintenance') ''
+'x' | Set-Content "$C\maint-claude-running"   # the next section starts from a fresh marker
 
 Section '"maintenance running" check'
 Check 'fresh marker: running' ((T running) -eq 'yes') ''
@@ -89,7 +41,7 @@ Clear-Path "$C\maint-claude-running"; Check 'no marker: not running' ((T running
 Section 'alerts: quiet by default (the owner''s rule 10/10 - Messiah never pops up by itself)'
 Clear-Path "$C\tray-notified.ini"; Clear-Path "$C\kit-options.txt"; [IO.File]::Delete("$C\notifications.log"); Todo 'Turn EXPO back on in the BIOS'
 $o = T notify; Check 'a new to-do item: nothing pops up' ($o -eq '') $o
-Check '... it is kept for the app (Notifications) all the same' ((Get-Content "$C\notifications.log" -Raw -ErrorAction SilentlyContinue) -match '\|Needs you \(1\): Turn EXPO back on') ''
+Check '... it is kept for the app (Alerts) all the same' ((Get-Content "$C\notifications.log" -Raw -ErrorAction SilentlyContinue) -match '\|Needs you \(1\): Turn EXPO back on') ''
 Check '... and not again (recorded as told)' ((T notify) -eq '' -and @(Get-Content "$C\notifications.log").Count -eq 1) ''
 [IO.File]::Delete("$C\notifications.log")
 Section 'alerts in the corner (Settings: "Show alerts in the corner" on)'
@@ -97,7 +49,7 @@ Clear-Path "$C\tray-notified.ini"; 'cornernotes=on' | Set-Content "$C\kit-option
 $o = T notify; Check 'a new to-do item: alert shown' ($o -eq 'Needs you (1): Turn EXPO back on in the BIOS') $o
 Check '... and recorded, so it is shown once' ((T notify) -eq '') (T notify)
 Todo 'A second thing', 'Turn EXPO back on in the BIOS'; (Get-Item "$C\maint-todo.txt").LastWriteTime = (Get-Date).AddSeconds(5)
-$o = T notify fs; Check 'a game is fullscreen: nothing shown...' ($o -eq '') $o
+$o = T notify -Fs; Check 'a game is fullscreen: nothing shown...' ($o -eq '') $o
 $o = T notify; Check '... and it is shown once the game is closed' ($o -match '^Needs you \(2\): A second thing \\n \+ 1 more$') $o
 Todo ('x' * 150); (Get-Item "$C\maint-todo.txt").LastWriteTime = (Get-Date).AddSeconds(10)
 $o = T notify; Check 'a very long item is shortened to fit the alert' ($o -match '^Needs you \(1\): x{107}\.\.\.$') $o
@@ -108,6 +60,11 @@ $o = T notify; Check 'work waiting for the next shutdown: one alert with the cou
 Check '... shown once' ((T notify) -eq '') ''
 @{ boot = '2026-09-28T08:00:00'; items = @(@{ Kind = 'update'; Id = 'c'; Name = 'C' }) } | ConvertTo-Json -Depth 4 | Set-Content "$C\restart-ledger.json"
 $o = T notify; Check 'a new batch after a restart: alerted again' ($o -match '^1 update\(s\)') $o
+# what an older tray recorded (AutoHotkey's tray-notified.ini, UTF-16) still counts: nothing is told twice after the switch
+Clear-Path "$C\restart-ledger.json"; $st = (Get-Item "$C\maint-todo.txt").LastWriteTime.ToString('yyyyMMddHHmmss')
+Todo 'Already told'; $st = (Get-Item "$C\maint-todo.txt").LastWriteTime.ToString('yyyyMMddHHmmss')
+"[shown]`r`ntodo=$st`r`n" | Set-Content "$C\tray-notified.ini" -Encoding Unicode
+Check 'what the AutoHotkey tray already told is not told again' ((T notify) -eq '') (T notify)
 
 Section 'rehearsal ignore list'
 "boot=x`nignorepids=1234, 5678,abc" | Set-Content "$C\rehearsal.txt"
@@ -115,46 +72,44 @@ Check 'fresh rehearsal file: its pids are ignored (junk skipped)' ((T pids) -eq 
 (Get-Item "$C\rehearsal.txt").LastWriteTime = (Get-Date).AddMinutes(-11)
 Check 'rehearsal file older than 10 min: ignored completely' ((T pids) -eq '') (T pids)
 
-Section 'errors never pop up (a session window closing while the tray looks at it)'
+Section 'errors never pop up'
 Clear-Path "$C\tray-errors.log"; $o = T error
 Check 'no error message, the tray keeps running' ($o -eq 'still running') $o
-$log = Get-Content "$C\tray-errors.log" -Raw -ErrorAction SilentlyContinue
-Check '... and the error is logged for /self-improve' ($log -match 'WinGetPID') "$log"
-Check 'the real tray turns the error handler on at start' ((Get-Content $Tray -Raw) -match '(?m)^OnError TrayError\s*$') ''
+Check '... and the error is logged for /self-improve' ((Get-Content "$C\tray-errors.log" -Raw -ErrorAction SilentlyContinue) -match 'vanished') ''
 Section 'alerts are kept for the app (notifications.log)'
 [IO.File]::Delete("$C\notifications.log"); [void](T log)
 $l = @(Get-Content "$C\notifications.log" -Encoding UTF8)
 Check 'one line per alert: "yyyy-MM-dd HH:mm|text", line breaks shown as " / "' ($l.Count -eq 1 -and $l[0] -match '^\d{4}-\d\d-\d\d \d\d:\d\d\|First line / second line$') ($l -join ' // ')
 [void](T log250); $l = @(Get-Content "$C\notifications.log" -Encoding UTF8)
-Check '... kept short: only the newest alerts once the file grows' ($l.Count -le 200 -and $l[-1] -match '\|note 250 ') "$($l.Count) lines, last: $($l[-1].Substring(0, 30))"
+Check '... kept short: only the newest alerts once the file grows' ($l.Count -le 200 -and $l[-1] -match '\|note 250 ') "$($l.Count) lines"
 [IO.File]::Delete("$C\notifications.log")
 Section 'login: the app starts in the hidden tray (no window) unless the owner turned "Open at login" on'
-$saved = $env:PCKIT_IN_TESTS; $env:PCKIT_IN_TESTS = $null
-try {
-    [IO.File]::Delete("$C\tray-notified.ini"); 'claude=on' | Set-Content "$C\kit-options.txt"
-    Check 'default: no window at login' ((T login) -eq '') (T login)
-    "claude=on`nopenatlogin=off" | Set-Content "$C\kit-options.txt"
-    Check 'turned off: no window' ((T login) -eq '') ''
-    "claude=on`nopenatlogin=on" | Set-Content "$C\kit-options.txt"
-    Check 'turned on: the window opens' ((T login) -eq 'OPENED') ''
-    Check '... once per start-up (a tray restart doesn''t reopen it)' ((T login) -eq '') ''
-} finally { $env:PCKIT_IN_TESTS = $saved; [IO.File]::Delete("$C\tray-notified.ini"); [IO.File]::Delete("$C\kit-options.txt") }
+$lt = @{ PCKIT_LOGIN_TEST = '1' }
+[IO.File]::Delete("$C\tray-notified.ini"); 'claude=on' | Set-Content "$C\kit-options.txt"
+Check 'default: no window at login' ((T login -Env $lt) -eq '') ''
+"claude=on`nopenatlogin=off" | Set-Content "$C\kit-options.txt"; Check 'turned off: no window' ((T login -Env $lt) -eq '') ''
+"claude=on`nopenatlogin=on" | Set-Content "$C\kit-options.txt"; Check 'turned on: the window opens' ((T login -Env $lt) -eq 'OPENED') ''
+Check '... once per start-up (a tray restart doesn''t reopen it)' ((T login -Env $lt) -eq '') ''
+[IO.File]::Delete("$C\tray-notified.ini"); "claude=on`nwelcome=pending" | Set-Content "$C\kit-options.txt"
+Check 'right after a new install (welcome=pending): the welcome page' ((T login -Env $lt) -eq 'OPENED Welcome') ''
+Check '... once' ((T login -Env $lt) -eq '') ''
+[IO.File]::Delete("$C\tray-notified.ini"); [IO.File]::Delete("$C\kit-options.txt")
 
-Section "what's new / the weekly summary (tray-news.txt), pausing, the app's commands"
+Section "what's new / the weekly summary (tray-news.txt), pausing, the menu and the app's commands"
 'cornernotes=on' | Set-Content "$C\kit-options.txt"; Clear-Path "$C\maint-todo.txt"; Clear-Path "$C\restart-ledger.json"; [void](T notify)
 'Updated to v2026.10.01 - new: faster monitor fix. Details: the app > Maintenance.' | Set-Content "$C\tray-news.txt" -Encoding UTF8
 $o = T notify; Check 'a message from the maintenance (what''s new, the weekly summary): shown as a note' ($o -match '^Updated to v2026\.10\.01 - new: faster monitor fix') $o
 Check '... once' ((T notify) -eq '') ''
 'claude=on', 'cornernotes=on' | Set-Content "$C\kit-options.txt"
-$o = T pause 2
-$opts = @(Get-Content "$C\kit-options.txt")
+$o = T pause:2; $opts = @(Get-Content "$C\kit-options.txt")
 $pu = [datetime]::MinValue; $okDate = ($opts -match '^pause-until=') -and [datetime]::TryParse(((@($opts -match '^pause-until=')[0]) -split '=', 2)[1], [ref]$pu)
 Check 'Pause maintenance > For 2 hours: recorded (about 2 hours from now), other options kept, said' ($okDate -and [Math]::Abs(($pu - (Get-Date).AddHours(2)).TotalMinutes) -lt 3 -and ($opts -contains 'claude=on') -and $o -match '^Maintenance paused until') ($opts -join ' | ')
-$o = T pause 0
+$o = T pause:0
 Check '... Resume now: the pause is gone, said' (-not (@(Get-Content "$C\kit-options.txt") -match '^pause-until') -and (@(Get-Content "$C\kit-options.txt") -contains 'claude=on') -and $o -match 'runs again') ((Get-Content "$C\kit-options.txt") -join ' | ')
-Check "the menu has Pause maintenance (2 hours / until tomorrow / resume)" ($traySrc -match 'tray\.Add\("Pause maintenance", pauseMenu\)' -and $traySrc -match 'SetPause\(2\)' -and $traySrc -match 'SetPause\(24\)' -and $traySrc -match 'SetPause\(0\)') ''
-Check 'a hotkey opens the app (Ctrl+Alt+M), and the tray is Messiah with or without the AI assistant' ($traySrc -match 'Hotkey\("\^!m", \(\*\) => ShowApp\(\)\)' -and $traySrc -match '(?m)^NAME := "Messiah"') ''
-Check "the AI assistant switch (10 on, 11 off) and the graphics driver rollback (12) from the app" ($traySrc -match "10, \(\*\) => Run\(.+ai-toggle\.ps1`" -On" -and $traySrc -match "11, \(\*\) => Run\(.+ai-toggle\.ps1`" -Off" -and $traySrc -match "12, \(\*\) => Run\(.+gpu-rollback\.ps1") ''
-Check 'right after a new install (welcome=pending): the welcome page, once' ($traySrc -match 'welcome\\s\*=\\s\*pending' -and $traySrc -match 'ShowApp\("Welcome"\)' -and $traySrc -match 'IniWrite 1, CL "\\tray-notified\.ini", "shown", "welcome"') ''
-Check "the app's admin commands: apply the tweak choices now (7), repair (8), undo the last update (9)" ($traySrc -match "7, \(\*\) => Run\(.+after-update\.ps1`" -Now" -and $traySrc -match "8, \(\*\) => Run\(.+kit-update\.ps1`" -Reinstall" -and $traySrc -match "9, \(\*\) => Run\(.+kit-update\.ps1`" -Rollback") ''
+$m = T menu
+Check 'the menu: Open Messiah, the sessions, Run maintenance now, Pause (2 hours / until tomorrow / resume), Cancel restart' ($m -match '(?s)^Open Messiah\s+-\s+New session\s+Show sessions\s+Hide sessions\s+-\s+Run maintenance now\s+Pause maintenance\s+For 2 hours\s+Until tomorrow\s+Resume now\s+Cancel restart') $m
+Check '... without the AI assistant: no session entries' ((T menu -Env @{ TEST_AI = '0' }) -notmatch 'session') ''
+Check 'a hotkey opens the app (Ctrl+Alt+M)' ((T hotkey) -eq 'Ctrl+Alt+M') ''
+$cm = T commands
+Check "the app's admin commands: the AI assistant on (10) / off (11), the driver rollback (12), apply the tweak choices now (7), repair (8), undo the last update (9), the chat (13)" ($cm -match '10 AiOn: plain ai-toggle\.ps1 -On' -and $cm -match '11 AiOff: hidden ai-toggle\.ps1 -Off' -and $cm -match '12 GpuRollback: window gpu-rollback\.ps1' -and $cm -match '7 ApplyTweaks: hidden after-update\.ps1 -Now' -and $cm -match '8 Repair: window kit-update\.ps1 -Reinstall' -and $cm -match '9 Rollback: window kit-update\.ps1 -Rollback' -and $cm -match '13 ChatHost: hidden chat-host\.ps1') $cm
 Finish

@@ -41,7 +41,7 @@ namespace Messiah
         string onPage = "Home";
         Snapshot snap; string shownSig; int loading;
         readonly DispatcherTimer noteTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(12) };
-        readonly DispatcherTimer timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+        readonly DispatcherTimer timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };   // (the files are watched - MainWindow.Live.cs; this covers what changes with the clock)
         public bool Quit;
 
         public MainWindow()
@@ -55,7 +55,7 @@ namespace Messiah
             Scroll.SizeChanged += (s, e) => UpdateColumns();
             Closing += (s, e) => { SavePlace(); if (!Quit) { e.Cancel = true; HideApp(); } };
             Closed += (s, e) => Application.Current.Shutdown();
-            LoadIcon(); RestorePlace(); BuildNav(); InitChat(); InitExtras();
+            LoadIcon(); RestorePlace(); BuildNav(); InitChat(); InitExtras(); InitLive();
         }
 
         // --- the window: its icon (the tray's app.ico), Mica and a title bar in the theme (Windows 11), where it was
@@ -138,17 +138,21 @@ namespace Messiah
             bool wasHidden = Visibility != Visibility.Visible;
             if (wasHidden) Show();
             if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
-            timer.Start(); fast.Start(); ReadRequest();
+            timer.Start(); fast.Start(); StartWatching();
+            // (a window shown for the first time loads its tabs after this: a page asked for is chosen once they have - else
+            // the first load put it back to the one before; 10/21: the welcome page, a notification's page)
+            if (wasHidden) Dispatcher.BeginInvoke(new Action(ReadRequest), System.Windows.Threading.DispatcherPriority.Loaded); else ReadRequest();
             if (wasHidden) Refresh(false);
             Activate(); Native.SetForegroundWindow(new WindowInteropHelper(this).Handle);
         }
-        void HideApp() { Hide(); timer.Stop(); fast.Stop(); ShowChatMenu(false); }
+        void HideApp() { Hide(); timer.Stop(); fast.Stop(); StopWatching(); ShowChatMenu(false); }
 
         // another start asked for a page (app-request.txt "page=<Page>[/<Sub>]")
+        bool pageAsked;
         void ReadRequest()
         {
             var f = Kit.P(App.Names.RequestFile); if (!File.Exists(f)) return;
-            var r = Kit.FirstLine(f); try { File.Delete(f); } catch { }
+            var r = Kit.FirstLine(f); try { File.Delete(f); } catch { } pageAsked = r != "";
             var m = System.Text.RegularExpressions.Regex.Match(r, @"^page=(\w+)(?:/(\w+))?$");
             if (m.Success) { if (m.Groups[1].Value == "Chat") { if (snap == null || snap.Ai) ShowChat(true); } else ShowPage(m.Groups[1].Value, m.Groups[2].Success ? m.Groups[2].Value : null); }
             else ReadChatRequest(r);
@@ -247,9 +251,7 @@ namespace Messiah
                 case "Settings/General": return Pages.Settings.General(s);
                 case "Settings/Windows": return Pages.Settings.Windows(s);
                 case "Settings/Tools": return Pages.Settings.Tools(s);
-                default:   // (not in the compiled app yet: the current app shows it)
-                    var p = key.Split('/')[0];
-                    return new List<UIElement> { Ui.Card(key.Replace("/", " > "), "E946", new object[] { new Line("This page comes to the faster app soon - for now it opens in the current one.") }, new[] { Ui.Btn("E8A7", "Open it", () => Actions.OpenOld(p), accent: true) }) };
+                default: return Pages.Home.Build(s);   // (an unknown page - an old app-last.txt: Home)
             }
         }
 
