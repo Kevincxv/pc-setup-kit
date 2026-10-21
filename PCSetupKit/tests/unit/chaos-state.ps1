@@ -1,11 +1,11 @@
 ﻿# Break-it test: every state file the app and its read-only helpers read is filled with garbage (broken JSON, empty,
 # binary noise, a huge file, the wrong type), in a profile whose path has spaces and non-English letters - and nothing
-# may crash or throw: the app window builds every page, the text status, the to-do list, the schedule, the pause and
+# may crash or throw: the app window (MessiahApp.exe) builds every page, the text status, the to-do list, the schedule, the pause and
 # AI switches, the weekly summary. (Scripts that change the PC have their own tests with mocks.)
 . "$PSScriptRoot\..\lib.ps1"
 $H = "$Work\Jörg Müller ÄÖÜ ñ"; $C = "$H\.claude"
 New-Item $C, "$H\Documents", "$C\maint-history" -ItemType Directory -Force | Out-Null
-foreach ($f in 'dashboard.ps1', 'status.ps1', 'status-lib.ps1', 'session-lib.ps1', 'ai-enabled.ps1', 'todo.ps1', 'maint-due.ps1', 'paused.ps1', 'weekly-summary.ps1', 'bios-info.ps1') {
+foreach ($f in 'status.ps1', 'status-lib.ps1', 'session-lib.ps1', 'ai-enabled.ps1', 'todo.ps1', 'maint-due.ps1', 'paused.ps1', 'weekly-summary.ps1', 'bios-info.ps1') {
     if (Test-Path "$Src\$f") { Copy-Item "$Src\$f" $C }
 }
 $states = 'actions-state.json', 'guard-state.json', 'benchmarks.json', 'display-state.json', 'files-backup-state.json', 'gaming-state.json', 'gpu-state.json',
@@ -25,11 +25,11 @@ foreach ($k in $kinds.Keys) {
     Section "state files: $k"
     foreach ($f in $states) { [IO.File]::WriteAllText("$C\$f", $kinds[$k]) }
     [IO.File]::WriteAllText("$C\maint-history\report-20260101-000000.txt", $kinds[$k])
-    $r = Invoke-As $H "$C\dashboard.ps1" @('-Test')
+    $r = Invoke-App $H
     $pages = @([regex]::Matches("$($r.Out)", '(?m)^PAGE: ') ).Count
     $pe = @([regex]::Matches("$($r.Out)", '(?m)^PAGE ERROR: .*$') | ForEach-Object Value) -join ' / '
     Check "the app window builds every page, no error ($k)" (-not "$($r.Err)".Trim() -and $pages -ge 6 -and "$($r.Out)" -match 'NAV: ' -and -not $pe) ("$pe $($r.Err)".Substring(0, [Math]::Min(600, "$pe $($r.Err)".Length)))
-    $r = Invoke-As $H "$C\dashboard.ps1" @('-Test', '-Page', 'Welcome')   # (no setup report here: see below for one)
+    $r = Invoke-App $H @('--page', 'Welcome')   # (no setup report here: see below for one)
     Check "... the welcome page too ($k)" (-not "$($r.Err)".Trim() -and "$($r.Out)" -match 'PAGE: Welcome' -and "$($r.Out)" -notmatch 'PAGE ERROR') ("$($r.Err)".Substring(0, [Math]::Min(600, "$($r.Err)".Length)))
     # the history keeps working: after one check on the damaged file it is valid again, with today's entry
     if (Test-Path "$Src\trends.ps1") {
@@ -52,7 +52,7 @@ New-Item "$H\Documents" -ItemType Directory -Force | Out-Null
   '    Tweaks: Windows had reverted 2 - re-applied: task X off', '    Security: started a quick virus scan (last one never)', '    SSD TRIM run (Windows had not done it in 2+ weeks)',
   '    Restore point FAILED (is System Protection on for C:?)', '    Next: App updates Oct 7, cleanup Oct 30', '    [Actions]', '    Night restart: pending updates now finish with a restart at night', '',
   'WHAT NEEDS YOU', '  - Windows isn''t activated', '') | Set-Content "$H\Documents\PC Setup Kit report.txt" -Encoding UTF8
-$r = Invoke-As $H "$C\dashboard.ps1" @('-Test', '-Page', 'Welcome')
+$r = Invoke-App $H @('--page', 'Welcome')
 $pe = (@([regex]::Matches("$($r.Out)", '(?m)^PAGE ERROR: .*$') | ForEach-Object Value) -join ' / ') + " $($r.Err)"
 Check 'the Welcome page builds from a real setup report' (-not "$($r.Err)".Trim() -and "$($r.Out)" -match 'PAGE: Welcome' -and "$($r.Out)" -notmatch 'PAGE ERROR') $pe.Substring(0, [Math]::Min(600, $pe.Length))
 [IO.File]::Delete("$H\Documents\PC Setup Kit report.txt")

@@ -123,8 +123,8 @@ AppCommand(wParam, *) {
     return 1
 }
 
-; The app window (app\MessiahApp.exe, compiled - 10/20; installs from before it: dashboard.ps1; before that: the text
-; status.ps1). One window - starting it again brings it to the front.
+; The app window (app\MessiahApp.exe; without it - a broken install - the text status.ps1). One window - starting it
+; again brings it to the front.
 AppExe() => FileExist(CL "\app\MessiahApp.exe") ? CL "\app\MessiahApp.exe" : ""
 ShowApp(page := "") {
     ; already running (closing only hides it): told to show itself directly - instant, no new PowerShell
@@ -136,8 +136,6 @@ ShowApp(page := "") {
     }
     if AppExe() != ""
         Run '"' AppExe() '" --live' (page != "" ? " --page " page : "")
-    else if FileExist(CL "\dashboard.ps1")
-        Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\dashboard.ps1"' (page != "" ? " -Page " page : ""), , "Hide"
     else
         Run 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\status.ps1"'
 }
@@ -174,14 +172,11 @@ StatusAtLogin() {
 ; The app window, started hidden a minute after login (--background): opening it is instant from then on, the first
 ; time too - closing it only hides it. Not under a fullscreen game (tried again a minute later), not in tests.
 PreloadApp() {
-    if EnvGet("PCKIT_IN_TESTS") != "" || (AppExe() = "" && !FileExist(CL "\dashboard.ps1"))
+    if EnvGet("PCKIT_IN_TESTS") != "" || AppExe() = ""
         return
     if IsFullscreen()
         return SetTimer(PreloadApp, -60000)
-    if AppExe() != ""
-        Run '"' AppExe() '" --live --background'
-    else
-        Run 'conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' CL '\dashboard.ps1" -Background', , "Hide"
+    Run '"' AppExe() '" --live --background'
 }
 
 ; The icon lives in the hidden tray (the ^ area next to the clock), which is where Windows puts a new program's icon.

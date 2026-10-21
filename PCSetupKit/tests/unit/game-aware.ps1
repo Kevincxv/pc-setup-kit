@@ -38,8 +38,28 @@ Check '... and not once it has closed' ("$o" -notmatch 'FakeGame123') "$o"
 Section 'game-check.ps1: what is learned as a game (10/10: a launcher in front of a borderless game was learned)'
 function Learned { @(Get-Content "$gl\games.txt" -ErrorAction SilentlyContinue | ForEach-Object { ($_ -split '#')[0].Trim() } | Where-Object { $_ }) }
 '' | Set-Content "$gl\games.txt"
-$o = & "$gl\game-check.ps1" -T @{ Name = 'SomeLauncher123'; Covers = $false; State = 2 }
-Check 'a window in front of a fullscreen app (state 2, not covering its monitor): maintenance waits, the window is not learned' ($o -eq 'SomeLauncher123' -and 'SomeLauncher123' -notin (Learned)) "$o / $(Learned)"
+$o = & "$gl\game-check.ps1" -T @{ Name = 'SomeLauncher123'; Covers = $false; State = 2; Behind = 'BehindGame123' }
+Check 'a window in front of a fullscreen app (state 2, not covering its monitor): maintenance waits for the app behind it, learned - not the window in front' ($o -eq 'BehindGame123' -and 'BehindGame123' -in (Learned) -and 'SomeLauncher123' -notin (Learned)) "$o / $(Learned)"
+$o = & "$gl\game-check.ps1" -Explain -T @{ Name = 'steamwebhelper'; Covers = $false; State = 2; Behind = '' }
+Check 'state 2 with nothing really fullscreen (an always-on overlay - 10/21): no game, nothing learned' ("$o" -match '^no game' -and 'steamwebhelper' -notin (Learned)) "$o / $(Learned)"
+$o = & "$gl\game-check.ps1" -T @{ Name = 'POWERPNT'; Covers = $false; State = 4; Behind = '' }
+Check '... the same for presentation mode (state 4) with nothing fullscreen' (-not $o) "$o"
+# the real window search, with a real window covering the screen - invisible (opacity 0), for a moment: found as
+# itself; made click-through like an overlay: not found
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -Namespace GA -Name W -MemberDefinition '[DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i); [DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr h, int i, int v);'
+$me = (Get-Process -Id $PID).ProcessName
+$fm = New-Object Windows.Forms.Form -Property @{ FormBorderStyle = 'None'; ShowInTaskbar = $false; Opacity = 0; StartPosition = 'Manual'; Bounds = [Windows.Forms.Screen]::PrimaryScreen.Bounds; TopMost = $true }
+try {
+    $fm.Show(); [Windows.Forms.Application]::DoEvents()
+    $b1 = [GameCheck.Cover]::Behind([IntPtr]::Zero, [string[]]@())
+    $h = $fm.Handle; [void][GA.W]::SetWindowLong($h, -20, ([GA.W]::GetWindowLong($h, -20) -bor 0x20))
+    $b2 = [GameCheck.Cover]::Behind([IntPtr]::Zero, [string[]]@())
+    $b3 = [GameCheck.Cover]::Behind([IntPtr]::Zero, [string[]]@($me))
+} finally { $fm.Close(); $fm.Dispose() }
+Check 'the window search: a window covering the screen is found' ($b1 -eq $me) "found [$b1]"
+Check '... the same window click-through (an overlay): not found' ($b2 -ne $me) "found [$b2]"
+Check '... and a program on the skip list is passed over' ($b3 -ne $me) "found [$b3]"
 $o = & "$gl\game-check.ps1" -T @{ Name = 'BorderlessGame123'; Covers = $true; State = 2 }
 Check 'a window covering its whole monitor is learned' ($o -eq 'BorderlessGame123' -and 'BorderlessGame123' -in (Learned)) "$o / $(Learned)"
 $o = & "$gl\game-check.ps1" -T @{ Name = 'ExclusiveGame123'; Covers = $false; State = 3 }

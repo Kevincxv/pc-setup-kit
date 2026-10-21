@@ -32,9 +32,9 @@ if (Test-IsAdmin) {
 
 Section 'uninstall.ps1 end to end (sandbox profile, real processes and tasks untouched)'
 $H = "$Work\uhome"; $cl = "$H\.claude"; $A = "$H\AppData\Roaming"; $kf = "$Work\ukit"
-New-Item "$cl\hooks", "$cl\skills\maintain", "$cl\skills\my-own-skill", "$cl\projects\p", "$A\Microsoft\Windows\Start Menu\Programs", "$H\Desktop", "$H\Documents\Messiah Tray", $kf -ItemType Directory -Force | Out-Null
-foreach ($f in 'claude-admin-launch.ps1', 'health-check.ps1', 'dashboard.ps1', 'status-lib.ps1', 'tray-app.ps1', 'maint-state.json', 'games.txt', 'hooks\no-power-off.ps1', 'skills\maintain\SKILL.md', 'skills\my-own-skill\SKILL.md', 'projects\p\conv.jsonl', 'CLAUDE.md') { 'x' | Set-Content "$cl\$f" }
-$newParts = "$A\Microsoft\Windows\Start Menu\Programs\Messiah Status.lnk", "$A\Microsoft\Windows\Start Menu\Programs\PC Setup Kit Status.lnk", "$H\Documents\Messiah Tray\Messiah.exe", "$cl\dashboard.ps1", "$cl\status-lib.ps1", "$cl\tray-app.ps1"
+New-Item "$cl\hooks", "$cl\skills\maintain", "$cl\skills\my-own-skill", "$cl\projects\p", "$A\Microsoft\Windows\Start Menu\Programs", "$H\Desktop", "$H\Documents\Messiah Tray", "$cl\app", $kf -ItemType Directory -Force | Out-Null
+foreach ($f in 'claude-admin-launch.ps1', 'health-check.ps1', 'dashboard.ps1', 'status-lib.ps1', 'tray-app.ps1', 'maint-state.json', 'games.txt', 'hooks\no-power-off.ps1', 'skills\maintain\SKILL.md', 'skills\my-own-skill\SKILL.md', 'projects\p\conv.jsonl', 'CLAUDE.md', 'app\MessiahApp.exe') { 'x' | Set-Content "$cl\$f" }
+$newParts = "$A\Microsoft\Windows\Start Menu\Programs\Messiah Status.lnk", "$A\Microsoft\Windows\Start Menu\Programs\PC Setup Kit Status.lnk", "$H\Documents\Messiah Tray\Messiah.exe", "$cl\dashboard.ps1", "$cl\status-lib.ps1", "$cl\tray-app.ps1", "$cl\app\MessiahApp.exe"
 $appParts = "$A\Microsoft\Windows\Start Menu\Programs\PC Setup Kit.lnk", "$H\Desktop\PC Setup Kit.lnk", "$cl\Messiah Session.lnk", "$cl\app-icon.ps1", "$cl\tray-hwnd.txt", "$cl\app-window.txt", "$H\Documents\Messiah Tray\app.ico"
 $newParts += $appParts
 foreach ($f in @("$A\Microsoft\Windows\Start Menu\Programs\Messiah.lnk", "$H\Desktop\Messiah.lnk", "$H\Documents\Messiah Tray\Messiah Tray.ahk", "$kf\setup.log") + $newParts[0..2] + $appParts) { 'x'| Set-Content $f }

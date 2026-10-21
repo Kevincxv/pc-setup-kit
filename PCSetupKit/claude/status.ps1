@@ -1,4 +1,4 @@
-# One-page status of the zero-maintenance system as text (the tray's Status opens dashboard.ps1, which falls back to this).
+# One-page status of the zero-maintenance system as text (the tray opens it when the app, MessiahApp.exe, is missing).
 param([switch]$NoWait)
 $cl = "$env:USERPROFILE\.claude"
 $ai = if (Test-Path "$cl\ai-enabled.ps1") { & "$cl\ai-enabled.ps1" } else { $true }

@@ -19,6 +19,42 @@ public struct RECT { public int Left, Top, Right, Bottom; }
 public struct MONITORINFO { public int cbSize; public RECT rcMonitor, rcWork; public uint dwFlags; }
 '@
 }
+# The window that really covers a monitor behind the one in front (a launcher in front of its borderless game): the first
+# in z-order that is visible, not cloaked, not click-through or no-activate (overlays: the NVIDIA overlay, a cursor
+# overlay - always "fullscreen", never a game), not the desktop. Its program's name, or ''.
+if (-not ('GameCheck.Cover' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System; using System.Text; using System.Runtime.InteropServices;
+namespace GameCheck { public static class Cover {
+  delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out R r);
+  [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr h, uint f);
+  [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr m, ref MI mi);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out int v, int s);
+  struct R { public int L, T, Rt, B; } struct MI { public int cb; public R M, W; public uint F; }
+  public static string Behind(IntPtr front, string[] skip) {
+    string found = "";
+    EnumWindows((h, l) => {
+      if (h == front || !IsWindowVisible(h) || IsIconic(h)) return true;
+      int ex = GetWindowLong(h, -20); if ((ex & 0x20) != 0 || (ex & 0x08000000) != 0) return true;
+      int cl = 0; DwmGetWindowAttribute(h, 14, out cl, 4); if (cl != 0) return true;
+      var c = new StringBuilder(64); GetClassName(h, c, 64); var cs = c.ToString();
+      if (cs == "Progman" || cs == "WorkerW" || cs == "Shell_TrayWnd" || cs == "Shell_SecondaryTrayWnd") return true;
+      R r; GetWindowRect(h, out r); var mi = new MI(); mi.cb = 40; GetMonitorInfo(MonitorFromWindow(h, 2), ref mi);
+      if (!(r.L <= mi.M.L && r.T <= mi.M.T && r.Rt >= mi.M.Rt && r.B >= mi.M.B)) return true;
+      uint pid; GetWindowThreadProcessId(h, out pid); string n = "";
+      try { using (var p = System.Diagnostics.Process.GetProcessById((int)pid)) n = p.ProcessName; } catch { return true; }
+      if (Array.IndexOf(skip, n) >= 0) return true;
+      found = n; return false; }, IntPtr.Zero);
+    return found; } } }
+'@
+}
 # Never learned as games: shells, browsers, video players, office/presentation apps
 $notGames = 'explorer', 'ApplicationFrameHost', 'ShellExperienceHost', 'StartMenuExperienceHost', 'SearchHost', 'LockApp', 'chrome', 'msedge', 'firefox',
     'opera', 'brave', 'vivaldi', 'vlc', 'mpc-hc64', 'mpc-be64', 'PotPlayerMini64', 'mpv', 'Video.UI', 'Microsoft.Media.Player', 'POWERPNT', 'Teams',
@@ -38,10 +74,15 @@ if ($fg -ne [IntPtr]::Zero) {
     if ($cls.ToString() -match '^(Progman|WorkerW|Shell_TrayWnd|Shell_SecondaryTrayWnd)$') { $covers = $false; $state = 0 }   # the desktop itself
 }
 if ($T) { $fgName = $T.Name; $covers = [bool]$T.Covers; $state = [int]$T.State }
-# States 2 (busy) and 4 (presentation) say a fullscreen app is open somewhere, not that it's the window in front: only a
-# window covering its monitor, or Direct3D exclusive fullscreen (3: the app in front), is learned as a game. (10/10 the
-# 2K20 launcher, in front of the borderless game, was learned - and then held all maintenance while it sat in the tray.)
-if ($covers -or $state -in 2, 3, 4) { $why = "fullscreen (state $state)"; $own = $covers -or $state -eq 3 }
+# States 2 (busy) and 4 (presentation) say a fullscreen app is open somewhere - or only an overlay that is always
+# "fullscreen" (10/21: the NVIDIA / a cursor overlay held all maintenance with Steam in front). So with the window in front
+# not covering its monitor: the window that really covers one behind it is the fullscreen app (-T: Behind), else nothing.
+# Only that window, one covering its monitor, or Direct3D exclusive fullscreen (3: the app in front) is learned as a game
+# (10/10 the 2K20 launcher, in front of the borderless game, was learned - and then held all maintenance from the tray).
+$overlays = 'TextInputHost', 'ShellExperienceHost', 'StartMenuExperienceHost', 'SearchHost', 'LockApp', 'NVIDIA Overlay', 'GameBar', 'XboxGameBar', 'codex-computer-use'
+$behind = if (-not $covers -and $state -in 2, 4) { if ($T) { "$($T.Behind)" } else { [GameCheck.Cover]::Behind($fg, [string[]]$overlays) } }
+if ($covers -or $state -eq 3) { $why = "fullscreen (state $state)"; $own = $true }
+elseif ($behind) { $why = "fullscreen behind $fgName (state $state)"; $own = $true; $fgName = $behind }
 # (a launcher learned by an older version is ignored)
 $known = @(Get-Content $games -ErrorAction SilentlyContinue | ForEach-Object { ($_ -split '#')[0].Trim() } | Where-Object { $_ -and $_ -notin $notGames })
 if ($why -and $own -and $fgName -and $fgName -notin $notGames) {

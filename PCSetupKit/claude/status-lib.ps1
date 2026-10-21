@@ -1,4 +1,4 @@
-# What the status views show: status.ps1 (text window) and dashboard.ps1 (the Status window). Dot-source, then
+# What the status views show: status.ps1 (text window; the app, MessiahApp.exe, has its own copy in C#). Dot-source, then
 # Get-KitStatus returns the sections in order: @{ Title; Lines = @(@{ Text; Level }) } with Level ok / info / warn / dim.
 # -ClaudeVersion: pass a version already known (the window refreshes every few seconds; claude --version costs a process).
 function Get-KitStatus([string]$ClaudeVersion) {

@@ -5,7 +5,7 @@
 param([string]$TrayDir = "$env:USERPROFILE\Documents\Messiah Tray", [string]$ClaudeDir = $PSScriptRoot,
     [string]$Ahk = "$env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe", [switch]$NoRestart, [switch]$Desktop)   # -NoRestart: setup starts the tray itself; -Desktop: also a desktop entry (setup)
 $script = "$TrayDir\Messiah Tray.ahk"
-if (-not (Test-Path "$ClaudeDir\dashboard.ps1")) { return }
+if (-not (Test-Path "$ClaudeDir\app\MessiahApp.exe")) { return }   # (the app window; not installed: nothing to make entries for)
 $hasAhk = (Test-Path $Ahk) -and (Test-Path $script)   # without AutoHotkey: the app (window, icon, Start menu) but no tray icon
 $ai = if (Test-Path "$ClaudeDir\ai-enabled.ps1") { & "$ClaudeDir\ai-enabled.ps1" } else { $true }
 $name = 'Messiah'   # one app, with or without the AI assistant (before: "PC Setup Kit" without it - moved over below)
@@ -21,13 +21,12 @@ if ($iconVer -and (-not (Test-Path $ico) -or "$(Get-Content "$ico.version" -Erro
 }
 $iconLoc = if (Test-Path $ico) { "$ico,0" } else { "$env:SystemRoot\System32\imageres.dll,110" }
 
-# One app: the Start menu entry "<name>" (and the desktop one, where there is one) opens the app window (MessiahApp.exe;
-# before it dashboard.ps1, with no console: conhost --headless). With Claude, the elevated session launcher those entries used to open is kept as
+# One app: the Start menu entry "<name>" (and the desktop one, where there is one) opens the app window (MessiahApp.exe).
+# With Claude, the elevated session launcher those entries used to open is kept as
 # .claude\Messiah Session.lnk (the app's "New session" and the tray use it). The old "<name> Status" entry goes.
 $sm = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
 $ws = New-Object -ComObject WScript.Shell
-# (the compiled app, app\MessiahApp.exe - 10/20; installs from before it: dashboard.ps1)
-$appTarget, $appArgs = if (Test-Path "$ClaudeDir\app\MessiahApp.exe") { "$ClaudeDir\app\MessiahApp.exe", '--live' } else { "$env:SystemRoot\System32\conhost.exe", "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$ClaudeDir\dashboard.ps1`"" }
+$appTarget = "$ClaudeDir\app\MessiahApp.exe"; $appArgs = '--live'
 $session = "$ClaudeDir\Messiah Session.lnk"
 $launcher = "$ClaudeDir\claude-admin-launch.ps1"
 if ($ai -and (Test-Path $launcher)) {

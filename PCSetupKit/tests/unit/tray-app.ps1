@@ -17,7 +17,7 @@ if (-not (Assert-Mocks $mocked)) { Finish }
 $H = "$Work\home"; $C = "$H\.claude"; $TD = "$H\Documents\Messiah Tray"
 New-Item $C, $TD, "$H\AppData\Roaming" -ItemType Directory -Force | Out-Null
 Copy-Item "$Src\ai-enabled.ps1", "$Src\app-icon.ps1", $ta $C
-'x' | Set-Content "$C\dashboard.ps1"; 'x' | Set-Content "$C\claude-admin-launch.ps1"
+New-Item "$C\app" -ItemType Directory -Force | Out-Null; 'x' | Set-Content "$C\app\MessiahApp.exe"; 'x' | Set-Content "$C\claude-admin-launch.ps1"
 'x' | Set-Content "$TD\Messiah Tray.ahk"
 $ahk1 = "$Work\ahk-v1\AutoHotkey64.exe"; $ahk2 = "$Work\ahk-v2\AutoHotkey64.exe"   # two different programs stand in for two AutoHotkey versions
 New-Item (Split-Path $ahk1), (Split-Path $ahk2) -ItemType Directory -Force | Out-Null
@@ -41,7 +41,7 @@ Check 'login task starts Messiah.exe with the tray script' ($r -and $r.Actions[0
 Check '... elevated, no time limit, restarts if it stops' ($r.Principal.RunLevel -eq 'Highest' -and $r.Settings.ExecutionTimeLimit -eq 'PT0S' -and $r.Settings.RestartCount -eq 3) ''
 $lnk = "$startMenu\Messiah.lnk"
 $sc = if (Test-Path $lnk) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk) }
-Check 'Start menu "Messiah" opens the app window without a console' ($sc -and $sc.TargetPath -match 'conhost\.exe$' -and $sc.Arguments -match ('^--headless powershell\.exe .*-File "' + [regex]::Escape("$C\dashboard.ps1") + '"$')) "$($sc.TargetPath) $($sc.Arguments)"
+Check 'Start menu "Messiah" opens the app window (MessiahApp.exe --live)' ($sc -and $sc.TargetPath -like "*\home\.claude\app\MessiahApp.exe" -and $sc.Arguments -eq '--live') "$($sc.TargetPath) $($sc.Arguments)"
 Check '... with the app''s own icon (drawn: a real .ico with 8 sizes, 16 to 256 px)' ($sc.IconLocation -match '\\Documents\\Messiah Tray\\app\.ico,0$' -and (Test-Path "$TD\app.ico") -and (Get-Item "$TD\app.ico").Length -gt 2000 -and [IO.File]::ReadAllBytes("$TD\app.ico")[4] -eq 8) "$($sc.IconLocation)"
 Check '... no separate Status entry; no desktop entry unless asked (-Desktop)' (-not (Test-Path "$startMenu\Messiah Status.lnk") -and -not (Test-Path "$H\Desktop\Messiah.lnk")) ''
 $sess = "$C\Messiah Session.lnk"
@@ -91,7 +91,7 @@ $global:task = $global:reg
 $o = Run-App $ahk2 -NoRestart
 Check 'the session shortcut is kept in .claude, still "Run as administrator"' ((Test-Path "$C\Messiah Session.lnk") -and $ws.CreateShortcut("$C\Messiah Session.lnk").Arguments -match 'claude-admin-launch' -and (([IO.File]::ReadAllBytes("$C\Messiah Session.lnk")[0x15] -band 0x20) -ne 0)) "$o"
 $sm = $ws.CreateShortcut("$startMenu\Messiah.lnk"); $dk = $ws.CreateShortcut("$H\Desktop\Messiah.lnk")
-Check 'Start menu and desktop "Messiah" now open the app, no longer elevated (no UAC prompt)' ($sm.Arguments -match 'dashboard\.ps1' -and $dk.Arguments -match 'dashboard\.ps1' -and (([IO.File]::ReadAllBytes("$startMenu\Messiah.lnk")[0x15] -band 0x20) -eq 0)) "$o"
+Check 'Start menu and desktop "Messiah" now open the app, no longer elevated (no UAC prompt)' ($sm.TargetPath -like "*\home\.claude\app\MessiahApp.exe" -and $dk.TargetPath -like "*\home\.claude\app\MessiahApp.exe" -and (([IO.File]::ReadAllBytes("$startMenu\Messiah.lnk")[0x15] -band 0x20) -eq 0)) "$o"
 Check '... the old "Messiah Status" entry is gone, and it says what changed' (-not (Test-Path "$startMenu\Messiah Status.lnk") -and "$o" -match "Start menu entry 'Messiah' opens the app" -and "$o" -match "removed the old Start menu entry 'Messiah Status'") "$o"
 $global:task = $global:reg
 $o = Run-App $ahk2 -NoRestart
@@ -105,7 +105,7 @@ $o = Run-App $ahk2
 $exe = "$TD\Messiah.exe"
 Check 'still "Messiah.exe" (one app)' ((Test-Path $exe) -and $global:reg.Actions[0].Execute -eq $exe) "$o"
 $sc = if (Test-Path "$startMenu\Messiah.lnk") { (New-Object -ComObject WScript.Shell).CreateShortcut("$startMenu\Messiah.lnk") }
-Check '... Start menu "Messiah" opens the app, with the app''s icon' ($sc -and $sc.Arguments -match 'dashboard\.ps1' -and $sc.IconLocation -match '\\Documents\\Messiah Tray\\app\.ico,0$') "$($sc.IconLocation)"
+Check '... Start menu "Messiah" opens the app, with the app''s icon' ($sc -and $sc.TargetPath -like "*\home\.claude\app\MessiahApp.exe" -and $sc.IconLocation -match '\\Documents\\Messiah Tray\\app\.ico,0$') "$($sc.IconLocation)"
 
 Section 'an older install without the AI assistant: "PC Setup Kit" becomes "Messiah"'
 New-Item "$H\Desktop" -ItemType Directory -Force | Out-Null
@@ -121,11 +121,8 @@ $global:task = $null; [IO.File]::Delete("$startMenu\Messiah.lnk")
 $o = Run-App "$Work\none\AutoHotkey64.exe"
 Check 'AutoHotkey missing: no tray program, no task, nothing restarted' (-not $global:calls -and -not $global:reg) "$o"
 Check '... the app is still there (Start menu entry)' (Test-Path "$startMenu\Messiah.lnk") "$o"
-Section 'the compiled app installed (app\MessiahApp.exe - 10/20)'
-'claude=on' | Set-Content "$C\kit-options.txt"; New-Item "$C\app" -ItemType Directory -Force | Out-Null; 'x' | Set-Content "$C\app\MessiahApp.exe"
+Section 'the app not installed (a broken install)'
+Remove-Item "$C\app" -Recurse -Force; [IO.File]::Delete("$startMenu\Messiah.lnk")
 $o = Run-App $ahk1 -NoRestart
-$sc = (New-Object -ComObject WScript.Shell).CreateShortcut("$startMenu\Messiah.lnk")
-Check 'Start menu "Messiah" now runs MessiahApp.exe --live (no PowerShell), with the app''s icon' ($sc.TargetPath -eq "$C\app\MessiahApp.exe" -and $sc.Arguments -eq '--live' -and $sc.IconLocation -match 'app\.ico,0$') "$($sc.TargetPath) $($sc.Arguments)"
-Check '... and says so; running again: silent' ("$o" -match "Start menu entry 'Messiah' opens the app" -and -not @(Run-App $ahk1 -NoRestart | Where-Object { $_ -match 'Start menu' })) "$o"
-Remove-Item "$C\app" -Recurse -Force
+Check 'no app: nothing made, nothing said' (-not (Test-Path "$startMenu\Messiah.lnk") -and -not $o) "$o"
 Finish

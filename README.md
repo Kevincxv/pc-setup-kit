@@ -130,7 +130,7 @@ Nothing is deleted outright: removed files go to `%USERPROFILE%\.claude\pc-setup
 ## For developers
 
 - `PCSetupKit\` — the kit: `setup.ps1`, `tweaks.ps1`, `uninstall.ps1`, the maintenance scripts in `claude\`, the app
-  (`claude\dashboard.ps1`) and the tray.
+  (`claude\app\MessiahApp.exe`, built from `app\Messiah.App` by `tools\app\build.ps1`) and the tray.
 - `PCSetupKit\tests\` — over 1,000 tests (`run-tests.ps1`), run on every push, plus a real fresh install on GitHub, in
   Windows Sandbox and from a USB stick in a virtual PC (`tests\vm`) before a release goes out.
 - Releases become **Latest** only after every check passes; installed PCs then update within 4 hours.

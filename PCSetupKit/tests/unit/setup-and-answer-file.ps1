@@ -110,8 +110,8 @@ Check '... Claude Code not downloaded, no skills, no hook, no Claude settings' (
 Check '... no session shortcut' (-not (Test-Path "$cl\Messiah Session.lnk")) ''
 $ws = New-Object -ComObject WScript.Shell
 $app = "$H\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Messiah.lnk"
-# the app: the compiled MessiahApp.exe where the kit has it (installed to .claude\app, run --live), else dashboard.ps1
-$opensApp = { param($s) if (Test-Path "$Kit\claude\app\MessiahApp.exe") { $s.TargetPath -eq "$H\.claude\app\MessiahApp.exe" -and $s.Arguments -eq '--live' -and (Test-Path "$H\.claude\app\MessiahApp.exe") } else { $s.Arguments -match 'dashboard\.ps1"$' } }
+# the app: MessiahApp.exe, installed to .claude\app, run --live
+$opensApp = { param($s) $s.TargetPath -like "*\$(Split-Path $H -Leaf)\.claude\app\MessiahApp.exe" -and $s.Arguments -eq '--live' -and (Test-Path "$H\.claude\app\MessiahApp.exe") }
 Check '... Start menu and desktop "Messiah" (the one app) open the app window, with its own icon' ((Test-Path $app) -and (Test-Path "$H\Desktop\Messiah.lnk") -and (& $opensApp $ws.CreateShortcut($app)) -and $ws.CreateShortcut($app).IconLocation -match 'Messiah Tray\\app\.ico,0$' -and (Test-Path "$H\Documents\Messiah Tray\app.ico")) "$(if (Test-Path $app) { $ws.CreateShortcut($app).IconLocation })"
 $bg = $global:tasks['Claude Background Maintenance']
 Check '... login maintenance task: hidden (conhost --headless), unattended, elevated, 2 min delay, 4 h limit' ($bg -and $bg.Action.Arguments -match '^--headless powershell\.exe .*claude-bg-maint\.ps1" -Force -Unattended$' -and $bg.Principal.RunLevel -eq 'Highest' -and $bg.Settings.ExecutionTimeLimit -eq 'PT4H') ''

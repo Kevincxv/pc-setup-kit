@@ -107,6 +107,7 @@ namespace Messiah
             "Discord", "steamwebhelper", "powershell", "WindowsTerminal", "conhost", "AutoHotkey64", "Messiah", "MessiahApp", "PC Setup Kit", "obs64",
             "steam", "EpicGamesLauncher", "Battle.net", "EADesktop", "GalaxyClient", "upc", "RiotClientServices", "Better2k", "SaveTheGame", "revival-client", "Slums 2K Launcher" };
         static readonly Regex Libs = new Regex(@"\\steamapps\\common\\|\\Epic Games\\(?!Launcher\\)|\\XboxGames\\(?!GameSave\\)|\\EA Games\\|\\GOG Galaxy\\Games\\|\\GOG Games\\|\\Ubisoft Game Launcher\\games\\", RegexOptions.IgnoreCase);
+        static readonly string[] Overlays = { "TextInputHost", "ShellExperienceHost", "StartMenuExperienceHost", "SearchHost", "LockApp", "NVIDIA Overlay", "GameBar", "XboxGameBar", "codex-computer-use" };
         static readonly string[] Tools = { "wallpaper32", "wallpaper64", "webwallpaper32", "ui32", "LosslessScaling", "UnityCrashHandler64", "UnityCrashHandler32", "CrashReportClient" };
         public static string Playing()
         {
@@ -121,13 +122,15 @@ namespace Messiah
                     Native.GetWindowThreadProcessId(fg, out var pid);
                     try { using (var p = Process.GetProcessById((int)pid)) fgName = p.ProcessName; } catch { }
                     var cls = new StringBuilder(64); Native.GetClassName(fg, cls, 64);
-                    Native.GetWindowRect(fg, out var r);
-                    var mi = new Native.MONITORINFO { cbSize = 40 }; Native.GetMonitorInfo(Native.MonitorFromWindow(fg, 2), ref mi);
-                    covers = r.Left <= mi.rcMonitor.Left && r.Top <= mi.rcMonitor.Top && r.Right >= mi.rcMonitor.Right && r.Bottom >= mi.rcMonitor.Bottom;
+                    covers = Native.Covers(fg);
                     Native.SHQueryUserNotificationState(out state);
                     if (Regex.IsMatch(cls.ToString(), "^(Progman|WorkerW|Shell_TrayWnd|Shell_SecondaryTrayWnd)$")) { covers = false; state = 0; }
                 }
-                bool why = covers || state == 2 || state == 3 || state == 4, own = covers || state == 3;
+                // (state 2/4 with the window in front not covering its monitor: the window really covering one behind it, else
+                // nothing - an always-on overlay says "fullscreen" too; game-check.ps1, 10/21)
+                var behind = !covers && (state == 2 || state == 4) ? Native.Behind(fg, Overlays) : "";
+                bool why = covers || state == 3 || behind != "", own = why;
+                if (!covers && state != 3 && behind != "") fgName = behind;
                 if (why && own && fgName != null && !NotGames.Contains(fgName, StringComparer.OrdinalIgnoreCase)) return fgName;
                 if (why) return fgName ?? "";
                 var known = Kit.Lines(Kit.P("games.txt")).Select(x => x.Split('#')[0].Trim()).Where(x => x != "" && !NotGames.Contains(x, StringComparer.OrdinalIgnoreCase)).ToList();

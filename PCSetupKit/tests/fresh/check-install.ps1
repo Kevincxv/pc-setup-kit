@@ -92,11 +92,9 @@ $app = 'Messiah'   # one app, with or without the AI assistant
 Check "the tray runs as its own program ($app.exe: its own tray entry next to the clock)" ($tt -and $tt.Actions[0].Execute -eq "$env:USERPROFILE\Documents\Messiah Tray\$app.exe" -and (Test-Path $tt.Actions[0].Execute)) "$($tt.Actions[0].Execute)"
 $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$app.lnk"
 $sc = if (Test-Path $lnk) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk) }
-Check "Start menu and desktop '$app' open the app window (MessiahApp.exe), with the app's icon" ($sc -and $sc.TargetPath -eq "$cl\app\MessiahApp.exe" -and $sc.Arguments -eq '--live' -and $sc.IconLocation -match 'app\.ico,0$' -and (Test-Path "$env:USERPROFILE\Documents\Messiah Tray\app.ico") -and (Test-Path "$env:USERPROFILE\Desktop\$app.lnk")) "$($sc.TargetPath) $($sc.Arguments) | $($sc.IconLocation)"
+Check "Start menu and desktop '$app' open the app window (MessiahApp.exe), with the app's icon" ($sc -and $sc.TargetPath -like "*\.claude\app\MessiahApp.exe" -and $sc.Arguments -eq '--live' -and $sc.IconLocation -match 'app\.ico,0$' -and (Test-Path "$env:USERPROFILE\Documents\Messiah Tray\app.ico") -and (Test-Path "$env:USERPROFILE\Desktop\$app.lnk")) "$($sc.TargetPath) $($sc.Arguments) | $($sc.IconLocation)"
 Check '... no separate Status entry' (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$app Status.lnk")) ''
 $d = & "$cl\app\MessiahApp.exe" --test | Out-String
 Check '... the app window builds on this PC, every page' ($d -match "(?m)^WINDOW: $app\s*$" -and $d -match 'CARD: Needs you' -and @([regex]::Matches($d, '(?m)^PAGE: ')).Count -ge 10 -and $d -notmatch 'PAGE ERROR') $d
-$d = & powershell -NoProfile -ExecutionPolicy Bypass -File "$cl\dashboard.ps1" -Test 2>&1 | Out-String
-Check '... the PowerShell app before it still builds (the fallback, for one release)' ($d -match "(?m)^WINDOW: $app\s*$" -and $d -match 'CARD: Needs you') $d
 Check 'no leftovers of the old name' (-not (Get-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue) -and -not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk")) ''
 Finish

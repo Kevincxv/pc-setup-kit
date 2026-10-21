@@ -1,20 +1,10 @@
 ﻿# The app window (MessiahApp.exe, compiled from app\Messiah.App): its own test (--test) builds every page and the chat
 # from a home folder's files and prints them - here a sandbox home: a new install, one with made-up data, and every
 # state file filled with garbage (in a profile path with spaces and non-English letters). No window opens; nothing is
-# read from this PC's own .claude. (dashboard.ps1, the app before it, has the same checks in tray-windows / chaos-state.)
+# read from this PC's own .claude. (tray-windows and chaos-state check it too.)
 . "$PSScriptRoot\..\lib.ps1"
-$exe = @("$Src\app\MessiahApp.exe", "$Kit\claude\app\MessiahApp.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $exe) { Skip 'app' 'not built here (tools\app\build.ps1)'; Finish }
-function Run-App([string]$Home_, [hashtable]$Env = @{}, [string[]]$ArgList = @()) {
-    $psi = New-Object Diagnostics.ProcessStartInfo $exe, ((@('--test') + $ArgList) -join ' ')
-    $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
-    $psi.StandardOutputEncoding = [Text.Encoding]::UTF8; $psi.WorkingDirectory = $Work
-    $psi.EnvironmentVariables['USERPROFILE'] = $Home_; $psi.EnvironmentVariables['PCKIT_IN_TESTS'] = '1'; $psi.EnvironmentVariables.Remove('PCKIT_CLAUDE_DIR')
-    foreach ($k in $Env.Keys) { $psi.EnvironmentVariables[$k] = $Env[$k] }
-    $p = [Diagnostics.Process]::Start($psi); $o = $p.StandardOutput.ReadToEndAsync(); $e = $p.StandardError.ReadToEndAsync()
-    if (-not $p.WaitForExit(120000)) { $p.Kill(); return [pscustomobject]@{ Out = $o.Result; Err = 'timed out'; Code = -1 } }
-    [pscustomobject]@{ Out = $o.Result; Err = $e.Result; Code = $p.ExitCode }
-}
+if (-not $AppExe) { Skip 'app' 'not built here (tools\app\build.ps1)'; Finish }
+function Run-App([string]$Home_, [hashtable]$Env = @{}, [string[]]$ArgList = @()) { Invoke-App $Home_ $ArgList $Env }
 function Errs($r) { ((@($r.Out -split "`r?`n" | Where-Object { $_ -match 'PAGE ERROR' }) + @($r.Err.Trim()) | Where-Object { $_ }) -join ' | ') }
 $pages = 'Welcome', 'Home', 'Status', 'Activity/Checks', 'Activity/Stability', 'Activity/Trends', 'Activity/Alerts', 'Settings/General', 'Settings/Windows', 'Settings/Tools'
 
@@ -86,7 +76,7 @@ foreach ($k in $kinds.Keys) {
 Section 'the switch-over: the tray, the Start menu, installs and updates run it'
 $trayText = Get-Content $env:PCKIT_TRAY -Raw
 Check 'the tray opens it (--live, --page) and starts it hidden (--background)' ($trayText -match 'app\\MessiahApp\.exe' -and $trayText -match "--live' \(page" -and $trayText -match '--live --background') ''
-Check '... with dashboard.ps1 as the fallback (installs from before it)' ($trayText -match 'dashboard\.ps1" -Background') ''
-Check 'the Start menu entry runs it' ((Get-Content "$Src\tray-app.ps1" -Raw) -match 'app\\MessiahApp\.exe", ''--live''') ''
+Check '... and nothing runs the PowerShell app any more (removed 10/21; the text status.ps1 when the exe is missing)' ($trayText -notmatch 'dashboard\.ps1' -and $trayText -match 'status\.ps1') ''
+Check 'the Start menu entry runs it' ((Get-Content "$Src\tray-app.ps1" -Raw) -match '\$appTarget = "\$ClaudeDir\\app\\MessiahApp\.exe"; \$appArgs = ''--live''') ''
 Check 'setup and updates install it (a running copy moved aside)' ((Get-Content "$Kit\setup.ps1" -Raw) -match 'claude\\app\\MessiahApp\.exe' -and (Get-Content "$Src\kit-update.ps1" -Raw) -match 'Install-App "\$k\\claude\\app"') ''
 Finish

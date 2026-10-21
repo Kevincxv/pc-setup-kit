@@ -79,6 +79,18 @@ function Invoke-As([string]$Home_, [string]$Script, [string[]]$ArgList = @(), [h
     [void]$p.WaitForExit(600000)
     [pscustomobject]@{ Out = $o.Result; Err = $e.Result; Code = $p.ExitCode }
 }
+# The app (MessiahApp.exe --test: every page and its self-tests, printed) with a sandbox home - like Invoke-As
+$AppExe = @("$Src\app\MessiahApp.exe", "$Kit\claude\app\MessiahApp.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+function Invoke-App([string]$Home_, [string[]]$ArgList = @(), [hashtable]$Env = @{}) {
+    $psi = New-Object Diagnostics.ProcessStartInfo $AppExe, ((@('--test') + $ArgList) -join ' ')
+    $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = [Text.Encoding]::UTF8; $psi.WorkingDirectory = $Work
+    $psi.EnvironmentVariables['USERPROFILE'] = $Home_; $psi.EnvironmentVariables['PCKIT_IN_TESTS'] = '1'; $psi.EnvironmentVariables.Remove('PCKIT_CLAUDE_DIR')
+    foreach ($k in $Env.Keys) { if ($null -eq $Env[$k]) { $psi.EnvironmentVariables.Remove($k) } else { $psi.EnvironmentVariables[$k] = $Env[$k] } }
+    $p = [Diagnostics.Process]::Start($psi); $o = $p.StandardOutput.ReadToEndAsync(); $e = $p.StandardError.ReadToEndAsync()
+    if (-not $p.WaitForExit(120000)) { $p.Kill(); return [pscustomobject]@{ Out = "$($o.Result)"; Err = 'timed out'; Code = -1 } }
+    [pscustomobject]@{ Out = $o.Result; Err = $e.Result; Code = $p.ExitCode }
+}
 # Tripwire for mocked tests: every command a script uses must be mocked by the test, harmless (read-only / sandbox
 # writes), or explicitly guarded - so a future edit that adds a real system change can't slip through a test unmocked.
 $SafeCommands = 'Add-Type', 'ConvertFrom-Json', 'ConvertTo-Json', 'ForEach-Object', 'Where-Object', 'Select-Object', 'Sort-Object', 'Group-Object',

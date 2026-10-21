@@ -113,7 +113,16 @@ try {
     foreach ($d in 'tests', 'claude') { if (Test-Path "$k\$d") { Remove-Item "$KitDir\$d" -Recurse -Force -ErrorAction SilentlyContinue; Copy-Item "$k\$d" $KitDir -Recurse -Force } }
     if (Test-Path "$KitDir\tests") { $tag | Set-Content "$KitDir\tests\tests-version.txt" }   # which release these tests belong to (self-test.ps1)
     Copy-Item "$k\claude\*.ps1" $ClaudeDir -Force                         # maintenance scripts
-    if (Test-Path "$k\claude\app\MessiahApp.exe") { Install-App "$k\claude\app" "$ClaudeDir\app" }   # the app window
+    if (Test-Path "$k\claude\app\MessiahApp.exe") {
+        Install-App "$k\claude\app" "$ClaudeDir\app"   # the app window
+        # the PowerShell app before it (removed 10/21): a hidden copy still running keeps the app's one-window lock, so
+        # the new app would hand over to it - stopped (only hidden: an open window is left alone; it goes at logout)
+        if (-not (Test-Path "$k\claude\dashboard.ps1") -and (Test-Path "$ClaudeDir\dashboard.ps1")) {
+            if (-not $env:PCKIT_IN_TESTS) { Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object CommandLine -match 'dashboard\.ps1' |
+                    Where-Object { (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).MainWindowHandle -eq 0 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }
+            Remove-Item "$ClaudeDir\dashboard.ps1" -Force -ErrorAction SilentlyContinue
+        }
+    }
     # Claude's skills and its no-shutdown hook only where the optional Claude part is on
     $ai = if (Test-Path "$ClaudeDir\ai-enabled.ps1") { & "$ClaudeDir\ai-enabled.ps1" } else { $true }
     if ($ai) {
