@@ -15,7 +15,7 @@ namespace Messiah.Pages
     static class Activity
     {
         static SolidColorBrush B(string k) => Theme.B[k];
-        static TextBlock Foot(string t) => Ui.Text(t, B("Sub"), 12, null, "4,2,0,0");
+        internal static TextBlock Foot(string t) => Ui.Text(t, B("Sub"), 12, null, "4,2,0,0");
 
         // --- Checks: the last check, the to-do list, Claude's own runs, the schedule, what maintenance did
         public static List<UIElement> Checks(Snapshot s)
@@ -159,7 +159,7 @@ namespace Messiah.Pages
             return o;
         }
         static double? Median(List<double> v) { if (v.Count == 0) return null; var s = v.OrderBy(x => x).ToList(); int m = s.Count / 2; return s.Count % 2 == 1 ? s[m] : (s[m - 1] + s[m]) / 2; }
-        static Border Chart(string title, string unit, IEnumerable<(DateTime D, double V)> data, int decimals, double minSpan)   // minSpan: the smallest range shown (small wobbles stay small)
+        internal static Border Chart(string title, string unit, IEnumerable<(DateTime D, double V)> data, int decimals, double minSpan)   // minSpan: the smallest range shown (small wobbles stay small)
         {
             var sp = new StackPanel();
             var pts = data.OrderBy(p => p.D).ToList(); pts = pts.Skip(Math.Max(0, pts.Count - 60)).ToList();

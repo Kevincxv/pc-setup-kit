@@ -22,17 +22,18 @@ namespace Messiah
         public static void Say(string t) => W?.Say(t);
         public static void ShowPage(string p, string sub = null) => W?.ShowPage(p, sub);
         public static void Refresh(bool force) => W?.Refresh(force);
+        public static DateTime? SeenBefore;   // when the owner last closed the window (Home's "Since you last looked"; tests: PCKIT_SINCE_TEST)
     }
 
     public partial class MainWindow : Window
     {
         // --- pages: three tabs, two of them with sub-pages (the pills on the right of the page title)
-        static readonly Dictionary<string, string[]> SubPages = new Dictionary<string, string[]> { ["Activity"] = new[] { "Checks", "Stability", "Trends", "Alerts" }, ["Settings"] = new[] { "General", "Windows", "Tools" } };
+        static readonly Dictionary<string, string[]> SubPages = new Dictionary<string, string[]> { ["Activity"] = new[] { "Checks", "Stability", "Trends", "Performance", "Alerts" }, ["Settings"] = new[] { "General", "Windows", "Tools" } };
         static readonly Dictionary<string, string> Subs = new Dictionary<string, string> {
             ["Welcome"] = "Your PC is set up. Here is what happened and what happens from now on.",
             ["Status"] = "Every optimization Messiah keeps in place on this PC - and whether it still is.",
             ["Activity/Checks"] = "What the maintenance found, what it did, and when it runs next.", ["Activity/Trends"] = "How this PC has been doing over time.",
-            ["Activity/Stability"] = "Every blue screen and power-off, and what changed around them.", ["Activity/Alerts"] = "What Messiah had to say - kept here instead of popping up.",
+            ["Activity/Stability"] = "Every blue screen and power-off, and what changed around them.", ["Activity/Performance"] = "How your games run - each minute measured while you play, and what updates did to them.", ["Activity/Alerts"] = "What Messiah had to say - kept here instead of popping up.",
             ["Settings/General"] = "Everything Messiah does is yours to switch on or off.", ["Settings/Windows"] = "Each change Messiah makes in Windows - keep it or not.",
             ["Settings/Tools"] = "Updates, repairs, drivers, the BIOS and the install USB." };
         static readonly Dictionary<string, string> OldPages = new Dictionary<string, string> { ["Overview"] = "Home", ["Sessions"] = "Home", ["Maintenance"] = "Activity/Checks", ["Schedule"] = "Activity/Checks", ["History"] = "Activity/Trends", ["Notifications"] = "Activity/Alerts" };
@@ -55,7 +56,7 @@ namespace Messiah
             Scroll.SizeChanged += (s, e) => UpdateColumns();
             Closing += (s, e) => { SavePlace(); if (!Quit) { e.Cancel = true; HideApp(); } };
             Closed += (s, e) => Application.Current.Shutdown();
-            LoadIcon(); RestorePlace(); BuildNav(); InitChat(); InitExtras(); InitLive();
+            LoadIcon(); RestorePlace(); BuildNav(); InitChat(); InitExtras(); InitLive(); InitDrop();
         }
 
         // --- the window: its icon (the tray's app.ico), Mica and a title bar in the theme (Windows 11), where it was
@@ -136,7 +137,7 @@ namespace Messiah
         public void ShowApp()
         {
             bool wasHidden = Visibility != Visibility.Visible;
-            if (wasHidden) Show();
+            if (wasHidden) { Shell.SeenBefore = AppLast.Seen; Show(); }
             if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
             timer.Start(); fast.Start(); StartWatching();
             // (a window shown for the first time loads its tabs after this: a page asked for is chosen once they have - else
@@ -145,7 +146,7 @@ namespace Messiah
             if (wasHidden) Refresh(false);
             Activate(); Native.SetForegroundWindow(new WindowInteropHelper(this).Handle);
         }
-        void HideApp() { Hide(); timer.Stop(); fast.Stop(); StopWatching(); ShowChatMenu(false); }
+        void HideApp() { Hide(); timer.Stop(); fast.Stop(); StopWatching(); ShowChatMenu(false); AppLast.Seen = DateTime.Now; AppLast.Save(); }
 
         // another start asked for a page (app-request.txt "page=<Page>[/<Sub>]")
         bool pageAsked;
@@ -247,6 +248,7 @@ namespace Messiah
                 case "Activity/Checks": return Pages.Activity.Checks(s);
                 case "Activity/Stability": return Pages.Activity.Stability(s, PageContent.ActualWidth);
                 case "Activity/Trends": return Pages.Activity.Trends(s);
+                case "Activity/Performance": return Pages.Performance.Build(s);
                 case "Activity/Alerts": return Pages.Activity.Alerts(s);
                 case "Settings/General": return Pages.Settings.General(s);
                 case "Settings/Windows": return Pages.Settings.Windows(s);

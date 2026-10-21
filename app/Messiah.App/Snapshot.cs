@@ -13,7 +13,7 @@ namespace Messiah
         public Dictionary<string, object> WhatsNew; public DateTime? Paused; public List<Data.PowerEvent> Power; public List<Data.Change> Changes;
         public List<Line> Ram; public Dictionary<string, object> PerfLast, HealthLast;
         public List<Dictionary<string, object>> Health, Perf, Net; public List<(string When, string Text)> Timeline; public List<(DateTime When, string Text)> Notes; public Dictionary<string, object> Chat; public string KitVersion;
-        public Data.Gpu Gpu; public Data.Bios Bios; public System.IO.FileInfo LastBackup; public Dictionary<string, object> GameSaves; public string PrevVersion; public DateTime? KitSince;
+        public List<Line> Since; public DateTime? SinceAt; public Data.Gpu Gpu; public Data.Bios Bios; public System.IO.FileInfo LastBackup; public Dictionary<string, object> GameSaves; public string PrevVersion; public DateTime? KitSince;
         public string Sig;
 
         public Section Sec(string title) => Secs.FirstOrDefault(s => s.Title.StartsWith(title));
@@ -31,6 +31,8 @@ namespace Messiah
             s.Health = Data.History(); s.Perf = Data.History("perf-history.json"); s.Net = Data.History("net-history.json");
             s.PerfLast = s.Perf.LastOrDefault(); s.HealthLast = s.Health.LastOrDefault();
             s.Timeline = Data.MaintTimeline(); s.Notes = Data.Notes();
+            var st = Environment.GetEnvironmentVariable("PCKIT_SINCE_TEST"); s.SinceAt = Kit.InTests ? (DateTime.TryParse(st, out var sd) ? sd : (DateTime?)null) : Shell.SeenBefore;
+            s.Since = Data.SinceLast(s.SinceAt);
             s.Chat = s.Ai ? Data.ChatState() : null;
             s.KitVersion = Kit.FirstLine(System.IO.Path.Combine(Kit.KitDir, "kit-version.txt")); s.KitSince = Kit.Stamp(System.IO.Path.Combine(Kit.KitDir, "kit-version.txt"));
             s.PrevVersion = Kit.FirstLine(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"PCSetupKit\previous\version.txt"));
@@ -40,6 +42,7 @@ namespace Messiah
             foreach (var r in s.Sm.Rows) sb.Append(r.Level).Append(r.State).Append(r.Detail).Append('\n');
             foreach (var f in new[] { "health-history.json", "notifications.log", "maint-history", "kit-options.txt", "tweak-status.json", "guard-state.json", "diag-state.json", "whats-new.json", "power-log.json", "ram-test.log", "perf-history.json", "game-saves.json", "gpu-hold.txt" })
                 sb.Append(Kit.Stamp(Kit.P(f))?.Ticks).Append(',');
+            foreach (var l in s.Since) sb.Append(l.Text).Append('\n');
             sb.Append('\n').Append(s.Playing).Append('\n').Append(Json.B(s.Chat, "busy")).Append(Json.S(s.Chat, "step"));
             s.Sig = sb.ToString();
             return s;

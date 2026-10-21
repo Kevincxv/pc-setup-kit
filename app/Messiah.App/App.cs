@@ -146,14 +146,16 @@ namespace Messiah
                 o.AppendLine("WINDOW: " + w.Title);
                 o.AppendLine("NAV: " + string.Join(" | ", w.NavList.Children.OfType<RadioButton>().Select(r => r.Tag)));
                 var sw = Stopwatch.StartNew(); var snap = Snapshot.Load(); o.AppendLine($"DATA: read in {sw.ElapsedMilliseconds} ms");
-                foreach (var key in new[] { "Welcome", "Home", "Status", "Activity/Checks", "Activity/Stability", "Activity/Trends", "Activity/Alerts", "Settings/General", "Settings/Windows", "Settings/Tools" })
+                foreach (var key in new[] { "Welcome", "Home", "Status", "Activity/Checks", "Activity/Stability", "Activity/Trends", "Activity/Performance", "Activity/Alerts", "Settings/General", "Settings/Windows", "Settings/Tools" })
                 {
                     sw.Restart();
                     List<UIElement> els; string err = null;
                     try { els = w.BuildPage(key, snap); } catch (Exception e) { els = new List<UIElement>(); err = e.ToString(); }
                     o.AppendLine($"PAGE: {key}  (built in {sw.ElapsedMilliseconds} ms)"); if (err != null) o.AppendLine("PAGE ERROR: " + err);
                     foreach (var el in els) Dump(el, o);
+                    foreach (var el in els) foreach (var miss in Unnamed(el)) o.AppendLine($"A11Y: {key}: {miss}");
                 }
+                foreach (var miss in Unnamed(w.Content)) o.AppendLine($"A11Y: window: {miss}");   // (the window's own parts: the tabs, the chat)
                 foreach (var l in w.ChatSelfTest()) o.AppendLine(l);
                 // the RAM stick test, each stage (made-up logs - dashboard.ps1's same cases)
                 string two = "2 stick(s), 32 GB in P0 CHANNEL A + P0 CHANNEL B", oA = "1 stick(s), 16 GB in P0 CHANNEL A", oB = "1 stick(s), 16 GB in P0 CHANNEL B";
@@ -174,6 +176,34 @@ namespace Messiah
             t.SetApartmentState(ApartmentState.STA); t.Start(); t.Join();
             var outp = Console.OpenStandardOutput(); var bytes = new UTF8Encoding(false).GetBytes(o.ToString()); outp.Write(bytes, 0, bytes.Length); outp.Flush();
             return 0;
+        }
+        // what a screen reader would announce without a name: a button, switch, link or field with no words of its own (an
+        // icon only) and no AutomationProperties.Name - the --test check (the window's own parts and every page)
+        internal static IEnumerable<string> Unnamed(object root)
+        {
+            var seen = new HashSet<object>(); var stack = new Stack<object>(); stack.Push(root);
+            while (stack.Count > 0)
+            {
+                var d = stack.Pop(); if (d == null || !seen.Add(d)) continue;
+                if (d is DependencyObject dep)
+                {
+                    if (d is ButtonBase || d is TextBox || d is System.Windows.Documents.Hyperlink)
+                    {
+                        var name = System.Windows.Automation.AutomationProperties.GetName(dep);
+                        var words = d is ContentControl cc ? Words(cc.Content) : d is System.Windows.Documents.Hyperlink hl ? new System.Windows.Documents.TextRange(hl.ContentStart, hl.ContentEnd).Text : "";
+                        if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(Regex.Replace(words ?? "", @"[\uE000-\uF8FF\u2715]", "")) && !(d is TextBox tb && tb.IsReadOnly))
+                            yield return $"{d.GetType().Name} {(dep as FrameworkElement)?.Name} {(dep as FrameworkElement)?.ToolTip as string}".Trim();
+                    }
+                    foreach (var ch in LogicalTreeHelper.GetChildren(dep)) stack.Push(ch);
+                }
+            }
+        }
+        static string Words(object content)
+        {
+            if (content is string s) return s;
+            if (content is TextBlock t) return t.Text;
+            if (content is DependencyObject d) return string.Concat(LogicalTreeHelper.GetChildren(d).OfType<object>().Select(Words));
+            return "";
         }
         static void Dump(UIElement el, StringBuilder o)
         {

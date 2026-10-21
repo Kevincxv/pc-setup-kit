@@ -14,7 +14,7 @@
         <TextBlock x:Name="AppName" Text="Messiah" FontSize="17" FontWeight="SemiBold" FontFamily="{DynamicResource f.Display}" VerticalAlignment="Center"/>
       </StackPanel>
       <Border Grid.Column="1" Background="{DynamicResource c.Seg}" CornerRadius="10" Padding="4" VerticalAlignment="Center"><StackPanel x:Name="NavList" Orientation="Horizontal"/></Border>
-      <Button x:Name="AiPill" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="Collapsed"/>
+      <Button x:Name="AiPill" AutomationProperties.Name="Ask Claude" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
     <Border x:Name="NowBar" Grid.Row="1" Visibility="Collapsed" Margin="24,8,24,0" Padding="14,8" CornerRadius="10" Background="{DynamicResource c.Seg}" Cursor="Hand" HorizontalAlignment="Center" MaxWidth="1100">
       <StackPanel Orientation="Horizontal">
@@ -45,11 +45,11 @@
     <Border x:Name="ChatPanel" Grid.Column="2" Grid.RowSpan="3" Visibility="Collapsed" AllowDrop="True" Background="{DynamicResource c.Card}" BorderBrush="{DynamicResource c.Border}" BorderThickness="1,0,0,0">
       <DockPanel>
         <DockPanel DockPanel.Dock="Top" Margin="12,16,12,10">
-          <Button x:Name="ChatMenu" DockPanel.Dock="Left" ToolTip="Chats and earlier conversations"/>
-          <Button x:Name="ChatClose" DockPanel.Dock="Right" ToolTip="Close the chat (Claude keeps working)"/>
-          <Button x:Name="ChatNew" DockPanel.Dock="Right" ToolTip="New conversation in a new tab (Ctrl+T)"/>
+          <Button x:Name="ChatMenu" AutomationProperties.Name="Chats and earlier conversations" DockPanel.Dock="Left" ToolTip="Chats and earlier conversations"/>
+          <Button x:Name="ChatClose" AutomationProperties.Name="Close the chat" DockPanel.Dock="Right" ToolTip="Close the chat (Claude keeps working)"/>
+          <Button x:Name="ChatNew" AutomationProperties.Name="New conversation" DockPanel.Dock="Right" ToolTip="New conversation in a new tab (Ctrl+T)"/>
           <Button x:Name="ChatMode" DockPanel.Dock="Right"/>
-          <Button x:Name="ChatRemote" DockPanel.Dock="Right" Visibility="Collapsed"/>
+          <Button x:Name="ChatRemote" AutomationProperties.Name="Open this chat in the browser (Remote Control)" DockPanel.Dock="Right" Visibility="Collapsed"/>
           <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
             <TextBlock FontFamily="{DynamicResource f.Icons}" FontSize="16" Foreground="{DynamicResource c.Accent}" VerticalAlignment="Center" Text="&#xE99A;" Margin="0,0,10,0"/>
             <StackPanel x:Name="ChatTitleBox">
@@ -61,20 +61,20 @@
         <WrapPanel x:Name="ChatTabs" DockPanel.Dock="Top" Margin="14,0,14,6" Visibility="Collapsed"/>
         <Border x:Name="ChatFind" DockPanel.Dock="Top" Visibility="Collapsed" Margin="14,0,14,6" CornerRadius="8" Background="{DynamicResource c.Btn}" BorderBrush="{DynamicResource c.Accent}" BorderThickness="1" Padding="10,1,3,1">
           <DockPanel>
-            <Button x:Name="ChatFindClose" DockPanel.Dock="Right"/>
-            <Button x:Name="ChatFindNext" DockPanel.Dock="Right"/>
-            <Button x:Name="ChatFindPrev" DockPanel.Dock="Right"/>
+            <Button x:Name="ChatFindClose" AutomationProperties.Name="Close find" DockPanel.Dock="Right"/>
+            <Button x:Name="ChatFindNext" AutomationProperties.Name="Next match" DockPanel.Dock="Right"/>
+            <Button x:Name="ChatFindPrev" AutomationProperties.Name="Previous match" DockPanel.Dock="Right"/>
             <TextBlock x:Name="ChatFindCount" DockPanel.Dock="Right" FontSize="12" Foreground="{DynamicResource c.Sub}" VerticalAlignment="Center" Margin="8,0,4,0"/>
-            <TextBox x:Name="ChatFindBox" FontSize="13" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource c.Text}" CaretBrush="{DynamicResource c.Text}" VerticalAlignment="Center" Padding="0,5"/>
+            <TextBox x:Name="ChatFindBox" AutomationProperties.Name="Find in this chat" FontSize="13" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource c.Text}" CaretBrush="{DynamicResource c.Text}" VerticalAlignment="Center" Padding="0,5"/>
           </DockPanel>
         </Border>
         <Border DockPanel.Dock="Bottom" Margin="14,6,14,14" CornerRadius="12" Background="{DynamicResource c.Btn}" BorderBrush="{DynamicResource c.Border}" BorderThickness="1" Padding="12,6,6,6">
           <DockPanel>
             <WrapPanel x:Name="ChatAttach" DockPanel.Dock="Top" Visibility="Collapsed" Margin="0,2,0,4"/>
-            <Button x:Name="ChatSend" DockPanel.Dock="Right" VerticalAlignment="Bottom"/>
+            <Button x:Name="ChatSend" AutomationProperties.Name="Send" DockPanel.Dock="Right" VerticalAlignment="Bottom"/>
             <Grid>
               <TextBlock x:Name="ChatHint" Text="Ask Claude anything - paste or drop screenshots and files" Foreground="{DynamicResource c.Sub}" FontSize="14" Margin="3,6,0,0" IsHitTestVisible="False"/>
-              <TextBox x:Name="ChatInput" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="150" MinHeight="30" FontSize="14" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource c.Text}" CaretBrush="{DynamicResource c.Text}" VerticalScrollBarVisibility="Auto" Padding="0,5,0,0"/>
+              <TextBox x:Name="ChatInput" AutomationProperties.Name="Message to Claude" AutomationProperties.HelpText="Enter sends; Shift+Enter for a new line; Up arrow brings back the last message" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="150" MinHeight="30" FontSize="14" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource c.Text}" CaretBrush="{DynamicResource c.Text}" VerticalScrollBarVisibility="Auto" Padding="0,5,0,0"/>
             </Grid>
           </DockPanel>
         </Border>
@@ -87,7 +87,7 @@
               <Border DockPanel.Dock="Top" Margin="14,12,14,6" CornerRadius="8" Background="{DynamicResource c.Btn}" BorderBrush="{DynamicResource c.Border}" BorderThickness="1" Padding="10,4">
                 <Grid>
                   <TextBlock x:Name="ChatSearchHint" Text="Search conversations..." Foreground="{DynamicResource c.Sub}" FontSize="13" Margin="2,4,0,0" IsHitTestVisible="False"/>
-                  <TextBox x:Name="ChatSearch" FontSize="13" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource c.Text}" CaretBrush="{DynamicResource c.Text}" Padding="0,4,0,4"/>
+                  <TextBox x:Name="ChatSearch" AutomationProperties.Name="Search the conversations" FontSize="13" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource c.Text}" CaretBrush="{DynamicResource c.Text}" Padding="0,4,0,4"/>
                 </Grid>
               </Border>
               <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel x:Name="ChatMenuList" Margin="10,2,10,12"/></ScrollViewer>

@@ -29,6 +29,7 @@ Check '1% low = the frame time only 1 in 100 frames is slower than' ([Math]::Abs
 Check 'hitches counted' ($s.stutters -eq 12) "stutters: $($s.stutters)"
 Check 'the hottest reading and the average load' ($s.gpuTemp -eq 84 -and $s.gpuUse -eq 98) "$($s.gpuTemp) C, $($s.gpuUse)%"
 Check 'throttling recorded (heat, power)' ($s.throttle -eq 'heat,power') "$($s.throttle)"
+Check 'the minute second by second: each second''s frame rate and slowest frame (for the app''s Performance page)' (@($s.perSec).Count -eq 7 -and @($s.worstMs).Count -eq 7 -and (@($s.perSec) | Where-Object { $_ -lt 100 -or $_ -gt 130 }).Count -eq 0 -and (@($s.worstMs) | Measure-Object -Maximum).Maximum -eq 60) "$(@($s.perSec) -join ',') / $(@($s.worstMs) -join ',')"
 Check 'the driver and Windows build recorded (a change there explains a change here)' ($s.build -match '^\d+\.\d+$' -and $null -ne $s.driver) "$($s.driver) / $($s.build)"
 
 Section 'when not to sample'
@@ -40,4 +41,9 @@ $o = Invoke-Sample (New-Capture 150 0) -at $now.AddHours(8)
 Check 'too few frames (a menu, loading, alt-tabbed): not a sample' (@(Hist).Count -eq 2 -and -not $o) "$o"
 [void](Invoke-Sample (New-Capture 900 0) @('55, 40') -at $now.AddHours(12))
 Check 'an older driver without throttle fields: temperature and load still read' (@(Hist)[-1].gpuTemp -eq 55 -and -not @(Hist)[-1].throttle) ''
+$many = @(1..40 | ForEach-Object { [ordered]@{ date = $now.AddDays(-50 + $_).ToString('o'); game = 'Old'; fps = 60; low1 = 50; frames = 3600; perSec = @(60, 60); worstMs = @(17, 17) } })
+ConvertTo-Json -InputObject $many -Depth 3 | Set-Content $hf
+[void](Invoke-Sample $cap -at $now.AddDays(1) -Force)
+$hh = @(Hist)
+Check 'the second-by-second curves are kept only on the newest 30 samples (the file stays small)' (@($hh | Where-Object { $_.perSec }).Count -eq 30 -and $hh[-1].perSec -and -not $hh[0].perSec) "$(@($hh | Where-Object { $_.perSec }).Count) with curves"
 Finish

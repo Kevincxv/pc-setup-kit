@@ -223,6 +223,32 @@ namespace Messiah
             return o.Take(40).ToList();
         }
         // --- the alerts kept for the app (notifications.log, "yyyy-MM-dd HH:mm|text", newest last)
+        // --- Home's "Since you last looked": what happened while the window was closed - the checks and what they changed,
+        // alerts, a blue screen or power-off, a driver / BIOS / RAM change, games measured. Empty: nothing worth a line.
+        public static List<Line> SinceLast(DateTime? since)
+        {
+            var o = new List<Line>(); if (since == null) return o; var t = since.Value;
+            try
+            {
+                var reports = Directory.Exists(P("maint-history")) ? new DirectoryInfo(P("maint-history")).GetFiles("report-*.txt").Where(x => x.LastWriteTime > t).OrderBy(x => x.Name).ToList() : new List<FileInfo>();
+                if (reports.Count > 0)
+                {
+                    var did = reports.SelectMany(r => Kit.Lines(r.FullName)).Select(x => x.Trim()).Where(x => TimelineRx.IsMatch(x) && !Regex.IsMatch(x, "up to date|all still applied")).Distinct().ToList();
+                    o.Add(new Line($"{reports.Count} check{Kit.S(reports.Count)} ran" + (did.Count > 0 ? ": " + string.Join("; ", did.Take(3).Select(x => Regex.Replace(x, @"^(WARNING|Reminder):\s*", ""))) + (did.Count > 3 ? $" (+{did.Count - 3} more)" : "") : " - nothing needed changing"),
+                        did.Any(x => x.StartsWith("WARNING")) ? "warn" : "info"));
+                }
+                var crashes = PowerEvents().Where(e => e.At > t).ToList();
+                foreach (var e in crashes.Take(2)) o.Add(new Line(e.Kind == "bsod" ? $"A blue screen {Kit.FormatWhen(e.At)}{(e.Code != "" ? $" ({e.Code})" : "")} - Activity > Stability has what was found" : $"The PC went off without shutting down {Kit.FormatWhen(e.At)}", "warn"));
+                foreach (var ch in PowerChanges().Where(x => x.At > t).Take(3)) o.Add(new Line($"{ch.What}: {ch.From} -> {ch.To}"));
+                var notes = Notes().Where(n => n.When > t).ToList();
+                if (notes.Count > 0) o.Add(new Line($"{notes.Count} alert{Kit.S(notes.Count)} - the newest: {notes.Last().Text}", "dim"));
+                var games = History("perf-history.json").Where(r => (Kit.Date(Json.Get(r, "date")) ?? DateTime.MinValue) > t).GroupBy(r => Json.S(r, "game")).ToList();
+                if (games.Count > 0) o.Add(new Line("Games measured: " + string.Join(", ", games.Select(g => $"{g.Key} {Math.Round(Json.N(g.Last(), "fps") ?? 0)} fps")) + " - Activity > Performance", "dim"));
+            }
+            catch (Exception e) { App.Log("since: " + e.Message); }
+            return o;
+        }
+        static string P(string f) => Kit.P(f);
         public static List<(DateTime When, string Text)> Notes() =>
             Kit.Lines(Kit.P("notifications.log")).Select(l => Regex.Match(l, @"^(\d{4}-\d\d-\d\d \d\d:\d\d)\|(.*)$")).Where(m => m.Success)
                 .Select(m => (DateTime.ParseExact(m.Groups[1].Value, "yyyy-MM-dd HH:mm", null), m.Groups[2].Value)).ToList();

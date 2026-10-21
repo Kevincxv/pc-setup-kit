@@ -33,6 +33,7 @@ namespace Messiah.Chat
         // a message or command for a chat's host; its host started when it isn't running (through the tray: elevated)
         public static void Send(string d, Dictionary<string, object> obj)
         {
+            if (Kit.InTests) return;   // (a test never starts Claude or writes into a chat)
             Directory.CreateDirectory(Path.Combine(d, "inbox"));
             File.WriteAllText(Path.Combine(d, "inbox", $"{DateTime.Now:yyyyMMddHHmmssfff}-{new Random().Next()}.json"), Kit.ToJson(obj), new UTF8Encoding(false));
             StartHost(d);

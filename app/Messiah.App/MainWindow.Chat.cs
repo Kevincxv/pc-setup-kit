@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
@@ -47,8 +48,7 @@ namespace Messiah
             ChatInput.TextChanged += (s, e) => ChatHint.Visibility = ChatInput.Text != "" || attach.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
             ChatInput.PreviewKeyDown += ChatInputKeys;
             ChatTitle.MouseLeftButtonDown += (s, e) => { if (e.ClickCount == 2) { e.Handled = true; StartRename(chatDir); } };
-            // files dropped on the chat (from Explorer; Windows doesn't let a program without admin rights drop onto one with
-            // them - then Ctrl+C the file in Explorer and Ctrl+V it here)
+            // files dropped on the chat (from Explorer; with admin rights - the tray's - they arrive the older way: MainWindow.Drop.cs)
             ChatPanel.PreviewDragOver += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } };
             ChatPanel.PreviewDragEnter += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } };
             ChatPanel.PreviewDrop += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Handled = true; AddAttach((string[])e.Data.GetData(DataFormats.FileDrop)); } };
@@ -168,10 +168,10 @@ namespace Messiah
                     }
                 case "tool":
                     {
-                        var r = new DockPanel { Margin = Ui.Th("2,2,0,2") };
-                        var g = Ui.Glyph("E756", 11, Br("Sub")); g.Margin = Ui.Th("0,1,8,0"); DockPanel.SetDock(g, Dock.Left); r.Children.Add(g);
-                        r.Children.Add(new TextBlock { Text = text, Foreground = Br("Sub"), FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = text });
-                        ChatList.Children.Add(r);
+                        // Claude's steps in a row fold into one line - "5 steps - Reading the crash dump" - that opens to show them
+                        var grp = ChatList.Children.Count > 0 ? ChatList.Children[ChatList.Children.Count - 1] as Border : null;
+                        if (!(grp?.Tag is Steps)) { grp = NewSteps(); ChatList.Children.Add(grp); }
+                        ((Steps)grp.Tag).List.Add(text); DrawSteps(grp);
                         break;
                     }
                 case "error": ChatList.Children.Add(Ui.LineEl("WARNING: " + text, "warn")); break;
@@ -324,7 +324,7 @@ namespace Messiah
             bool busy = st != null && Json.B(st, "busy");
             ChatWorking.Visibility = busy || (ChatWorking.Text == "Sending..." && st != null) ? Visibility.Visible : Visibility.Collapsed;
             if (busy) ChatWorking.Text = "● " + (Json.S(st, "step") != "" ? Json.S(st, "step") : "Thinking") + "...";
-            if (sendBusy != busy) { sendBusy = busy; if (busy) { IconBtn(ChatSend, "E71A"); ChatSend.ToolTip = "Stop"; } else { IconBtn(ChatSend, "E724", true); ChatSend.ToolTip = "Send (Enter) - Shift+Enter for a new line"; } }
+            if (sendBusy != busy) { sendBusy = busy; if (busy) { IconBtn(ChatSend, "E71A"); ChatSend.ToolTip = "Stop"; } else { IconBtn(ChatSend, "E724", true); ChatSend.ToolTip = "Send (Enter) - Shift+Enter for a new line"; } AutomationProperties.SetName(ChatSend, busy ? "Stop" : "Send"); }
         }
         // the step a hidden run is on: from the end of its transcript (the last 64 KB, not the whole file)
         static string StepOf(string id)
@@ -521,7 +521,7 @@ namespace Messiah
         {
             var m = ChatData.Mode(chatDir); var sp = new StackPanel { Orientation = Orientation.Horizontal };
             sp.Children.Add(Ui.Glyph(m.Name == "Quick" ? "E945" : "E9D9", 13, Br("Text"))); sp.Children.Add(new TextBlock { Text = m.Name, FontSize = 12, Margin = Ui.Th("6,0,0,0"), VerticalAlignment = VerticalAlignment.Center });
-            ChatMode.Content = sp; ChatMode.ToolTip = $"Speed: {m.Name} ({m.About}). Click to change - for this tab.";
+            ChatMode.Content = sp; ChatMode.ToolTip = $"Speed: {m.Name} ({m.About}). Click to change - for this tab."; AutomationProperties.SetName(ChatMode, "Speed: " + m.Name);
         }
         void SetMode(string v)
         {
@@ -625,6 +625,16 @@ namespace Messiah
             foreach (var rtb in ChatDocs()) for (var q = rtb.Document.ContentStart; q != null; q = q.GetNextContextPosition(LogicalDirection.Forward))
                     if (q.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.Text && q.Parent is TextElement te && te.Background is SolidColorBrush sb && fc.Contains(sb.Color)) left++;
             o.Add($"CHAT FIND: found={n1} first=[{at1}] next=[{at2}] marked={marked} leftover={left}");
+            // files dropped from Explorer onto the window with admin rights (a real drop package, read the way Windows hands it over)
+            ClearAttach(); var dropped = TestDrop(new[] { $"{win}\\win.ini", $"{win}\\System32\\notepad.exe" }); Dropped(dropped);
+            o.Add($"CHAT DROP: read={dropped.Count} attached={attach.Count} chat={ChatPanel.Visibility}"); ClearAttach();
+            // Claude's steps in a row fold into one line; a reply ends the fold, the next steps start a new one
+            ChatList.Children.Clear(); AddItem("tool", "Reading crash-analyze.ps1"); AddItem("tool", "Searching the event log"); AddItem("tool", "Running health-check.ps1");
+            var sg = ChatList.Children.OfType<Border>().Where(b => b.Tag is Steps).ToList(); var head = sg.Count > 0 ? ((Steps)sg[0].Tag).Head.Text : "";
+            AddItem("text", "Found it."); AddItem("tool", "Reading power-log.json");
+            var groups = ChatList.Children.OfType<Border>().Count(b => b.Tag is Steps);
+            if (sg.Count > 0) { ((Steps)sg[0].Tag).Open = true; DrawSteps(sg[0]); }
+            o.Add($"CHAT STEPS: groups={groups} head=[{head}] open={(sg.Count > 0 ? ((Steps)sg[0].Tag).Items.Children.Count : 0)}"); ChatList.Children.Clear();
             var md = Path.Combine(Path.GetTempPath(), "app-mode-" + System.Diagnostics.Process.GetCurrentProcess().Id); Directory.CreateDirectory(md);
             var m0 = ChatData.Mode(md).Name; File.WriteAllText(Path.Combine(md, "mode.txt"), "opus/high"); var m1 = ChatData.Mode(md).Name; File.WriteAllText(Path.Combine(md, "mode.txt"), "junk"); var m2 = ChatData.Mode(md).Name; Directory.Delete(md, true);
             UpdateModeBtn(); o.Add($"CHAT MODE: default={m0} chosen={m1} junk={m2} button=[{(((ChatMode.Content as StackPanel)?.Children.OfType<TextBlock>().Skip(1).FirstOrDefault())?.Text)}]");
@@ -639,6 +649,39 @@ namespace Messiah
             return o;
         }
         static string ToolTip(Hyperlink h) => h.ToolTip as string;
+
+        // --- Claude's steps (its tools: reading, searching, running), folded: the newest on show, all of them a click away
+        class Steps { public readonly List<string> List = new List<string>(); public bool Open; public TextBlock Head; public Border Chevron; public StackPanel Items; }
+        Border NewSteps()
+        {
+            var st = new Steps();
+            var head = new DockPanel { Cursor = Cursors.Hand, Background = Brushes.Transparent };
+            var chev = new Border { Child = Ui.Glyph("E76C", 9, Br("Sub")), Width = 14, Margin = Ui.Th("0,1,6,0"), RenderTransformOrigin = new Point(0.5, 0.5) }; DockPanel.SetDock(chev, Dock.Left); head.Children.Add(chev);
+            var g = Ui.Glyph("E756", 11, Br("Sub")); g.Margin = Ui.Th("0,1,8,0"); DockPanel.SetDock(g, Dock.Left); head.Children.Add(g);
+            st.Head = new TextBlock { Foreground = Br("Sub"), FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis }; head.Children.Add(st.Head);
+            st.Chevron = chev; st.Items = new StackPanel { Margin = Ui.Th("34,4,0,2"), Visibility = Visibility.Collapsed };
+            var sp = new StackPanel(); sp.Children.Add(head); sp.Children.Add(st.Items);
+            var b = new Border { Child = sp, Tag = st, Margin = Ui.Th("2,2,0,2") };
+            AutomationProperties.SetName(head, "Claude's steps - click to show them all");
+            head.MouseLeftButtonUp += (s, e) => { st.Open = !st.Open; DrawSteps(b); };
+            return b;
+        }
+        void DrawSteps(Border b)
+        {
+            var st = (Steps)b.Tag; var n = st.List.Count; var last = st.List[n - 1];
+            st.Head.Text = n == 1 ? last : $"{n} steps - {last}"; st.Head.ToolTip = string.Join("\n", st.List);
+            st.Chevron.RenderTransform = new RotateTransform(st.Open ? 90 : 0);
+            st.Items.Visibility = st.Open ? Visibility.Visible : Visibility.Collapsed;
+            if (!st.Open) return;
+            st.Items.Children.Clear();
+            for (int i = 0; i < n; i++)
+            {
+                var r = new DockPanel { Margin = Ui.Th("0,1,0,1") };
+                var gl = Ui.Glyph("E73E", 10, Br("Sub")); gl.Margin = Ui.Th("0,1,8,0"); DockPanel.SetDock(gl, Dock.Left); r.Children.Add(gl);
+                r.Children.Add(new TextBlock { Text = st.List[i], Foreground = Br("Sub"), FontSize = 12, TextWrapping = TextWrapping.Wrap });
+                st.Items.Children.Add(r);
+            }
+        }
 
         // the tray asks for a chat to be shown (its "Claude finished" note): app-request.txt "chat=<tab>"
         void ReadChatRequest(string r)

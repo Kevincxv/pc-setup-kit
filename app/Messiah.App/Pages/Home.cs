@@ -46,6 +46,8 @@ namespace Messiah.Pages
             heroBtns.Add(Ui.Btn("E945", "Optimize this PC", Actions.Optimize));
             var hc = Ui.Card(null, null, new object[] { hero }, heroBtns); hc.Padding = Ui.Th("26,24"); o.Add(hc);
 
+            // what happened while the window was closed (since the owner last looked) - nothing: no card
+            if (s.Since != null && s.Since.Count > 0 && s.SinceAt != null) o.Add(Ui.Card("Since you last looked", "E81C", s.Since.Cast<object>().Concat(new object[] { new Line($"{Kit.FormatWhen(s.SinceAt.Value)} - the details are under Activity.", "dim") }).ToArray()));
             // playing right now: everything heavy waits - said, so a quiet Messiah isn't a broken one
             if (s.Playing != "") o.Add(Ui.Card("Playing " + s.Playing, "E7FC", new object[] { new Line("Updates, checks and cleanup wait until you're done - nothing runs that could slow the game or take over the screen. They catch up by themselves afterwards.") }));
             // what's new after an update: until "Got it", three weeks at most

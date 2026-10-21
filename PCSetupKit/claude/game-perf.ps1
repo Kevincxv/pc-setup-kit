@@ -76,6 +76,10 @@ $e = [ordered]@{ date = $Now.ToString('o'); game = $game; fps = [Math]::Round($a
 # stutters: frames over 2.5x the typical frame time and slower than 20 fps - the hitches you feel
 $med = $sorted[[int]($sorted.Count / 2)]
 $e.stutters = @($ms | Where-Object { $_ -gt [Math]::Max($med * 2.5, 50) }).Count
+# the minute second by second (the app's Performance page draws it): each second's frame rate and its slowest frame
+$fs = New-Object Collections.Generic.List[int]; $ws = New-Object Collections.Generic.List[double]; $acc = 0.0; $cnt = 0; $worst = 0.0
+foreach ($v in $ms) { $acc += $v; $cnt++; if ($v -gt $worst) { $worst = $v }; if ($acc -ge 1000) { $fs.Add([int][Math]::Round($cnt * 1000 / $acc)); $ws.Add([Math]::Round($worst, 1)); $acc = 0.0; $cnt = 0; $worst = 0.0 } }
+if ($fs.Count) { $e.perSec = $fs.ToArray(); $e.worstMs = $ws.ToArray() }
 $rows = @($gpu | ForEach-Object { , ("$_" -split ',\s*') } | Where-Object { $_.Count -ge 2 -and $_[0] -match '^\d+$' })
 if ($rows) {
     $e.gpuTemp = ($rows | ForEach-Object { [int]$_[0] } | Measure-Object -Maximum).Maximum
@@ -89,5 +93,7 @@ if ($ssd) { $e.ssdTemp = ($ssd | Measure-Object -Maximum).Maximum }
 $e.driver = "$((Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'NVIDIA|AMD|Radeon|Intel\(R\) Arc' } | Select-Object -First 1).DriverVersion)"
 $e.build = "$([Environment]::OSVersion.Version.Build).$((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').UBR)"
 $h = @($h | Where-Object { $_.date }) + [pscustomobject]$e | Select-Object -Last 500
+# (the second-by-second curves only on the newest 30: the file stays small)
+for ($i = 0; $i -lt $h.Count - 30; $i++) { foreach ($p in 'perSec', 'worstMs') { if ($h[$i].PSObject.Properties[$p]) { $h[$i].PSObject.Properties.Remove($p) } } }
 try { ConvertTo-Json -InputObject @($h) -Depth 3 | Set-Content "$History.tmp" -Encoding UTF8; Move-Item "$History.tmp" $History -Force } catch {}
 "$game`: $($e.fps) fps average, $($e.low1) fps 1% low$(if ($null -ne $e.gpuTemp) { ", graphics card up to $($e.gpuTemp) C" })"

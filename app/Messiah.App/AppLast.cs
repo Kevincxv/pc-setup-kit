@@ -10,7 +10,7 @@ namespace Messiah
     // lines ("chattab=", "chatzoom=") are kept as they are.
     static class AppLast
     {
-        public static string Page = "", ChatTab = ""; public static double ChatZoom = 1;
+        public static string Page = "", ChatTab = ""; public static double ChatZoom = 1; public static DateTime? Seen;   // (Seen: the window last closed - Home's "Since you last looked")
         public static readonly HashSet<string> OpenRows = new HashSet<string>();
         static string F => Kit.P(App.Names.LastFile);
         public static void Load()
@@ -20,6 +20,7 @@ namespace Messiah
                 if (l.StartsWith("page=")) Page = l.Substring(5).Trim();
                 else if (l.StartsWith("chattab=")) ChatTab = l.Substring(8).Trim();
                 else if (l.StartsWith("chatzoom=") && double.TryParse(l.Substring(9).Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var z)) ChatZoom = z;
+                else if (l.StartsWith("seen=") && DateTime.TryParse(l.Substring(5).Trim(), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var sd)) Seen = sd;
                 else if (l.StartsWith("open=")) foreach (var t in l.Substring(5).Split('|').Where(x => x.Trim() != "")) OpenRows.Add(t);
             }
         }
@@ -28,8 +29,8 @@ namespace Messiah
             if (Kit.InTests) return;
             try
             {
-                var keep = Kit.Lines(F).Where(l => !l.StartsWith("page=") && !l.StartsWith("open=") && !l.StartsWith("chattab=") && !l.StartsWith("chatzoom=")).ToList();
-                File.WriteAllLines(F, new[] { "page=" + Page, "open=" + string.Join("|", OpenRows), "chattab=" + ChatTab, "chatzoom=" + ChatZoom.ToString(System.Globalization.CultureInfo.InvariantCulture) }.Concat(keep));
+                var keep = Kit.Lines(F).Where(l => !l.StartsWith("page=") && !l.StartsWith("open=") && !l.StartsWith("chattab=") && !l.StartsWith("chatzoom=") && !l.StartsWith("seen=")).ToList();
+                File.WriteAllLines(F, new[] { "page=" + Page, "open=" + string.Join("|", OpenRows), "chattab=" + ChatTab, "chatzoom=" + ChatZoom.ToString(System.Globalization.CultureInfo.InvariantCulture), "seen=" + (Seen?.ToString("o") ?? "") }.Concat(keep));
             }
             catch { }
         }
