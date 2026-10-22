@@ -22,7 +22,15 @@ $iconLoc = if (Test-Path $ico) { "$ico,0" } else { "$env:SystemRoot\System32\ima
 # .claude\Messiah Session.lnk (the app's "New session" and the tray use it). The old "<name> Status" entry goes.
 $sm = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
 $ws = New-Object -ComObject WScript.Shell
-$appTarget = "$ClaudeDir\app\MessiahApp.exe"; $appArgs = '--live'
+# (the long form of the path - as Windows keeps it in a shortcut: with a short 8.3 name in it (RUNNER~1) the entries
+# would look changed, and be made again, at every run)
+function Get-LongPath([string]$p) {
+    try {
+        if (-not ('TrayApp.P' -as [type])) { Add-Type -Namespace TrayApp -Name P -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] public static extern uint GetLongPathName(string s, System.Text.StringBuilder l, uint n);' }
+        $sb = New-Object Text.StringBuilder 1024; if ([TrayApp.P]::GetLongPathName($p, $sb, 1024)) { $sb.ToString() } else { $p }
+    } catch { $p }
+}
+$appTarget = Get-LongPath "$ClaudeDir\app\MessiahApp.exe"; $appArgs = '--live'
 $session = "$ClaudeDir\Messiah Session.lnk"
 $launcher = "$ClaudeDir\claude-admin-launch.ps1"
 if ($ai -and (Test-Path $launcher)) {

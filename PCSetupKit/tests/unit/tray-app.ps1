@@ -32,7 +32,7 @@ Section 'with Claude: first run'
 $global:task = $null; $global:procs = @()
 $o = Run-App
 $r = $global:reg
-Check 'login task starts the app with its tray icon (MessiahApp.exe --live --tray)' ($r -and $r.Actions[0].Execute -eq $app -and $r.Actions[0].Arguments -eq '--live --tray') "$($r.Actions[0].Execute) $($r.Actions[0].Arguments)"
+Check 'login task starts the app with its tray icon (MessiahApp.exe --live --tray)' ($r -and $r.Actions[0].Execute -like "*\home\.claude\app\MessiahApp.exe" -and $r.Actions[0].Arguments -eq '--live --tray') "$($r.Actions[0].Execute) $($r.Actions[0].Arguments)"
 Check '... elevated, no time limit, restarts if it stops; says so' ($r.Principal.RunLevel -eq 'Highest' -and $r.Settings.ExecutionTimeLimit -eq 'PT0S' -and $r.Settings.RestartCount -eq 3 -and "$o" -match 'Tray: starts with Windows') "$o"
 $lnk = "$startMenu\Messiah.lnk"
 $sc = if (Test-Path $lnk) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk) }
@@ -53,7 +53,7 @@ Section 'an install from before 10/21 (the tray an AutoHotkey script, as Messiah
 $global:task = [pscustomobject]@{ Actions = @([pscustomobject]@{ Execute = "$TD\Messiah.exe"; Arguments = "`"$TD\Messiah Tray.ahk`"" }) }
 $global:procs = @([pscustomobject]@{ Name = 'Messiah.exe'; ProcessId = 4242; ExecutablePath = "$TD\Messiah.exe"; CommandLine = "`"$TD\Messiah.exe`" `"$TD\Messiah Tray.ahk`"" })
 $o = Run-App
-Check 'the task now starts the app, and it says so' ($global:reg.Actions[0].Execute -eq $app -and $global:reg.Actions[0].Arguments -eq '--live --tray' -and "$o" -match 'now part of the app') "$o"
+Check 'the task now starts the app, and it says so' ($global:reg.Actions[0].Execute -like "*\home\.claude\app\MessiahApp.exe" -and $global:reg.Actions[0].Arguments -eq '--live --tray' -and "$o" -match 'now part of the app') "$o"
 Check '... the AutoHotkey tray is stopped (one icon), the app''s tray started' ($global:calls -contains 'kill 4242' -and ($global:calls -join ',') -match 'start Messiah Tray') ($global:calls -join ', ')
 $global:procs = @()
 Check '... AutoHotkey''s copy (Messiah.exe) is removed' (-not (Test-Path "$TD\Messiah.exe") -and "$o" -match 'removed Messiah\.exe') "$o"
@@ -84,7 +84,7 @@ Check '... a desktop entry the owner deleted is not brought back' (-not (Test-Pa
 Section 'without Claude'
 'claude=off' | Set-Content "$C\kit-options.txt"; $global:task = $null
 $o = Run-App
-Check 'the same app and tray (one app)' ($global:reg.Actions[0].Execute -eq $app) "$o"
+Check 'the same app and tray (one app)' ($global:reg.Actions[0].Execute -like "*\home\.claude\app\MessiahApp.exe") "$o"
 $sc = if (Test-Path "$startMenu\Messiah.lnk") { (New-Object -ComObject WScript.Shell).CreateShortcut("$startMenu\Messiah.lnk") }
 Check '... Start menu "Messiah" opens the app, with the app''s icon' ($sc -and $sc.TargetPath -like "*\home\.claude\app\MessiahApp.exe" -and $sc.IconLocation -match '\\Documents\\Messiah Tray\\app\.ico,0$') "$($sc.IconLocation)"
 

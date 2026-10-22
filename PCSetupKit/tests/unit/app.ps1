@@ -104,6 +104,6 @@ Section 'the switch-over: the tray, the Start menu, installs and updates run it'
 $trayText = Get-Content $env:PCKIT_TRAY -Raw
 Check 'the tray opens it (--live, --page) and starts it hidden (--background)' ($trayText -match 'app\\MessiahApp\.exe' -and $trayText -match "--live' \(page" -and $trayText -match '--live --background') ''
 Check '... and nothing runs the PowerShell app any more (removed 10/21; the text status.ps1 when the exe is missing)' ($trayText -notmatch 'dashboard\.ps1' -and $trayText -match 'status\.ps1') ''
-Check 'the Start menu entry runs it' ((Get-Content "$Src\tray-app.ps1" -Raw) -match '\$appTarget = "\$ClaudeDir\\app\\MessiahApp\.exe"; \$appArgs = ''--live''') ''
+Check 'the Start menu entry runs it' ((Get-Content "$Src\tray-app.ps1" -Raw) -match '\$appTarget = (Get-LongPath )?"\$ClaudeDir\\app\\MessiahApp\.exe"; \$appArgs = ''--live''') ''
 Check 'setup and updates install it (a running copy moved aside)' ((Get-Content "$Kit\setup.ps1" -Raw) -match 'claude\\app\\MessiahApp\.exe' -and (Get-Content "$Src\kit-update.ps1" -Raw) -match 'Install-App "\$k\\claude\\app"') ''
 Finish
