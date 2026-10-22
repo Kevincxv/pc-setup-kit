@@ -102,7 +102,8 @@ public static class KitNvApp {
 }
 "@ }
         # V-Sync on only with G-SYNC really on for the main screen (with it: no tearing and no added lag; without it, V-Sync
-        # adds lag - 10/21: a screen that supports G-SYNC had it switched off). NVAPI's VRR info for the main display.
+        # adds lag). NVAPI's VRR info for the main display: bIsVRREnabled stays 0 with G-SYNC ticked in the control panel;
+        # bIsDisplayInVRRMode is the one that follows the tick (10/21: checked by switching it off and on).
         if (-not ('KitVrr' -as [type])) { Add-Type -TypeDefinition @"
 using System; using System.Runtime.InteropServices;
 public static class KitVrr {
@@ -117,7 +118,7 @@ public static class KitVrr {
     uint d; if (D<FPrim>(0x1E9D8A31)(out d) != 0) return -1;
     var b = new byte[24]; BitConverter.GetBytes((uint)(24 | (1 << 16))).CopyTo(b, 0);   // NV_GET_VRR_INFO v1
     if (D<FVrr>(0xDF8FDA57)(d, b) != 0) return -1;
-    uint f = BitConverter.ToUInt32(b, 4); return (f & 1) == 1 ? 1 : ((f >> 1) & 1) == 1 ? 0 : -1;
+    uint f = BitConverter.ToUInt32(b, 4); return (f & 0x11) != 0 ? 1 : ((f >> 1) & 1) == 1 ? 0 : -1;
   }
 }
 "@ }
