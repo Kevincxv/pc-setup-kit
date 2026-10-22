@@ -258,6 +258,8 @@ if ((Test-Path "$PSScriptRoot\diag-modes.ps1") -and -not $env:PCKIT_IN_TESTS) {
 if (Test-Path "$PSScriptRoot\nvidia-settings.ps1") { & "$PSScriptRoot\nvidia-settings.ps1" }
 # the processor's temperature: its driver and library installed once (never under a game), removed when switched off
 if (Test-Path "$PSScriptRoot\cpu-temp.ps1") { & "$PSScriptRoot\cpu-temp.ps1" -Ensure }
+# the fans: the graphics card's stuck high at idle back to automatic; a stopped CPU fan or pump is a WARNING
+if (Test-Path "$PSScriptRoot\fan-watch.ps1") { & "$PSScriptRoot\fan-watch.ps1" }
 # the owner's tuned game settings kept (Call of Duty: a patch or a new driver resets them); the shader reminder after a new driver
 if (Test-Path "$PSScriptRoot\game-settings.ps1") { & "$PSScriptRoot\game-settings.ps1" }
 # the game's speed-only settings tried both ways in the owner's matches, the faster kept (after gpu-watch: none while a driver is on trial)

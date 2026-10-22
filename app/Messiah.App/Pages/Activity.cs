@@ -154,14 +154,21 @@ namespace Messiah.Pages
                 (rows ?? Enumerable.Empty<Dictionary<string, object>>()).Where(r => Json.N(r, field) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, field).Value));
             // games (game-perf.ps1, while playing): the most played game's frame rate, and the card's heat under load
             var byGame = s.Perf.GroupBy(r => Json.S(r, "game")).ToList();
-            var top = byGame.OrderByDescending(g => g.Count()).FirstOrDefault();
+            // (the game played most this month, then the latest played - 10/22: an old game won a tie)
+            var top = byGame.OrderByDescending(g => g.Count(r => Kit.Date(Json.Get(r, "date")) >= DateTime.Now.AddDays(-30))).ThenByDescending(g => Kit.Date(Json.Get(g.Last(), "date"))).FirstOrDefault();
             var grid = new UniformGrid { Columns = 2, Margin = Ui.Th("0,0,-14,0") };
+            // the most played game's sessions: each one read on hover, what changed marked, a click opens it on Performance
+            Border GameChart(string what, string field)
+            {
+                var rows = top?.ToList() ?? new List<Dictionary<string, object>>();
+                return Charts.Chart(what + (top != null ? " - " + Data.GameName(top.Key) : ""), " fps", Performance.Points(rows, field, s.Tune), 0, 20, Performance.Marks(rows, s.Tune),
+                    p => { Performance.Pick[top.Key] = p.Key; Shell.ShowPage("Activity", "Performance"); });
+            }
             foreach (var ch in new[] {
                 Chart("Start-up time", " s", Pt("boot", true), 1, 10), Chart("Free space on C:", " GB", Pt("freeGB"), 0, 20),
                 Chart("Graphics card at idle", " °C", Pt("gpuIdle"), 0, 10), Chart("SSD temperature", " °C", Pt("ssdTemp"), 0, 10),
-                Chart("Frame rate" + (top != null ? " - " + Data.GameName(top.Key) : ""), " fps", Gp(top, "fps"), 0, 20),
-                Chart("1% low frame rate" + (top != null ? " - " + Data.GameName(top.Key) : ""), " fps", Gp(top, "low1"), 0, 20),
-                Chart("Graphics card while gaming", " °C", Gp(s.Perf, "gpuTemp"), 0, 10), Chart("Internet ping", " ms", Gp(s.Net, "ping"), 0, 10) })
+                GameChart("Frame rate", "fps"), GameChart("1% low frame rate", "low1"),
+                Charts.Chart("Graphics card while gaming", " °C", Performance.Points(s.Perf, "gpuTemp", s.Tune, true), 0, 10), Chart("Internet ping", " ms", Gp(s.Net, "ping"), 0, 10) })
             { ch.Margin = Ui.Th("0,0,14,14"); grid.Children.Add(ch); }
             o.Add(grid);
             // each game: its latest sample next to its usual (the median of its samples)
@@ -176,50 +183,9 @@ namespace Messiah.Pages
             return o;
         }
         static double? Median(List<double> v) { if (v.Count == 0) return null; var s = v.OrderBy(x => x).ToList(); int m = s.Count / 2; return s.Count % 2 == 1 ? s[m] : (s[m - 1] + s[m]) / 2; }
-        internal static Border Chart(string title, string unit, IEnumerable<(DateTime D, double V)> data, int decimals, double minSpan)   // minSpan: the smallest range shown (small wobbles stay small)
-        {
-            var sp = new StackPanel();
-            var pts = data.OrderBy(p => p.D).ToList(); pts = pts.Skip(Math.Max(0, pts.Count - 60)).ToList();
-            string Fmt(double v) => Math.Round(v, decimals) + unit;
-            if (pts.Count < 2)
-            {
-                sp.Children.Add(Ui.Text(pts.Count > 0 ? Fmt(pts[pts.Count - 1].V) : "-", B("Text"), 26, FontWeights.SemiBold, "0"));
-                sp.Children.Add(Ui.Text("Collecting - the chart shows after a few checks.", B("Sub"), 12, null, "0,4,0,0"));
-                sp.Tag = $"CHART: {title} | {pts.Count} point(s)";
-                return Ui.Card(title, null, new object[] { sp });
-            }
-            var vals = pts.Select(p => p.V).ToList(); var usual = Median(vals).Value;
-            var hero = new StackPanel { Orientation = Orientation.Horizontal };
-            hero.Children.Add(Ui.Text(Fmt(vals[vals.Count - 1]), B("Text"), 26, FontWeights.SemiBold, "0"));
-            var us = Ui.Text("   usual " + Fmt(usual), B("Sub"), 12, null, "0,0,0,5"); us.VerticalAlignment = VerticalAlignment.Bottom; hero.Children.Add(us);
-            sp.Children.Add(hero);
-            double W = 330, H = 84, lo = vals.Min(), hi = vals.Max();
-            if (hi - lo < minSpan) { var mid = (hi + lo) / 2; hi = mid + minSpan / 2; lo = mid - minSpan / 2; }
-            var pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
-            long t0 = pts[0].D.Ticks, t1 = pts[pts.Count - 1].D.Ticks; if (t1 == t0) t1 = t0 + 1;
-            double X(DateTime d) => (d.Ticks - t0) / (double)(t1 - t0) * (W - 12) + 6; double Y(double v) => H - 4 - (v - lo) / (hi - lo) * (H - 8);
-            var cv = new Canvas { Width = W, Height = H, Margin = Ui.Th("0,10,0,0"), HorizontalAlignment = HorizontalAlignment.Left, ClipToBounds = false };
-            foreach (var gy in new[] { 4, H - 4 }) cv.Children.Add(new Line_ { X1 = 0, X2 = W, Y1 = gy, Y2 = gy, Stroke = B("Border"), StrokeThickness = 1 }.Make());   // recessive frame lines
-            var u = Y(usual); var ul = new Line_ { X1 = 0, X2 = W, Y1 = u, Y2 = u, Stroke = B("Sub"), StrokeThickness = 1, Dash = true, DashA = 4, DashB = 3 }.Make(); ul.Opacity = 0.5; cv.Children.Add(ul);   // the usual level
-            var line = new Polyline { Stroke = B("Chart"), StrokeThickness = 2, StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
-            foreach (var p in pts) line.Points.Add(new Point(X(p.D), Y(p.V)));
-            cv.Children.Add(line);
-            var bg = (SolidColorBrush)new BrushConverter().ConvertFromString(Theme.C["Bg"]);
-            var lastDot = new Ellipse { Width = 10, Height = 10, Fill = B("Chart"), Stroke = bg, StrokeThickness = 2 };   // the current value, ringed
-            Canvas.SetLeft(lastDot, X(pts[pts.Count - 1].D) - 5); Canvas.SetTop(lastDot, Y(vals[vals.Count - 1]) - 5); cv.Children.Add(lastDot);
-            foreach (var p in pts)   // hover: an invisible target bigger than the point
-            {
-                var hit = new Ellipse { Width = 16, Height = 16, Fill = Brushes.Transparent, ToolTip = $"{p.D:ddd MMM d, h:mm tt}:  {Fmt(p.V)}", Cursor = System.Windows.Input.Cursors.Hand };
-                Canvas.SetLeft(hit, X(p.D) - 8); Canvas.SetTop(hit, Y(p.V) - 8); cv.Children.Add(hit);
-            }
-            sp.Children.Add(cv);
-            var axis = new DockPanel { Width = W, HorizontalAlignment = HorizontalAlignment.Left, Margin = Ui.Th("0,4,0,0") };
-            var r = Ui.Text(pts[pts.Count - 1].D.ToString("MMM d"), B("Sub"), 11, null, "0"); DockPanel.SetDock(r, Dock.Right); axis.Children.Add(r);
-            axis.Children.Add(Ui.Text($"{pts[0].D:MMM d}   ·   range {Fmt(vals.Min())} - {Fmt(vals.Max())}", B("Sub"), 11, null, "0"));
-            sp.Children.Add(axis);
-            sp.Tag = $"CHART: {title} | {pts.Count} points, now {Fmt(vals[vals.Count - 1])}, usual {Fmt(usual)}";
-            return Ui.Card(title, null, new object[] { sp });
-        }
+        // (the interactive chart, 10/22: Charts.Chart - hover, change marks, 7 days / 30 days / all, a click)
+        internal static Border Chart(string title, string unit, IEnumerable<(DateTime D, double V)> data, int decimals, double minSpan) =>
+            Charts.Chart(title, unit, data.Select(p => new ChartPt { D = p.D, V = p.V }), decimals, minSpan);
 
         // --- Alerts: what Messiah had to say - recent ones, then earlier and resolved ones
         public static List<UIElement> Alerts(Snapshot s)

@@ -384,6 +384,37 @@ namespace Messiah
             return RamTest(Kit.Lines(Kit.P("ram-test.log")), now, mine);
         }
 
+        // --- the last game session (game-sessions.log from the tray, the minutes game-perf.ps1 measured in it): how it ran
+        // against that game's usual - Home's and Performance's "Last session" (10/22)
+        public class Session { public string Game; public DateTime Start, End; public int Minutes, Samples; public double? Fps, Low, UsualFps, UsualLow, GpuTemp, CpuTemp; public int Hitches; }
+        public static Session LastSession(List<Dictionary<string, object>> perf, string[] log = null)
+        {
+            log = log ?? Kit.Lines(Kit.P("game-sessions.log"));
+            var m = log.Reverse().Select(l => Regex.Match(l, @"^(\S+) \| (\S+) \| (.+)$")).FirstOrDefault(x => x.Success);
+            if (m == null || !DateTime.TryParse(m.Groups[1].Value, out var a) || !DateTime.TryParse(m.Groups[2].Value, out var b)) return null;
+            var s = new Session { Game = m.Groups[3].Value.Trim(), Start = a, End = b, Minutes = (int)Math.Round((b - a).TotalMinutes) };
+            var mine = perf.Where(r => Json.S(r, "game").Equals(s.Game, StringComparison.OrdinalIgnoreCase)).ToList();
+            var inS = mine.Where(r => Kit.Date(Json.Get(r, "date")) is DateTime d && d >= a.AddMinutes(-2) && d <= b.AddMinutes(2)).ToList();
+            var before = mine.Where(r => Kit.Date(Json.Get(r, "date")) is DateTime d && d < a).Reverse().Take(10).ToList();
+            double? Avg(List<Dictionary<string, object>> rr, string f) { var v = rr.Select(r => Json.N(r, f)).Where(x => x != null).Select(x => x.Value).ToList(); return v.Count > 0 ? v.Average() : (double?)null; }
+            double? Max(string f) { var v = inS.Select(r => Json.N(r, f)).Where(x => x != null).Select(x => x.Value).ToList(); return v.Count > 0 ? v.Max() : (double?)null; }
+            s.Samples = inS.Count; s.Fps = Avg(inS, "fps"); s.Low = Avg(inS, "low1"); s.UsualFps = Avg(before, "fps"); s.UsualLow = Avg(before, "low1");
+            s.GpuTemp = Max("gpuTemp"); s.CpuTemp = Max("cpuTemp"); s.Hitches = (int)inS.Sum(r => Json.N(r, "stutters") ?? 0);
+            return s;
+        }
+        public static List<Line> SessionLines(Session s)
+        {
+            var o = new List<Line>();
+            var len = s.Minutes >= 60 ? $"{s.Minutes / 60} h {s.Minutes % 60} min" : $"{s.Minutes} min";
+            if (s.Fps == null) { o.Add(new Line($"{GameName(s.Game)} - {len}, ended {Kit.FormatWhen(s.End)}. Too short to measure (a minute is measured every 25 minutes of play).", "dim")); return o; }
+            string Cmp(double v, double? u) => u == null || u <= 0 ? "" : Math.Abs(v - u.Value) / u.Value < 0.05 ? " (as usual)" : v > u ? $" (usual {Math.Round(u.Value)} - better)" : $" (usual {Math.Round(u.Value)} - lower)";
+            var worse = s.UsualLow > 0 && s.Low < s.UsualLow * 0.9;
+            o.Add(new Line($"{GameName(s.Game)} - {len}, ended {Kit.FormatWhen(s.End)}: {Math.Round(s.Fps.Value)} fps average{Cmp(s.Fps.Value, s.UsualFps)}, 1% low {Math.Round(s.Low ?? 0)} fps{Cmp(s.Low ?? 0, s.UsualLow)}, {s.Hitches} hitch{(s.Hitches == 1 ? "" : "es")}.", worse ? "warn" : "ok"));
+            var heat = new List<string>(); if (s.GpuTemp != null) heat.Add($"graphics card up to {s.GpuTemp} °C"); if (s.CpuTemp != null) heat.Add($"processor up to {s.CpuTemp} °C");
+            if (heat.Count > 0) o.Add(new Line(char.ToUpper(heat[0][0]) + string.Join(", ", heat).Substring(1) + $" - from {s.Samples} measured minute{Kit.S(s.Samples)}.", (s.GpuTemp ?? 0) >= 85 || (s.CpuTemp ?? 0) >= 88 ? "warn" : "dim"));
+            return o;
+        }
+
         // --- a game by its name, not its program's (10/22 audit: "cod", "NBA2K20" on the cards)
         public static string GameName(string proc)
         {

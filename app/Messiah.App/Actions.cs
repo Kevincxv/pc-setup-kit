@@ -12,7 +12,7 @@ namespace Messiah
     static class Actions
     {
         static readonly uint TrayMsg = Native.RegisterWindowMessage("PCSetupKitAppCommand");
-        public enum Cmd { NewSession = 1, ShowSessions = 2, HideSessions = 3, RunMaint = 4, Optimize = 5, WatchLive = 6, ApplyTweaks = 7, Repair = 8, Rollback = 9, AiOn = 10, AiOff = 11, GpuRollback = 12, ChatHost = 13, RamBootArm = 14, RamBootCancel = 15 }
+        public enum Cmd { NewSession = 1, ShowSessions = 2, HideSessions = 3, RunMaint = 4, Optimize = 5, WatchLive = 6, ApplyTweaks = 7, Repair = 8, Rollback = 9, AiOn = 10, AiOff = 11, GpuRollback = 12, ChatHost = 13, RamBootArm = 14, RamBootCancel = 15, Bench = 16 }
         public static bool SendTray(Cmd n)
         {
             if (!long.TryParse(Kit.FirstLine(Kit.P("tray-hwnd.txt")), out var hl)) return false;
@@ -36,6 +36,58 @@ namespace Messiah
             if (!SendTray(c)) Ps("ram-check.ps1", extra: arm ? "-ArmBoot" : "-CancelBoot", admin: true, hidden: true);
             Shell.Say(arm ? "Set: the deep memory test runs the next time the PC starts - restart it yourself when you can leave it for a few hours." : "The deep memory test is off - the next start-up is a normal one.");
         }
+        // the benchmark (bench.ps1 - WinSAT needs admin rights: through the tray)
+        public static void Bench()
+        {
+            if (Data.Playing() != "") { Shell.Say("Close the game first - it would skew the results."); return; }
+            if (!SendTray(Cmd.Bench)) Ps("bench.ps1", admin: true, hidden: true);
+            Shell.Say("The benchmark is running - about a minute and a half. Leave the PC alone meanwhile; the result shows here.");
+        }
+
+        // --- your setup in a file (10/22 - winutil's and Winhance's presets/config files): Messiah's switches and your
+        // choices of Windows changes; loaded on another PC (or this one after a reinstall) they apply at the next check.
+        // Never the AI sign-in, the window's place or the tour - those are this PC's own.
+        static readonly string[] SetupKeys = { "openatlogin", "cornernotes", "nightrestart", "technames", "defenderexclusions", "nvidiasettings", "gameboost", "gamesettings", "autorollback", "gametune", "cputemp", "ramcheck", "fancheck", "gamesaves" };
+        static bool IsSetupKey(string k) => SetupKeys.Contains(k) || System.Text.RegularExpressions.Regex.IsMatch(k, @"^tweak\.[\w-]+$");
+        public static Dictionary<string, string> CurrentSetup()
+        {
+            var o = new Dictionary<string, string>();
+            foreach (var l in Kit.Lines(Kit.P("kit-options.txt"))) { var p = l.Split(new[] { '=' }, 2); if (p.Length == 2 && IsSetupKey(p[0].Trim())) o[p[0].Trim()] = p[1].Trim(); }
+            return o;
+        }
+        public static void ExportSetup()
+        {
+            var d = new Microsoft.Win32.SaveFileDialog { FileName = "My Messiah setup.json", Filter = "Messiah setup (*.json)|*.json", InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) };
+            if (d.ShowDialog() != true) return;
+            try { File.WriteAllText(d.FileName, Kit.ToJson(new Dictionary<string, object> { ["messiahSetup"] = 1, ["saved"] = DateTime.Now.ToString("s"), ["options"] = CurrentSetup() })); Shell.Say("Saved - open it on another PC with Settings > Tools > Load a setup."); }
+            catch (Exception e) { Shell.Say("Couldn't save it: " + e.Message); }
+        }
+        public static void ImportSetup()
+        {
+            var d = new Microsoft.Win32.OpenFileDialog { Filter = "Messiah setup (*.json)|*.json", InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) };
+            if (d.ShowDialog() != true) return;
+            var j = Kit.ReadJson(d.FileName);
+            if (j == null || Json.N(j, "messiahSetup") == null || !(Json.Get(j, "options") is Dictionary<string, object> opts)) { Shell.Say("That file isn't a Messiah setup."); return; }
+            ApplySetup(opts.Where(kv => IsSetupKey(kv.Key) && (kv.Value as string == "on" || kv.Value as string == "off")).ToDictionary(kv => kv.Key, kv => (string)kv.Value), "the setup from " + Path.GetFileName(d.FileName));
+        }
+        // the two presets: "recommended" - Messiah's own defaults (your Windows choices stay); "gaming" - everything for games on
+        public static void Preset(string name)
+        {
+            var o = new Dictionary<string, string>();
+            if (name == "gaming") foreach (var k in new[] { "defenderexclusions", "nvidiasettings", "gameboost", "gamesettings", "gametune", "autorollback", "cputemp", "fancheck" }) o[k] = "on";
+            ApplySetup(o, name == "gaming" ? "everything for gaming" : "the recommended settings", reset: name != "gaming");
+        }
+        static void ApplySetup(Dictionary<string, string> o, string what, bool reset = false)
+        {
+            var cur = CurrentSetup();
+            var changes = reset ? cur.Keys.Where(k => SetupKeys.Contains(k)).Count() : o.Count(kv => !cur.TryGetValue(kv.Key, out var v) || v != kv.Value);
+            if (changes == 0) { Shell.Say($"Nothing to change - this PC already has {what}."); return; }
+            if (MessageBox.Show($"Use {what}?\n\n{changes} setting{Kit.S(changes)} change{(changes == 1 ? "s" : "")}. Windows changes apply right away; the rest at the next check.", "Your setup", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            if (reset) foreach (var k in cur.Keys.Where(k => SetupKeys.Contains(k))) Kit.SetOpt(k, "");
+            foreach (var kv in o) Kit.SetOpt(kv.Key, kv.Value);
+            CheckNow(); Shell.Say($"Done - {what} in use."); Shell.Refresh(true);
+        }
+
         public static void CheckNow() { if (SendTray(Cmd.ApplyTweaks)) { Shell.CheckingSince = DateTime.Now.AddSeconds(-2); Shell.Refresh(true); } else { Shell.Say("The tray isn't running - it starts at the next login."); StartTask("Messiah Tray"); } }
         public static void FilesBackup() { Ps("files-backup.ps1", extra: "-Enable", hidden: true); Data.RunPs("todo.ps1", "-Id backup -Done"); Shell.Say("Backing up your files to that drive now - from now on it happens by itself whenever the drive is connected."); Shell.Refresh(true); }
         public static void DiagOff(string id)

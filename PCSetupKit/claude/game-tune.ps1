@@ -6,6 +6,7 @@
 #   writes its settings file when it closes), after 2 measured minutes on a value: a, b, a, b... - so a quiet evening
 #   or a busy map doesn't decide it alone. Decided once each value has 4 minutes: b is kept only if it is clearly
 #   better (the 1% low or the average 3%+ higher, the other no more than 2% lower, no more hitches); else a stays.
+#   Reflex Boost: judged on the delay to the screen when it was measured (5%+ less, the 1% low not 3%+ lower).
 # - Stopped, the owner's value put back: something else changed mid-test (graphics driver, Windows, RAM speed, Memory
 #   Integrity - the minutes would not compare), a driver reset during the test, a month without enough play. The
 #   owner changing the setting in the game ends that test with their value - it is their choice.
@@ -25,6 +26,11 @@ if (-not $Cores) { $Cores = [int]((Get-CimInstance Win32_Processor | Measure-Obj
 # --- the settings tried: only speed, never looks (10/21: Call of Duty) ---
 # alt: the value tried against the current one ($null: nothing to try); say: the value in words
 $exps = @(
+    # (10/22, first: the card busy 6.4 ms a frame at DLSS Performance, its whole 16 GB Resizable BAR window in use - upload
+    # heaps have the processor write into the card's memory across the PCIe link each frame, a gain on some PCs, a loss on others)
+    @{ id = 'uploadheaps'; key = 'GPUUploadHeaps@0'; label = 'GPU upload heaps'
+        alt = { param($v) if ($v -eq 'true') { 'false' } elseif ($v -eq 'false') { 'true' } }
+        say = { param($v) if ($v -eq 'true') { 'GPU upload heaps on' } else { 'GPU upload heaps off' } } }
     @{ id = 'reflex'; key = 'NvidiaReflex@0'; label = 'Reflex Boost'
         alt = { param($v) if ($v -eq 'Enabled + boost') { 'Enabled' } elseif ($v -eq 'Enabled') { 'Enabled + boost' } }
         say = { param($v) if ($v -eq 'Enabled + boost') { 'Reflex Boost on' } else { 'Reflex Boost off' } } }
@@ -124,6 +130,15 @@ if ($active) {
         $bWins = (($lb -ge $la * 1.03 -and $fb -ge $fa * 0.98) -or ($fb -ge $fa * 1.03 -and $lb -ge $la * 0.98)) -and $hb -le $ha * 1.5 + 2
         $nums = @{ aFps = [Math]::Round($fa, 1); bFps = [Math]::Round($fb, 1); aLow = [Math]::Round($la, 1); bLow = [Math]::Round($lb, 1); aN = $sa.Count; bN = $sb.Count }
         $diff = "1% low $([int]$la) -> $([int]$lb) fps ($(if ((Pct $lb $la) -ge 0) { '+' })$(Pct $lb $la)%), average $([int]$fa) -> $([int]$fb) fps ($(if ((Pct $fb $fa) -ge 0) { '+' })$(Pct $fb $fa)%)"
+        # Reflex is about the delay to the screen, not the frame rate (10/22): with the delay measured on both values
+        # (game-perf.ps1's latency), the one with clearly less delay (5%+) wins unless it costs 3%+ of the 1% low
+        $ya = @($sa | Where-Object { $_.latency }); $yb = @($sb | Where-Object { $_.latency })
+        if ($active.id -eq 'reflex' -and $ya.Count -ge 3 -and $yb.Count -ge 3) {
+            $da = Median ($ya | ForEach-Object { $_.latency }); $db = Median ($yb | ForEach-Object { $_.latency })
+            $bWins = $db -le $da * 0.95 -and $lb -ge $la * 0.97 -and $hb -le $ha * 1.5 + 2
+            $nums.aLatency = [Math]::Round($da, 1); $nums.bLatency = [Math]::Round($db, 1)
+            $diff = "delay to the screen $([Math]::Round($da, 1)) -> $([Math]::Round($db, 1)) ms ($(if ((Pct $db $da) -ge 0) { '+' })$(Pct $db $da)%), $diff"
+        }
         if ($bWins) { End-Test 'b' 'faster' $nums; "$name tuning: $sayB is faster on this PC than $sayA - $diff over $($sb.Count) minutes of play each; switched to it" }
         else { End-Test 'a' 'no faster' $nums; "$name tuning: $sayB was no faster than $sayA ($diff over $($sa.Count) minutes of play each) - kept $sayA" }
     }

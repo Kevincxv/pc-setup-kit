@@ -42,6 +42,7 @@ namespace Messiah
                 else if (a == "uri" && i + 1 < args.Length) uri = Regex.Replace(args[++i], "^messiah:/*", "", RegexOptions.IgnoreCase).TrimEnd('/');   // (a notification clicked)
                 else if (a == "tray-test" && i + 1 < args.Length) trayTest = args[++i];
                 else if (a == "fs") fs = true;
+                else if (a == "quick") return QuickTest();   // (the tray's quick panel on its own - to look at it)
                 else if (a == "after" && i + 1 < args.Length) int.TryParse(args[++i], out after);   // (Restart into an update: the copy before)
             }
             if (trayTest != null) return Tray.TrayLogic.Test(trayTest, fs);
@@ -149,6 +150,15 @@ namespace Messiah
         internal static IEnumerable<string> RestartArgs(string[] args, int pid) =>
             args.Where(x => Regex.IsMatch(x, "^(--?|/)(live|tray)$", RegexOptions.IgnoreCase)).Concat(new[] { "--after", pid.ToString() });
 
+        static int QuickTest()
+        {
+            Theme.Load();
+            var app = new App { ShutdownMode = ShutdownMode.OnLastWindowClose };
+            app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/MessiahApp;component/Styles.xaml") });
+            Theme.Apply(app.Resources);
+            var q = new Tray.QuickPanel(null, null, null); q.Show(); app.Run(); return 0;
+        }
+
         // what went wrong, for /self-improve (.claude\app-errors.log, kept short)
         public static void Log(string what)
         {
@@ -181,6 +191,8 @@ namespace Messiah
                 }
                 foreach (var miss in Unnamed(w.Content)) o.AppendLine($"A11Y: window: {miss}");   // (the window's own parts: the tabs, the chat)
                 foreach (var l in w.ChatSelfTest()) o.AppendLine(l);
+                foreach (var l in Pages.Performance.ChartSelfTest()) o.AppendLine(l);
+                foreach (var l in new Tray.QuickPanel(null, null, null).Words()) o.AppendLine(l.StartsWith("A11Y") ? l : "QUICK: " + l);
                 // the RAM stick test, each stage (made-up logs - dashboard.ps1's same cases)
                 string two = "2 stick(s), 32 GB in P0 CHANNEL A + P0 CHANNEL B", oA = "1 stick(s), 16 GB in P0 CHANNEL A", oB = "1 stick(s), 16 GB in P0 CHANNEL B";
                 var bas = new[] { $"2026-10-05 09:54 | start | {two}", $"2026-10-10 11:30 | crash | {two}", $"2026-10-10 11:30 | start | {two}" };
@@ -256,6 +268,7 @@ namespace Messiah
                     // (a card with charts: its label | value rows too - Heat and wear - then each chart)
                     foreach (var g in Find<Grid>(card.Child).Where(x => (x.Tag as string) == "rows"))
                         foreach (var rr in g.Children.OfType<TextBlock>().GroupBy(x => Grid.GetRow(x))) o.AppendLine("  " + string.Join(": ", rr.Select(x => x.Text).Where(x => x != "")));
+                    foreach (var tb in Texts(card.Child).SkipWhile((x, i) => i == 0 && x == info.Title)) o.AppendLine("  " + tb);   // (its lines of words - a game's card, 10/22)
                     foreach (var ch in charts) o.AppendLine("  " + ch.Tag);
                     return;
                 }
@@ -280,6 +293,7 @@ namespace Messiah
                 yield break;
             }
             if (el is Grid gr && (gr.Tag as string) == "rows") yield break;
+            if (el is StackPanel ch && (ch.Tag as string ?? "").StartsWith("CHART:")) yield break;   // (a chart: said by its tag)
             if (el is Panel p) { foreach (var c in p.Children) foreach (var s in Texts(c)) yield return s; yield break; }
             if (el is Decorator d) foreach (var s in Texts(d.Child)) yield return s;
         }

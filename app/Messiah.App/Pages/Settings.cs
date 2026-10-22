@@ -45,9 +45,10 @@ namespace Messiah.Pages
                 ("autorollback", "on", "Undo a graphics driver that crashes or is slower", "A new graphics driver is on test for its first two weeks: if it causes freezes or blue screens, or your games run clearly slower on it than on the one before, it is swapped back to the one before by itself, and held back until a newer version comes. Off: you get a warning with a one-click button instead."),
                 ("gametune", "on", "Tune my games by measuring", "Call of Duty's settings that only change speed (never how it looks) are tried both ways in your own matches - switched only while the game is closed - and the faster one is kept. Results: Activity > Performance. Off: a test under way ends with your setting back."),
                 ("cputemp", "on", "Measure the processor's temperature", "Windows can't read it by itself: a small signed driver (PawnIO, open source - the one LibreHardwareMonitor and FanControl use) and LibreHardwareMonitor's library read the processor's own sensor - while you play and at idle (Activity > Performance: Heat and wear). Off: both are removed at the next check."),
-                ("ramcheck", "on", "Test the memory at night", "Once the PC has been left alone for 30 minutes (no game), most of the free memory is filled with patterns and read back, again and again - a flipped bit means faulty memory. It stops the moment you touch the mouse or keyboard. Every night while blue screens keep coming, else once a month. Results: Activity > Stability.") };
+                ("ramcheck", "on", "Test the memory at night", "Once the PC has been left alone for 30 minutes (no game), most of the free memory is filled with patterns and read back, again and again - a flipped bit means faulty memory. It stops the moment you touch the mouse or keyboard. Every night while blue screens keep coming, else once a month. Results: Activity > Stability."),
+                ("fancheck", "on", "Watch the fans", "The graphics card's fans stuck high while it is idle and cool go back to automatic (quiet when cool), and a stopped CPU fan or water-cooling pump is a warning. Fan curves stay the BIOS's own. Off: the fans aren't watched.") };
             // the crash and hardware-health ones get their own card
-            var health = new[] { "autorollback", "cputemp", "ramcheck" };
+            var health = new[] { "autorollback", "cputemp", "ramcheck", "fancheck" };
             UIElement Row((string, string, string, string) g) => Ui.SwitchRow(g.Item3, g.Item4, Kit.Opt(g.Item1, g.Item2) == "on",
                 sw => { Kit.SetOpt(g.Item1, OnOff(sw.IsChecked == true)); Shell.Say("Saved - applied at the next check (or click Run maintenance now)."); }, g.Item1);
             o.Add(Ui.Card("Games", "E7FC", games.Where(g => !health.Contains(g.Item1)).Select(g => (object)Row(g))));
@@ -82,6 +83,11 @@ namespace Messiah.Pages
         public static List<UIElement> Tools(Snapshot s)
         {
             var o = new List<UIElement>();
+            // your setup in a file, and the two presets (10/22 - winutil's and Winhance's config files)
+            var mine = Actions.CurrentSetup();
+            o.Add(Ui.Card("Your setup", "E8F1", new object[] { new Line($"Messiah's switches and your choices of Windows changes - {mine.Count} chosen on this PC. Save them to a file and load them on another PC (or after reinstalling Windows), or start from a preset.", "info"),
+                Dim("Recommended: Messiah's own defaults (your Windows choices stay). Everything for gaming: every game feature on - Defender skipping game folders, NVIDIA settings, Game Mode, keeping and tuning game settings, the driver test, temperatures and fans.") },
+                new[] { Ui.Btn("E74E", "Save to a file...", Actions.ExportSetup), Ui.Btn("E8E5", "Load a setup...", Actions.ImportSetup), Ui.Btn("E7FC", "Everything for gaming", () => Actions.Preset("gaming")), Ui.Btn("E777", "Recommended", () => Actions.Preset("recommended")) }));
             var kl = new List<object> { new Line($"{(s.KitVersion != "" ? $"Version {s.KitVersion}, since {s.KitSince:MMM d}. " : "")}It updates itself (checks every 4 hours) and tests itself after each update.") };
             if (s.PrevVersion != "") kl.Add(Dim($"The version before ({s.PrevVersion}) is kept: Undo goes back to it."));
             if (s.Ai && Data.ClaudeVersion() != "") kl.Add(Dim($"Claude Code {Data.ClaudeVersion()} - updates itself; an idle hidden session moves onto a new version by itself."));

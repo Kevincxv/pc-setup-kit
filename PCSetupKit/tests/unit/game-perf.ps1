@@ -71,4 +71,28 @@ Check '... not a minute of another game' (@(Hist)[-1].game -eq 'OtherGame' -and 
 [void](Invoke-Sample $cap -at $now.AddHours(5) -Force); $f3 = @(Hist)[-1].settings
 Check 'the game settings fingerprint: not changed by the driver it also keeps, nor by the setting being tried' ($f1 -and $f1 -eq $f2) "$f1 / $f2"
 Check '... but by another setting' ($f3 -and $f3 -ne $f2) "$f2 / $f3"
+
+Section 'what holds it back, the delay, the menu left out (10/22)'
+Clear-Path $hf; Clear-Path "$Work\game-tune.json"
+[void](Invoke-Sample $cap @('67.61, 93, Not Active, Not Active, Not Active, 48, 212.51') -Force)
+Check 'a newer driver''s temperature with decimals ("67.61"): still read' (@(Hist)[-1].gpuTemp -eq 68 -and @(Hist)[-1].gpuUse -eq 93) "$(@(Hist)[-1].gpuTemp) / $(@(Hist)[-1].gpuUse)"
+# PresentMon 2's columns: $menu seconds at the menu's 60 cap, then $play seconds at 125 fps (8 ms: 6 of them the card busy, 4 ms from start to present, 7 ms until shown)
+function New-Capture2([int]$menu, [int]$play, [string]$mode = 'Hardware: Independent Flip') {
+    $f = "$Work\capture2-$menu-$play.csv"; $rows = New-Object Collections.Generic.List[string]
+    $rows.Add('Application,ProcessID,PresentMode,MsBetweenPresents,MsCPUBusy,MsGPUBusy,MsUntilDisplayed')
+    for ($i = 0; $i -lt $menu * 60; $i++) { $rows.Add("TestGame.exe,100,$mode,16.6667,16.0,3.0,5.0") }
+    for ($i = 0; $i -lt $play * 125; $i++) { $rows.Add("TestGame.exe,100,$mode,8.0,4.0,6.0,7.0") }
+    $rows | Set-Content $f; $f
+}
+'{"C:\\\\g\\\\s.txt":{"values":{"MaxFpsInMenu@0":"60","MaxFpsOutOfFocus@0":"30"}}}' | Set-Content "$Work\game-settings.json"
+[void](Invoke-Sample (New-Capture2 30 30) -at $now.AddHours(1) -Force); $s = @(Hist)[-1]
+Check 'the seconds at the menu''s frame cap are left out: the minute reads as the play in it' ($s.frames -eq 3750 -and [Math]::Abs($s.fps - 125) -lt 0.5 -and @($s.perSec | Where-Object { $_ -lt 100 }).Count -eq 0) "$($s.frames) frames, $($s.fps) fps"
+Check 'the graphics card''s busy share of each frame (75% here: not the limit)' ($s.gpuBusy -eq 75) "$($s.gpuBusy)"
+Check 'the delay from the frame''s start to the screen (what Reflex lowers)' ($s.latency -eq 11) "$($s.latency)"
+Check 'how the frames reach the screen' ($s.presentMode -eq 'Hardware: Independent Flip') "$($s.presentMode)"
+$n = @(Hist).Count; [void](Invoke-Sample (New-Capture2 50 10) -at $now.AddHours(2) -Force)
+Check 'mostly in the menu (under 20 s of play left): not a sample' (@(Hist).Count -eq $n) ''
+Clear-Path "$Work\game-settings.json"
+[void](Invoke-Sample (New-Capture2 30 30) -at $now.AddHours(3) -Force)
+Check 'a game without known menu caps: every second counts (nothing guessed)' (@(Hist)[-1].frames -eq 5550) "$(@(Hist)[-1].frames)"
 Finish

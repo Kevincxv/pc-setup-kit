@@ -15,9 +15,11 @@ function New-Setup {
     '[]' | Set-Content $pf; Clear-Path $sf; '{}' | Set-Content $gws; '' | Set-Content $opt
 }
 function GT([datetime]$at, [string]$run = 'no', [string]$c = $cond) { @(& $gt -Files $cfg -State $sf -Perf $pf -GameSettings $gsf -GpuState $gws -Running $run -Conditions $c -Cores 8 -Now $at -Options $opt) }
-function Add-Min([datetime]$at, [string]$tune, [double]$fps, [double]$low, [string]$drv = 'D1') {
+function Add-Min([datetime]$at, [string]$tune, [double]$fps, [double]$low, [string]$drv = 'D1', [double]$lat = 0) {
     $h = @(Get-Content $pf -Raw | ConvertFrom-Json | ForEach-Object { $_ })
-    $h += [pscustomobject]@{ date = $at.ToString('o'); game = 'cod'; fps = $fps; low1 = $low; stutters = 2; tune = $tune; driver = $drv; build = 'B1'; ram = '6000 MT/s'; hvci = 'off' }
+    $m = [ordered]@{ date = $at.ToString('o'); game = 'cod'; fps = $fps; low1 = $low; stutters = 2; tune = $tune; driver = $drv; build = 'B1'; ram = '6000 MT/s'; hvci = 'off' }
+    if ($lat) { $m.latency = $lat }
+    $h += [pscustomobject]$m
     ConvertTo-Json -InputObject @($h) -Depth 3 | Set-Content $pf
 }
 function Val([string]$key) { foreach ($l in Get-Content $cfg) { if ($l -match "^$([regex]::Escape($key));\d+;\d+ = ([^/]*?)\s*(//.*)?$") { return $Matches[1].Trim() } } }
@@ -48,6 +50,22 @@ $o = GT $d.AddHours(4)
 Check '4 minutes each, the other value clearly smoother: switched to it, said with the numbers' ("$o" -match 'Reflex Boost off is faster on this PC than Reflex Boost on - 1% low 15\d -> 16\d fps \(\+10%\), average 20\d -> 20\d fps \(\+2%\) over 4 minutes of play each; switched to it' -and (Val 'NvidiaReflex@0') -eq 'Enabled' -and (Kept 'NvidiaReflex@0') -eq 'Enabled') "$o"
 $r = @((St).done)[-1]
 Check '... the result kept for the app (both values, numbers, which one stayed)' ($r.id -eq 'reflex' -and $r.kept -eq 'Enabled' -and $r.aLow -eq 150.5 -and $r.bLow -eq 165.5 -and $r.aN -eq 4 -and -not (St).active) ($r | ConvertTo-Json -Compress)
+
+Section 'Reflex Boost judged on the delay to the screen (10/22)'
+New-Setup; $t = $now.AddDays(-12)
+function Run-Reflex([double]$fa, [double]$la, [double]$ya, [double]$fb, [double]$lb, [double]$yb) {
+    [void](GT $t)
+    foreach ($k in 0..1) { foreach ($i in 0..1) { Add-Min $t.AddDays($k * 2).AddHours($i) 'reflex:a' $fa $la 'D1' $ya }; [void](GT $t.AddDays($k * 2).AddHours(3))
+        foreach ($i in 0..1) { Add-Min $t.AddDays($k * 2 + 1).AddHours($i) 'reflex:b' $fb $lb 'D1' $yb }; $script:o = GT $t.AddDays($k * 2 + 1).AddHours(3) }
+}
+Run-Reflex 200 150 12 199 149 10.5
+Check 'the other value: about the same frame rate but clearly less delay - switched to it, said with the delay' ("$o" -match 'Reflex Boost off is faster on this PC than Reflex Boost on - delay to the screen 12 -> 10.5 ms \(-1[23]%\)' -and (Val 'NvidiaReflex@0') -eq 'Enabled' -and @((St).done)[-1].bLatency -eq 10.5) "$o"
+New-Setup
+Run-Reflex 200 150 12 215 165 11.8
+Check 'more frames but about the same delay: no faster (the frame rate alone does not decide Reflex)' ("$o" -match 'was no faster than Reflex Boost on \(delay to the screen 12 -> 11.8 ms' -and (Val 'NvidiaReflex@0') -eq 'Enabled + boost') "$o"
+New-Setup
+Run-Reflex 200 150 12 190 140 10
+Check 'less delay but the 1% low 3%+ lower: no faster' ("$o" -match 'was no faster' -and (Val 'NvidiaReflex@0') -eq 'Enabled + boost') "$o"
 
 Section 'the next setting: no better, so the owner''s stays'
 $t = $now.AddDays(-6)
@@ -99,6 +117,9 @@ Check 'switched off in Settings: a test under way ends with the owner''s value b
 $o = GT $t.AddHours(5)
 Check '... and nothing more while it is off' (-not $o -and -not (St).active) "$o"
 '' | Set-Content $opt
+New-Setup; Add-Content $cfg 'GPUUploadHeaps@0;57752;20945 = true'
+$o = GT $now.AddDays(-1)
+Check 'GPU upload heaps (10/22): tried first, on against off' ("$o" -match 'trying GPU upload heaps both ways .+GPU upload heaps on \(as now\) against GPU upload heaps off' -and (St).active.id -eq 'uploadheaps') "$o"
 $o = @(& $gt -Files @("$Work\missing.txt") -State "$Work\none.json" -Perf $pf -GameSettings $gsf -GpuState $gws -Running 'no' -Conditions $cond -Cores 8 -Now $now -Options $opt)
 Check 'the game not installed: nothing' (-not $o -and -not (Test-Path "$Work\none.json")) "$o"
 Finish

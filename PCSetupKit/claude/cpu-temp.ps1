@@ -6,9 +6,9 @@
 #   Settings) removes them again (PawnIO only if Messiah put it on: cpu-temp.txt says so; one that was there before stays).
 #   The driver shows in the stability timeline (power-log.ps1 "Hardware monitor driver") - it is a kernel driver.
 # -Reader: returns a scriptblock that gives the temperature now (C, $null if it can't) - game-perf.ps1 and trends.ps1
-#   call it; the library is loaded into their process once.
+#   call it; the library is loaded into their process once. -Print: the temperature now (the tray's quick panel).
 # -Test (hashtable: Game, Installed, Option, Reading, Before) with -Do (gets the actions) / -Options / -State: tests.
-param([switch]$Ensure, [switch]$Reader, [hashtable]$Test, [scriptblock]$Do,
+param([switch]$Ensure, [switch]$Reader, [switch]$Print, [hashtable]$Test, [scriptblock]$Do,
     [string]$Options = "$PSScriptRoot\kit-options.txt", [string]$State = "$PSScriptRoot\cpu-temp.txt", [string]$Tools = "$PSScriptRoot\tools\lhm")
 $ErrorActionPreference = 'SilentlyContinue'
 $T = $Test
@@ -41,6 +41,7 @@ function New-Reader {
     } catch { return $null }
 }
 if ($Reader) { return (New-Reader) }
+if ($Print) { $r = New-Reader; if ($r) { & $r }; return }   # (the tray's quick panel: the temperature now, or nothing)
 if (-not $Ensure) { return }
 
 $opt = if ($T) { $T.Option } else { $l = @(Get-Content $Options) -match '^\s*cputemp\s*=' | Select-Object -First 1; if ($l) { ($l -split '=', 2)[1].Trim() } }

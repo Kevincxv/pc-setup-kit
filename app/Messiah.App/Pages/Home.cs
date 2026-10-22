@@ -64,6 +64,10 @@ namespace Messiah.Pages
                 new[] { Ui.Btn("E768", "Resume now", () => { Kit.SetOpt("pause-until", ""); Shell.Say("Maintenance runs again as usual."); Shell.Refresh(true); }) }, calm: true));
             if (todo.Count > 0) o.Add(Ui.Card("Needs you", "E7BA", TodoLines(needs.Lines, s.Ram != null && s.Ram.Count > 0), null, calm: true));
 
+            // the last game session, for 12 hours after it ended: how it ran against that game's usual (10/22)
+            if (s.LastSession != null && s.LastSession.End > DateTime.Now.AddHours(-12) && s.Playing == "")
+                o.Add(Ui.Card("Last session", "E7FC", Data.SessionLines(s.LastSession).Cast<object>(), new[] { Ui.Btn("E9D2", "Performance", () => Shell.ShowPage("Activity", "Performance")) }));
+
             // the PC went off without a blue screen: did the owner do that? - one at a time, newest first, last 30 days
             var ask = s.Power.Where(e => e.Kind == "off" && e.Answer == "" && e.Key > DateTime.Now.AddDays(-30)).OrderByDescending(e => e.Key).ToList();
             if (ask.Count > 0)

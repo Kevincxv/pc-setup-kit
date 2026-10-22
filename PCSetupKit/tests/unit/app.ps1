@@ -70,20 +70,22 @@ Section 'Activity > Performance: a setting tried both ways, a driver on test, he
 $H = "$Work\tune"; $C = "$H\.claude"; New-Item $C, "$H\Documents" -ItemType Directory -Force | Out-Null
 'claude=off' | Set-Content "$C\kit-options.txt"; $now = Get-Date
 $rows = @(foreach ($i in 0..5) { [ordered]@{ date = $now.AddHours(-12 + $i).ToString('o'); game = 'cod'; fps = 200; low1 = 150; frames = 12000; stutters = 2; driver = '2.0'; gpuTemp = 70 + $i; gpuFan = 55; gpuPower = 290; cpuLimit = 100; cpuPerf = 112; tune = $(if ($i -lt 3) { 'vram:a' } else { 'vram:b' }) } })
+$rows[-1].gpuBusy = 72; $rows[-1].latency = 11.4; $rows[-1].presentMode = 'Composed: Flip'
 ConvertTo-Json -InputObject $rows -Depth 4 | Set-Content "$C\perf-history.json"
 @{ active = @{ id = 'vram'; game = 'cod'; label = 'the video memory budget'; a = '0.850000'; b = '0.750000'; arm = 'b'; started = $now.AddDays(-1).ToString('o') }
-   done = @(@{ id = 'reflex'; label = 'Reflex Boost'; a = 'Enabled + boost'; b = 'Enabled'; kept = 'Enabled'; why = 'faster'; at = $now.AddDays(-2).ToString('o'); aFps = 200; bFps = 204; aLow = 150; bLow = 165 },
+   done = @(@{ id = 'reflex'; label = 'Reflex Boost'; a = 'Enabled + boost'; b = 'Enabled'; kept = 'Enabled'; why = 'faster'; at = $now.AddDays(-2).ToString('o'); aFps = 200; bFps = 204; aLow = 150; bLow = 165; aLatency = 12.5; bLatency = 10.9 },
             @{ id = 'workers'; label = 'the renderer thread count'; a = '9'; b = '8'; kept = '9'; why = 'the graphics driver reset during the test'; at = $now.AddDays(-3).ToString('o') }) } | ConvertTo-Json -Depth 4 | Set-Content "$C\game-tune.json"
 @{ trial = @{ driver = '2.0'; from = '1.0'; since = $now.AddDays(-1).ToString('o'); verdict = $null; text = $null } } | ConvertTo-Json -Depth 3 | Set-Content "$C\gpu-state.json"
 ConvertTo-Json -InputObject @(@{ date = $now.ToString('o'); ssdTemp = 49; ssdTempMax = 86; ssdWear = 3; gpuIdle = 28; gpuIdleFan = 70 }) | Set-Content "$C\health-history.json"
 $r = Run-App $H
 Check 'the page builds' (-not (Errs $r)) (Errs $r)
 Check 'the setting being tried: both values in words, how far along, which one is on now' ($r.Out -match 'Trying now in Call of Duty: a 85% video memory budget \(as before\) against a 75% video memory budget - 6 of 8 minutes of play measured\. On now: a 75% video memory budget\.') ''
-Check '... each test''s result: what was faster and by how much, what was kept' ($r.Out -match 'Reflex Boost off is faster than Reflex Boost on \(1% low 150 -> 165 fps \+10%, average 200 -> 204 fps\) - switched to it' -and $r.Out -match 'the renderer thread count: stopped - the graphics driver reset during the test; 9 renderer threads kept') ''
+Check '... each test''s result: what was faster and by how much, what was kept' ($r.Out -match 'Reflex Boost off is faster than Reflex Boost on \(delay to the screen 12\.5 -> 10\.9 ms -13%, 1% low 150 -> 165 fps \+10%, average 200 -> 204 fps\) - switched to it' -and $r.Out -match 'the renderer thread count: stopped - the graphics driver reset during the test; 9 renderer threads kept') ''
 Check 'a new driver on test: against which one, how far along, what happens if it is slower' ($r.Out -match 'CARD: Graphics driver test' -and $r.Out -match 'Driver 2\.0 \(since .+\) is on test against 1\.0: 3 of 3 minutes of play measured on it\. If your games run clearly slower on it, Messiah goes back to 1\.0 by itself\.') ''
 Check 'heat and wear: the graphics card while gaming and at idle, the processor, the SSD''s hottest' ($r.Out -match 'Graphics card: up to 75 °C while gaming, fan 55%, 290 W; 28 °C at idle, fan 70%' -and $r.Out -match 'Processor: at full speed while gaming \(112% of its base speed\)' -and $r.Out -match 'SSD: 49 °C now, 86 °C at its hottest \(it slows itself down from about 80 °C - a heatsink helps\), 3% worn' -and $r.Out -match 'CHART: Graphics card while gaming \| 6 points') ''
 '{"trial":{"driver":"2.0","from":"1.0","since":"' + $now.AddDays(-3).ToString('o') + '","verdict":"rolled back","text":"cod runs slower on it than on 1.0 (1% low 150 -> 128 fps) - went back to 1.0"}}' | Set-Content "$C\gpu-state.json"
 $r = Run-App $H
+Check 'what limits the frame rate, the delay to the screen, frames through the compositor (10/22)' ($r.Out -match 'The processor or the game is the limit \(the graphics card is busy only 72% of each frame\)' -and $r.Out -match '11\.4 ms from the game starting a frame to it on screen' -and $r.Out -match 'desktop compositor') ''
 Check '... a driver that failed its test: said it was undone, and why' ($r.Out -match 'Driver 2\.0 was undone - cod runs slower on it than on 1\.0') ''
 Check 'Settings: the switch for tuning by measuring' ($r.Out -match 'Tune my games by measuring') ''
 Section 'the memory test and the processor''s temperature (10/22)'
@@ -119,7 +121,7 @@ Check '... a blue screen, a driver change' ($r.Out -match 'A blue screen [^\r\n]
 Check 'never closed before (no time recorded): no card' ((Run-App $H).Out -notmatch 'Since you last looked') ''
 Section 'break it: every state file garbage, in a profile path with spaces and non-English letters'
 $H = "$Work\Jörg Müller ÄÖÜ ñ"; $C = "$H\.claude"; New-Item $C, "$H\Documents", "$C\maint-history", "$C\chats\20260101-000000" -ItemType Directory -Force | Out-Null
-$states = 'actions-state.json', 'guard-state.json', 'benchmarks.json', 'display-state.json', 'files-backup-state.json', 'gaming-state.json', 'gpu-state.json', 'game-tune.json', 'ram-check.json',
+$states = 'actions-state.json', 'guard-state.json', 'benchmarks.json', 'display-state.json', 'files-backup-state.json', 'gaming-state.json', 'gpu-state.json', 'game-tune.json', 'ram-check.json', 'fan-state.json', 'benchmarks.json',
     'health-history.json', 'junk-state.json', 'maint-state.json', 'net-history.json', 'perf-history.json', 'restart-ledger.json', 'self-test.json',
     'todo-scripted.json', 'update-state.json', 'vendor-state.json', 'kit-options.txt', 'maint-report.txt', 'maint-todo.txt', 'notifications.log',
     'tray-news.txt', 'tray-notified.ini', 'gpu-hold.txt', 'admin-sessions.txt', 'app-window.txt', 'tray-hwnd.txt', 'restart-night.log',
@@ -171,6 +173,30 @@ else {
 }
 if (-not $p1.HasExited) { $p1.Kill() }
 
+Section 'the last session, the benchmark, your setup, the fans, the quick panel (10/22)'
+$H = "$Work\feat"; $C = "$H\.claude"; New-Item $C, "$H\Documents" -ItemType Directory -Force | Out-Null
+'claude=off' | Set-Content "$C\kit-options.txt"; $now = Get-Date
+$rows = @(foreach ($i in 1..4) { [ordered]@{ date = $now.AddDays(-3).AddHours($i).ToString('o'); game = 'cod'; fps = 200; low1 = 150; stutters = 1 } }) + @(foreach ($i in 0..1) { [ordered]@{ date = $now.AddHours(-2).AddMinutes($i * 25).ToString('o'); game = 'cod'; fps = 230; low1 = 120; stutters = 2; gpuTemp = 72; cpuTemp = 81.5 } })
+ConvertTo-Json -InputObject $rows | Set-Content "$C\perf-history.json"
+"$($now.AddHours(-2.2).ToString('s')) | $($now.AddHours(-1).ToString('s')) | cod" | Set-Content "$C\game-sessions.log"
+'[{"date":"2026-09-26","memBandwidthMBs":63102},{"date":"' + $now.ToString('s') + '","cpuMulti":1510,"cpuSingle":139,"memBandwidthMBs":52937,"diskReadMBs":1175,"ram":"4800 MT/s"}]' | Set-Content "$C\benchmarks.json"
+'{"last":[{"Hw":"board","Name":"CPU Fan","Rpm":1250,"Duty":40},{"Hw":"board","Name":"Pump Fan","Rpm":870,"Duty":40},{"Hw":"board","Name":"System Fan #1","Rpm":0,"Duty":0},{"Hw":"gpu","Name":"GPU Fan 1","Rpm":0,"Duty":0}]}' | Set-Content "$C\fan-state.json"
+"defenderexclusions=on`r`ntweak.edge-remove=on`r`nchatwidth=900" | Add-Content "$C\kit-options.txt"
+$r = Run-App $H
+Check 'the page builds' (-not (Errs $r)) (Errs $r)
+Check 'Home: the last session - how long, against the usual, the hottest it got' ($r.Out -match 'CARD: Last session\s+Call of Duty - 1 h 12 min, ended .+?: 230 fps average \(usual 200 - better\), 1% low 120 fps \(usual 150 - lower\), 4 hitches\.' -and $r.Out -match 'Graphics card up to 72 °C, processor up to 81\.5 °C - from 2 measured minutes\.') ''
+Check 'Performance: the benchmark, each run with its RAM speed, and its button' ($r.Out -match 'CARD: Benchmark\s+today: memory 52,937 MB/s, processor 1,510 MB/s all cores / 139 MB/s one, SSD 1,175 MB/s - RAM at 4800 MT/s' -and $r.Out -match 'BUTTONS: Run the benchmark') ''
+Check 'Heat and wear: the fans that spin, the graphics card''s stopped while cool' ($r.Out -match 'Fans: CPU Fan: 1250 RPM, pump: 870 RPM, graphics card: stopped') ''
+Check 'Settings > Tools: your setup - how many chosen here (only Messiah''s switches and Windows choices), save, load, presets' ($r.Out -match 'CARD: Your setup\s+[^\r\n]*- 2 chosen on this PC' -and $r.Out -match 'BUTTONS: Save to a file\.\.\. \| Load a setup\.\.\. \| Everything for gaming \| Recommended') ''
+Section 'the charts: hover, what changed, 7 days / 30 days / all, a session clicked open (10/22)'
+Check 'a chart over 30 days starts on the last 30, with the ranges offered' ($r.Out -match '(?m)^CHARTTEST tag: CHART: Frame rate, each session \| 9 points, .*\| ranges: 7 days, 30 days\*, All' -and $r.Out -match '(?m)^CHARTTEST all: 12 points') ''
+Check 'a point read: its date, its value, what else was going on (not its own value twice)' ($r.Out -match '(?m)^CHARTTEST hover first: \w{3} Sep 2\d, .+: 143 fps - 1% low 103, graphics card busy 97% of each frame, RAM 4800 MT/s\s*$') ''
+Check 'what changed is marked, and said at the first session after it' ($r.Out -match '\| marks: Graphics driver 2\.0; trying GPU upload heaps on; trying GPU upload heaps off \|' -and $r.Out -match '(?m)^CHARTTEST hover after the driver: .+\(changed: Graphics driver 2\.0\)') ''
+Check '... the setting being tried, by its value (said once)' ($r.Out -match '(?m)^CHARTTEST hover tested: .+trying GPU upload heaps off\s*$') ''
+Check 'a session clicked: opened under the charts, its minute second by second, a way back to the latest' ($r.Out -match '(?m)^CHARTTEST clicked: Session opened: 143 fps average.+ / That minute \(.+\), second by second / Back to the latest session') ''
+Check 'Trends: the most played game''s charts open a session on Performance' ($r.Out -match 'CHART: Frame rate - Call of Duty \|.*click opens a session') ''
+Check 'the tray''s quick panel: status, temperatures, Game Mode, the main actions' ($r.Out -match '(?m)^QUICK: .*Processor .*\| Game Mode \|.*\[Open Messiah\] \| \[Run maintenance\] \| \[Pause 2 h\]') ''
+Check 'Settings: the switch for watching the fans' ($r.Out -match 'Watch the fans') ''
 Section 'the switch-over: the tray, the Start menu, installs and updates run it'
 $trayText = Get-Content $env:PCKIT_TRAY -Raw
 Check 'the tray opens it (--live, --page) and starts it hidden (--background)' ($trayText -match 'app\\MessiahApp\.exe' -and $trayText -match "--live' \(page" -and $trayText -match '--live --background') ''

@@ -54,7 +54,7 @@ namespace Messiah
                 try
                 {
                     var lines = (File.Exists(f) ? File.ReadAllLines(f) : new string[0]).Where(x => !rx.IsMatch(x)).ToList();
-                    lines.Add(key + "=" + value);
+                    if (!string.IsNullOrEmpty(value)) lines.Add(key + "=" + value);   // (empty: the line goes - back to the default)
                     File.WriteAllLines(f, lines); return true;
                 }
                 catch { Thread.Sleep(100); }

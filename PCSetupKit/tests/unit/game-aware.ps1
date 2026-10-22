@@ -30,6 +30,7 @@ $fake = "$Work\Steam\steamapps\common\FakeGame"; New-Item $fake -ItemType Direct
 $fp = Start-Process "$fake\FakeGame123.exe" -ArgumentList '-n', '30', '127.0.0.1' -WindowStyle Hidden -PassThru; Start-Sleep -Milliseconds 500
 $o = & "$gl\game-check.ps1" -Explain -NoLearn
 if ("$o" -match 'fullscreen') { Skip 'a game running from a game library folder is reported' "something is fullscreen right now ($o)" }
+elseif ("$o" -notmatch '^FakeGame123' -and "$o" -match 'running from a game library|known game') { Skip 'a game running from a game library folder is reported' "a real game is running on this PC ($o)" }
 else { Check 'a game running from a game library folder is reported' ("$o" -match '^FakeGame123 - running from a game library') "$o" }
 Stop-Process -Id $fp.Id -Force -ErrorAction SilentlyContinue; $fp.WaitForExit(5000) | Out-Null
 $o = & "$gl\game-check.ps1" -NoLearn

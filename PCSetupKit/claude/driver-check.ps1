@@ -135,7 +135,9 @@ if ("$($cpu.Name)" -match 'Ryzen' -and $amdChipset) { try {
 try {
     $session = New-Object -ComObject Microsoft.Update.Session
     $searcher = $session.CreateUpdateSearcher()
-    $result = $searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Driver'")
+    # One retry: the search fails now and then while Windows Update is busy with something else (10/22: 0x8024001E
+    # while Defender installed its own update), and a second try a minute later works
+    $result = try { $searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Driver'") } catch { Start-Sleep 60; $searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Driver'") }
     # A driver that already failed to install (e.g. for a disabled device) would retry forever: hide it instead
     $failed = @($searcher.QueryHistory(0, [Math]::Min(200, $searcher.GetTotalHistoryCount())) | Where-Object { $_.ResultCode -in 4, 5 } | ForEach-Object Title)
     # A driver version driver-guard.ps1 rolled back after a blue screen ("provider|yyyy-MM-dd|version|inf" lines) is

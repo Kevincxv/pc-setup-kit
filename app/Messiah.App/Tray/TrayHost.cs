@@ -42,14 +42,16 @@ namespace Messiah.Tray
 
             icon = new WF.NotifyIcon { Icon = LoadIcon(), Visible = true };
             SetTip(TrayLogic.Name);
-            icon.MouseClick += (s, e) => { if (e.Button == WF.MouseButtons.Left) Safe(() => w.ShowApp()); };
+            // a click: the quick panel (status, temperatures, Game Mode, the main actions); a double-click: the window (10/22)
+            icon.MouseClick += (s, e) => { if (e.Button == WF.MouseButtons.Left) Safe(ShowQuick); };
+            icon.MouseDoubleClick += (s, e) => { if (e.Button == WF.MouseButtons.Left) Safe(() => { quick?.Close(); w.ShowApp(); }); };
             icon.ContextMenuStrip = Menu();
 
             Every(5, Tip); Tip();
             After(8, AtLogin);
             Every(30, Notify);
             Every(300, GamePerf);
-            Every(10, GameBoost);
+            Every(10, GameBoost); Every(10, GameSession);
             if (ai)
             {
                 Every(0.5, Watch); After(3, () => AutoStart(false)); Every(300, SessionCheck); Every(900, RefreshSession);
@@ -118,7 +120,7 @@ namespace Messiah.Tray
             [Actions.Cmd.AiOn] = ("plain", "ai-toggle.ps1", "-On"),   // installs Claude Code, then its sign-in
             [Actions.Cmd.AiOff] = ("hidden", "ai-toggle.ps1", "-Off"), [Actions.Cmd.GpuRollback] = ("window", "gpu-rollback.ps1", ""),
             [Actions.Cmd.ChatHost] = ("hidden", "chat-host.ps1", ""),   // the app's chat with Claude (with admin rights, no window)
-            [Actions.Cmd.RamBootArm] = ("hidden", "ram-check.ps1", "-ArmBoot"), [Actions.Cmd.RamBootCancel] = ("hidden", "ram-check.ps1", "-CancelBoot"),
+            [Actions.Cmd.RamBootArm] = ("hidden", "ram-check.ps1", "-ArmBoot"), [Actions.Cmd.RamBootCancel] = ("hidden", "ram-check.ps1", "-CancelBoot"), [Actions.Cmd.Bench] = ("hidden", "bench.ps1", ""),
         };
         void Command(int n)
         {
@@ -152,6 +154,13 @@ namespace Messiah.Tray
         void After(double seconds, Action a) { var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(seconds) }; t.Tick += (s, e) => { t.Stop(); timers.Remove(t); Safe(a); }; t.Start(); timers.Add(t); }
 
         void Tip() => SetTip(TrayLogic.Tip(ai));
+        QuickPanel quick;
+        void ShowQuick()
+        {
+            if (quick != null && quick.IsVisible) { quick.Close(); return; }
+            quick = new QuickPanel(() => w.ShowApp(), () => RunMaint(false), h => Notes.Show(TrayLogic.SetPause(h), "-", 8));
+            quick.Closed += (s, e) => quick = null; quick.Show();
+        }
         // the welcome page once after a new install; the window at login only with "Open at login" on
         void AtLogin()
         {
@@ -211,6 +220,21 @@ namespace Messiah.Tray
                 boosted = game;
             }
             else if (game == "" && boosted != null) EndBoost();
+        }
+        // each game session, start to end (game-sessions.log: "start | end | game" - the app's "Last session" card sums up the
+        // minutes game-perf.ps1 measured in it); sessions under 5 minutes (a launcher, a crash at start) are not kept
+        string sessGame; DateTime sessStart;
+        void GameSession()
+        {
+            if (Kit.InTests) return;
+            var game = Data.Playing();
+            if (game != "" && sessGame == null) { sessGame = game; sessStart = DateTime.Now; }
+            else if (sessGame != null && game != sessGame)
+            {
+                if ((DateTime.Now - sessStart).TotalMinutes >= 5)
+                    try { File.AppendAllText(Kit.P("game-sessions.log"), $"{sessStart:s} | {DateTime.Now:s} | {sessGame}\r\n"); } catch { }
+                sessGame = game != "" ? game : null; sessStart = DateTime.Now;
+            }
         }
         public void EndBoost()
         {

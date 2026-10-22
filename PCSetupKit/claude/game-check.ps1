@@ -3,7 +3,7 @@
 # Signals: Windows' own "fullscreen D3D/busy" state, a foreground window covering its whole monitor (borderless games),
 # or a known game running in the background (alt-tabbed). Games seen fullscreen are remembered in .claude\games.txt
 # (browsers/video players are not, so fullscreen YouTube only pauses maintenance while it's actually fullscreen).
-param([switch]$Explain, [switch]$NoLearn, [hashtable]$T)   # -T: tests give the window in front (@{ Name; Covers; State })
+param([switch]$Explain, [switch]$NoLearn, [hashtable]$T)   # -T: tests give the window in front (@{ Name; Covers; State }) and what runs (Procs)
 $ErrorActionPreference = 'SilentlyContinue'
 $games = "$PSScriptRoot\games.txt"
 if (-not ('GameCheck.W' -as [type])) {
@@ -90,12 +90,15 @@ if ($why -and $own -and $fgName -and $fgName -notin $notGames) {
     if ($Explain) { "$fgName - $why" } else { $fgName }; return
 }
 if ($why) { if ($Explain) { "$fgName - $why (not a game, but fullscreen right now)" } else { $fgName }; return }   # fullscreen video: wait while it lasts
-$bg = if ($known) { Get-Process -Name $known -ErrorAction SilentlyContinue | Select-Object -First 1 }   # none known yet (a new PC): -Name @() is an error
+# (tests: the processes running are theirs - @{ Procs = @(@{ ProcessName; Path }) } - never this PC's: 10/22 a real game
+# running broke the "no game" tests)
+$procs = if ($T) { @($T.Procs | Where-Object { $_ } | ForEach-Object { [pscustomobject]$_ }) } else { $null }
+$bg = if ($known) { if ($T) { $procs | Where-Object { $_.ProcessName -in $known } | Select-Object -First 1 } else { Get-Process -Name $known -ErrorAction SilentlyContinue | Select-Object -First 1 } }   # none known yet (a new PC): -Name @() is an error
 if ($bg) { if ($Explain) { "$($bg.ProcessName) - known game running in the background" } else { $bg.ProcessName }; return }
 # Not seen fullscreen yet (new game, alt-tabbed): anything running from a launcher's game library folder is a game too.
 # Launchers themselves and always-on Steam tools (Wallpaper Engine, Lossless Scaling) live elsewhere or are skipped by name.
 $libs = '\\steamapps\\common\\|\\Epic Games\\(?!Launcher\\)|\\XboxGames\\(?!GameSave\\)|\\EA Games\\|\\GOG Galaxy\\Games\\|\\GOG Games\\|\\Ubisoft Game Launcher\\games\\'
 $tools = 'wallpaper32', 'wallpaper64', 'webwallpaper32', 'ui32', 'LosslessScaling', 'UnityCrashHandler64', 'UnityCrashHandler32', 'CrashReportClient'
-$lib = Get-Process | Where-Object { $_.Path -match $libs -and $_.ProcessName -notin $tools -and $_.ProcessName -notin $notGames } | Select-Object -First 1
+$lib = $(if ($T) { $procs } else { Get-Process }) | Where-Object { $_.Path -match $libs -and $_.ProcessName -notin $tools -and $_.ProcessName -notin $notGames } | Select-Object -First 1
 if ($lib) { if ($Explain) { "$($lib.ProcessName) - running from a game library ($(Split-Path $lib.Path))" } else { $lib.ProcessName } }
 elseif ($Explain) { "no game (foreground: $fgName)" }

@@ -1,4 +1,4 @@
-# In-game performance sample: while a game runs, one minute of its real frame times (Intel's PresentMon) plus the
+﻿# In-game performance sample: while a game runs, one minute of its real frame times (Intel's PresentMon) plus the
 # graphics card's temperature, load, fan, power and throttling, the processor's temperature and speed limit, the SSD's temperature
 # (and which setting game-tune.ps1 is trying out, if any) - so "a driver/Windows update made my
 # games worse" and "it runs hot while gaming" show up as numbers (trends.ps1 compares them; the app charts them).
@@ -90,8 +90,25 @@ if (-not $csv) {
 else { $gpu = @(Read-Gpu); $ssd = @(Read-SsdTemp); $dpc = @($TestDpc); $cpu = @($TestCpu); $ct = @($TestCpuTemp) }
 
 # --- frame rate: the average and the 1% low (the frame time only 1 frame in 100 is slower than) ---
-$ms = @(Import-Csv $csv | Where-Object { $_.Application -like "$game*" } | ForEach-Object { $v = 0.0; if ([double]::TryParse($_.MsBetweenPresents, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$v) -and $v -gt 0) { $v } })
+function Num($s) { $v = 0.0; if ([double]::TryParse("$s", [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$v)) { $v } else { $null } }
+$rowsF = @(Import-Csv $csv | Where-Object { $_.Application -like "$game*" -and (Num $_.MsBetweenPresents) -gt 0 })
 if (-not $TestCsv) { [IO.File]::Delete($csv) }
+# the seconds spent in the game's menu or tabbed out (10/22): a game that caps those (Call of Duty: 60 in menus, 30 out
+# of focus - its own settings, kept by game-settings.ps1) runs flat at that cap there - those seconds are left out, so
+# a minute half in the menu doesn't read as a slow minute (and doesn't decide a game-tune test)
+$gsj = try { Get-Content $GameSettings -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
+$caps = @(foreach ($p in $gsj.PSObject.Properties) { foreach ($k in 'MaxFpsInMenu@0', 'MaxFpsOutOfFocus@0') { $c = Num $p.Value.values.$k; if ($c -ge 10) { $c } } }) | Sort-Object -Unique
+if ($caps -and $rowsF.Count) {
+    $keep = New-Object Collections.ArrayList; $sec = New-Object Collections.ArrayList; $acc = 0.0
+    foreach ($r in $rowsF) {
+        [void]$sec.Add($r); $acc += Num $r.MsBetweenPresents
+        if ($acc -ge 1000) { $f = $sec.Count * 1000 / $acc; if (-not ($caps | Where-Object { [Math]::Abs($f - $_) -le 2 })) { [void]$keep.AddRange($sec) }; $sec.Clear(); $acc = 0.0 }
+    }
+    if ($sec.Count) { [void]$keep.AddRange($sec) }
+    if ($keep.Count -lt $rowsF.Count -and ($keep | ForEach-Object { Num $_.MsBetweenPresents } | Measure-Object -Sum).Sum -lt 20000) { return }   # under 20 s of actual play left
+    $rowsF = $keep.ToArray()
+}
+$ms = @($rowsF | ForEach-Object { Num $_.MsBetweenPresents })
 if ($ms.Count -lt 300) { return }   # under ~5 s of frames: a menu, a loading screen or alt-tabbed - not a sample
 $sorted = @($ms | Sort-Object)
 $avgFps = 1000 / (($ms | Measure-Object -Average).Average)
@@ -104,10 +121,24 @@ $e.stutters = @($ms | Where-Object { $_ -gt [Math]::Max($med * 2.5, 50) }).Count
 $fs = New-Object Collections.Generic.List[int]; $ws = New-Object Collections.Generic.List[double]; $acc = 0.0; $cnt = 0; $worst = 0.0
 foreach ($v in $ms) { $acc += $v; $cnt++; if ($v -gt $worst) { $worst = $v }; if ($acc -ge 1000) { $fs.Add([int][Math]::Round($cnt * 1000 / $acc)); $ws.Add([Math]::Round($worst, 1)); $acc = 0.0; $cnt = 0; $worst = 0.0 } }
 if ($fs.Count) { $e.perSec = $fs.ToArray(); $e.worstMs = $ws.ToArray() }
-$rows = @($gpu | ForEach-Object { , ("$_" -split ',\s*') } | Where-Object { $_.Count -ge 2 -and $_[0] -match '^\d+$' })
+# what holds the frame rate back, and the delay to the screen (10/22; PresentMon 2's columns - an older capture has neither):
+# gpuBusy = the share of each frame's time the graphics card was working (median; ~95+ = the card is the limit, lower =
+# the processor, the game or a frame cap); latency = from the game starting a frame to it being on screen (median ms) -
+# what Reflex lowers, so its test is judged on this; presentMode: how frames reach the screen ("Composed: Flip" = through
+# the desktop compositor, a frame of extra delay; "Independent Flip" = straight to the screen)
+function Med($v) { $s = @($v | Where-Object { $null -ne $_ } | Sort-Object); if ($s) { $s[[int]($s.Count / 2)] } }
+if ($rowsF.Count -and $rowsF[0].PSObject.Properties['MsGPUBusy']) {
+    $gb = Med ($rowsF | ForEach-Object { $b = Num $_.MsGPUBusy; $f = Num $_.MsBetweenPresents; if ($null -ne $b -and $f -gt 0) { [Math]::Min(100, $b / $f * 100) } })
+    if ($null -ne $gb) { $e.gpuBusy = [int][Math]::Round($gb) }
+    $lat = Med ($rowsF | ForEach-Object { $c = Num $_.MsCPUBusy; $d = Num $_.MsUntilDisplayed; if ($null -ne $c -and $null -ne $d -and $d -gt 0) { $c + $d } })
+    if ($null -ne $lat) { $e.latency = [Math]::Round($lat, 1) }
+}
+if ($rowsF.Count -and $rowsF[0].PSObject.Properties['PresentMode']) { $e.presentMode = "$(@($rowsF | Group-Object PresentMode | Sort-Object Count -Descending)[0].Name)" }
+# (10/22: newer drivers give the temperature with decimals, "67.61" - read as a number, not only whole ones)
+$rows = @($gpu | ForEach-Object { , ("$_" -split ',\s*') } | Where-Object { $_.Count -ge 2 -and $_[0] -match '^\d+(\.\d+)?$' -and $_[1] -match '^\d+(\.\d+)?$' })
 if ($rows) {
-    $e.gpuTemp = ($rows | ForEach-Object { [int]$_[0] } | Measure-Object -Maximum).Maximum
-    $e.gpuUse = [int](($rows | ForEach-Object { [int]$_[1] } | Measure-Object -Average).Average)
+    $e.gpuTemp = [int][Math]::Round(($rows | ForEach-Object { Num $_[0] } | Measure-Object -Maximum).Maximum)
+    $e.gpuUse = [int](($rows | ForEach-Object { Num $_[1] } | Measure-Object -Average).Average)
     if ($e.gpuUse -lt 25) { return }   # the card hardly busy for the minute: a menu, a lobby or a kill-cam - not the game being played
     $thr = @(); if ($rows | Where-Object { $_.Count -ge 4 -and ($_[2] -eq 'Active' -or $_[3] -eq 'Active') }) { $thr += 'heat' }
     if ($rows | Where-Object { $_.Count -ge 5 -and $_[4] -eq 'Active' }) { $thr += 'power' }
