@@ -214,8 +214,10 @@ namespace Messiah
                 {
                     var l = Kit.Lines(f.FullName);
                     var m = l.Length > 0 ? Regex.Match(l[0], "^Checked (.+?) in ") : Match.Empty;
-                    var when = m.Success ? m.Groups[1].Value : f.LastWriteTime.ToString("g");
-                    foreach (var x in l) if (TimelineRx.IsMatch(x) && !Regex.IsMatch(x, "up to date|all still applied")) o.Add((when, x.Trim()));
+                    // (in the app's own words for dates, like every other page - 10/22 audit: "10/21/2026 7:17 PM" here only)
+                    var when = Kit.FormatWhen(m.Success && DateTime.TryParse(m.Groups[1].Value, out var wd) ? wd : f.LastWriteTime);
+                    // (a line listing dozens of update packages: its start - the full report has the rest)
+                    foreach (var x in l) if (TimelineRx.IsMatch(x) && !Regex.IsMatch(x, "up to date|all still applied")) { var t = x.Trim(); o.Add((when, t.Length > 180 ? t.Substring(0, Math.Max(100, t.LastIndexOf(' ', 175))) + " ... (Full report)" : t)); }
                     if (o.Count >= 40) break;
                 }
             }
@@ -380,6 +382,15 @@ namespace Messiah
             var now = sticks;
             var mine = new HashSet<string>(PowerEvents().Where(e => e.Answer == "me").Select(e => e.Key.ToString("yyyy-MM-dd HH:mm")));
             return RamTest(Kit.Lines(Kit.P("ram-test.log")), now, mine);
+        }
+
+        // --- a game by its name, not its program's (10/22 audit: "cod", "NBA2K20" on the cards)
+        public static string GameName(string proc)
+        {
+            if (string.IsNullOrEmpty(proc)) return proc ?? "";
+            if (proc.Equals("cod", StringComparison.OrdinalIgnoreCase)) return "Call of Duty";
+            var m = Regex.Match(proc, @"^NBA ?2K(\d+)$", RegexOptions.IgnoreCase); if (m.Success) return "NBA 2K" + m.Groups[1].Value;
+            return proc;
         }
 
         // --- the memory tests (ram-check.ps1): the nightly one in Windows and Windows' deep one at start-up, newest first

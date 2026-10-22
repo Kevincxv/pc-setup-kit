@@ -30,13 +30,15 @@ namespace Messiah.Pages
             var nightRow = Ui.SwitchRow("Restart at night to finish updates", "When an update waits for a restart, the PC restarts between 3:30 and 5:30 AM - only if nobody has used it for an hour, no game is running and it is plugged in. A 5-minute warning first (the tray's Cancel restart stops it). Off: updates finish whenever you restart.",
                 Kit.Opt("nightrestart", File.Exists(Kit.P("publish-kit.ps1")) ? "off" : "on") == "on",
                 sw => { Kit.SetOpt("nightrestart", OnOff(sw.IsChecked == true)); Shell.Say("Saved - " + (sw.IsChecked == true ? "pending updates finish with a restart at night while the PC is unused." : "updates finish whenever you restart.")); });
-            o.Add(Ui.Card("Start-up and alerts", "E713", new object[] { aiRow, openRow, noteRow, nightRow }));
+            // (10/22 audit: grouped by what they are about - Claude, start-up and alerts, games, crashes and hardware - not one long list)
+            o.Add(Ui.Card("AI assistant", "E99A", new object[] { aiRow }));
+            o.Add(Ui.Card("Start-up, alerts and restarts", "E713", new object[] { openRow, noteRow, nightRow }));
             // the Status tab's details: settings in plain words, or by their registry names (for whoever knows them)
             o.Add(Ui.Card("Display", "E7F4", new object[] { Ui.SwitchRow("Show technical names", "In a Status row's details, the settings by their registry names (AllowTelemetry, HwSchMode...) instead of in plain words. Off (default): plain words.", Kit.Opt("technames", "off") == "on",
                 sw => { Kit.SetOpt("technames", OnOff(sw.IsChecked == true)); Shell.Say("Saved."); }) }));
             // gaming options (gaming-check.ps1 / nvidia-settings.ps1 apply them at the next check)
             var games = new[] {
-                ("defenderexclusions", "off", "Microsoft Defender skips my game folders", "Less stutter while games load and build their shaders. A small security trade-off: files in those folders are no longer scanned. Off by default."),
+                ("defenderexclusions", "off", "Microsoft Defender skips my game folders", "Less stutter while games load and build their shaders. A small security trade-off: files in those folders are no longer scanned. Off (the default): Defender scans them like everything else."),
                 ("nvidiasettings", "on", "NVIDIA driver settings for games", "Low-latency mode on and an unlimited shader cache (less stutter), set in the driver for every game, and put back if anything resets them. Off: no longer applied (the driver keeps the last values until changed in the NVIDIA Control Panel)."),
                 ("gameboost", "on", "Background programs step back while I play", "While a game runs, browsers, the Claude and Codex sessions and Steam's web pages run at a lower priority and the game at a higher one - back as they were once you quit. Voice chat, music and audio are left alone. Off: Windows decides."),
                 ("gamesettings", "on", "Keep my game settings", "Call of Duty: a game update or a new graphics driver can put your settings back to the game's \"recommended\" ones - your tuned ones go back in by themselves (what you change in the game yourself is kept). After a new driver it also reminds you to let the game compile its shaders at the main menu. Off: left as the game sets them."),
@@ -44,8 +46,12 @@ namespace Messiah.Pages
                 ("gametune", "on", "Tune my games by measuring", "Call of Duty's settings that only change speed (never how it looks) are tried both ways in your own matches - switched only while the game is closed - and the faster one is kept. Results: Activity > Performance. Off: a test under way ends with your setting back."),
                 ("cputemp", "on", "Measure the processor's temperature", "Windows can't read it by itself: a small signed driver (PawnIO, open source - the one LibreHardwareMonitor and FanControl use) and LibreHardwareMonitor's library read the processor's own sensor - while you play and at idle (Activity > Performance: Heat and wear). Off: both are removed at the next check."),
                 ("ramcheck", "on", "Test the memory at night", "Once the PC has been left alone for 30 minutes (no game), most of the free memory is filled with patterns and read back, again and again - a flipped bit means faulty memory. It stops the moment you touch the mouse or keyboard. Every night while blue screens keep coming, else once a month. Results: Activity > Stability.") };
-            o.Add(Ui.Card("Games", "E7FC", games.Select(g => (object)Ui.SwitchRow(g.Item3, g.Item4, Kit.Opt(g.Item1, g.Item2) == "on",
-                sw => { Kit.SetOpt(g.Item1, OnOff(sw.IsChecked == true)); Shell.Say("Saved - applied at the next check (or click Run maintenance now)."); }, g.Item1))));
+            // the crash and hardware-health ones get their own card
+            var health = new[] { "autorollback", "cputemp", "ramcheck" };
+            UIElement Row((string, string, string, string) g) => Ui.SwitchRow(g.Item3, g.Item4, Kit.Opt(g.Item1, g.Item2) == "on",
+                sw => { Kit.SetOpt(g.Item1, OnOff(sw.IsChecked == true)); Shell.Say("Saved - applied at the next check (or click Run maintenance now)."); }, g.Item1);
+            o.Add(Ui.Card("Games", "E7FC", games.Where(g => !health.Contains(g.Item1)).Select(g => (object)Row(g))));
+            o.Add(Ui.Card("Crashes and hardware health", "E95E", games.Where(g => health.Contains(g.Item1)).Select(g => (object)Row(g))));
             // backup
             var bl = new List<object> { s.LastBackup != null ? new Line($"Last backup: {s.LastBackup.LastWriteTime:ddd MMM d, h:mm tt} in {s.LastBackup.DirectoryName}") : Dim("No backup yet - the first one is made at the next weekly maintenance."),
                 Dim("Weekly: wallpaper, dark mode, colours, taskbar, mouse, Start pins, game settings and Messiah's memory. Reinstalling Windows with the install USB brings them back by itself; plug in the USB once in a while and a copy goes onto it too.") };

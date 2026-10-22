@@ -23,7 +23,9 @@ namespace Messiah.Pages
             var o = new List<UIElement>();
             var last = s.Sec("Last background check"); var needs = s.Sec("Needs you"); var hidden = s.Sec("Hidden Claude"); var sched = s.Sec("Scheduled checks");
             o.Add(Ui.Card("Last background check", "E9D9", last.Lines.Cast<object>(), new[] { Ui.Btn("E768", "Run maintenance now", Actions.RunMaint, accent: true), Ui.Btn("E8A5", "Full report", Actions.FullReport) }));
-            o.Add(Ui.Card("Needs you", "E7BA", Home.TodoLines(needs.Lines), new[] { Ui.Btn("E8A5", "Open the to-do list", Actions.Todo) }, calm: true));
+            // the to-do list lives on Home (one place for it - 10/22 audit: the same card twice); here only how many, and the way there
+            var nTodo = needs.Lines.Count(l => l.Level == "warn");
+            if (nTodo > 0) o.Add(Ui.Card("Needs you", "E7BA", new object[] { new Line($"{nTodo} thing{Kit.S(nTodo)} need{(nTodo == 1 ? "s" : "")} you - listed on Home.", "warn") }, new[] { Ui.Btn("E80F", "Open Home", () => Shell.ShowPage("Home")), Ui.Btn("E8A5", "Open the to-do list", Actions.Todo) }, calm: true));
             if (s.Ai && hidden != null)
             {
                 var hl = hidden.Lines.Select(l => (object)new Line(Regex.Replace(Regex.Replace(Regex.Replace(l.Text, @"\(improve\)", "(looked for improvements)"), @"\(maintain\)", "(maintenance)"), "^Self-improvement:", "Improving Messiah:"), l.Level)).ToList();
@@ -156,17 +158,17 @@ namespace Messiah.Pages
             var grid = new UniformGrid { Columns = 2, Margin = Ui.Th("0,0,-14,0") };
             foreach (var ch in new[] {
                 Chart("Start-up time", " s", Pt("boot", true), 1, 10), Chart("Free space on C:", " GB", Pt("freeGB"), 0, 20),
-                Chart("Graphics card at idle", " C", Pt("gpuIdle"), 0, 10), Chart("SSD temperature", " C", Pt("ssdTemp"), 0, 10),
-                Chart("Frame rate" + (top != null ? " - " + top.Key : ""), " fps", Gp(top, "fps"), 0, 20),
-                Chart("1% low frame rate" + (top != null ? " - " + top.Key : ""), " fps", Gp(top, "low1"), 0, 20),
-                Chart("Graphics card while gaming", " C", Gp(s.Perf, "gpuTemp"), 0, 10), Chart("Internet ping", " ms", Gp(s.Net, "ping"), 0, 10) })
+                Chart("Graphics card at idle", " °C", Pt("gpuIdle"), 0, 10), Chart("SSD temperature", " °C", Pt("ssdTemp"), 0, 10),
+                Chart("Frame rate" + (top != null ? " - " + Data.GameName(top.Key) : ""), " fps", Gp(top, "fps"), 0, 20),
+                Chart("1% low frame rate" + (top != null ? " - " + Data.GameName(top.Key) : ""), " fps", Gp(top, "low1"), 0, 20),
+                Chart("Graphics card while gaming", " °C", Gp(s.Perf, "gpuTemp"), 0, 10), Chart("Internet ping", " ms", Gp(s.Net, "ping"), 0, 10) })
             { ch.Margin = Ui.Th("0,0,14,14"); grid.Children.Add(ch); }
             o.Add(grid);
             // each game: its latest sample next to its usual (the median of its samples)
             var games = byGame.OrderByDescending(g => Kit.Date(Json.Get(g.Last(), "date"))).Select(g =>
             {
                 var l = g.Last(); var u = Median(g.Select(r => Json.N(r, "low1") ?? 0).ToList()); var gt = Json.N(l, "gpuTemp");
-                return (Kit.Date(Json.Get(l, "date")).Value.ToString("MMM d"), $"{g.Key}: {Math.Round(Json.N(l, "fps") ?? 0)} fps, 1% low {Math.Round(Json.N(l, "low1") ?? 0)} fps (usual {Math.Round(u ?? 0)}){(gt != null ? $", card {gt} C" : "")} - {g.Count()} sample(s)", "info");
+                return (Kit.Date(Json.Get(l, "date")).Value.ToString("MMM d"), $"{Data.GameName(g.Key)}: {Math.Round(Json.N(l, "fps") ?? 0)} fps, 1% low {Math.Round(Json.N(l, "low1") ?? 0)} fps (usual {Math.Round(u ?? 0)}){(gt != null ? $", card {gt} °C" : "")} - {g.Count()} sample(s)", "info");
             }).ToList();
             if (games.Count == 0) games.Add(("", "Nothing recorded yet - a minute of your game is measured every 25 minutes while you play (menus and lobbies don't count).", "dim"));
             o.Add(Ui.Card("Games", "E7FC", new object[] { Ui.Rows(games) }));

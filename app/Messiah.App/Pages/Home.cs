@@ -42,7 +42,7 @@ namespace Messiah.Pages
             bool statusFirst = sm.Warn > 0 && todo.Count == 0 && warn.Count == 0;
             var heroBtns = new List<UIElement>();
             if (statusFirst) heroBtns.Add(Ui.Btn("EA18", "Open Status", () => Shell.ShowPage("Status"), accent: true));
-            heroBtns.Add(Ui.Btn("E768", "Run maintenance now", Actions.RunMaint, accent: !statusFirst));
+            heroBtns.Add(Ui.Btn("E768", "Run maintenance now", Actions.RunMaint, accent: !statusFirst && todo.Count == 0));   // (something needs the owner: that is the next step - the card under it - not maintenance)
             heroBtns.Add(Ui.Btn("E945", "Optimize this PC", Actions.Optimize));
             var hc = Ui.Card(null, null, new object[] { hero }, heroBtns); hc.Padding = Ui.Th("26,24"); o.Add(hc);
 
@@ -62,7 +62,7 @@ namespace Messiah.Pages
             }
             if (s.Paused != null) o.Add(Ui.Card("Maintenance paused", "E769", new object[] { new Line($"Until {s.Paused:ddd h:mm tt} - updates, checks and cleanup wait (the tray's Pause maintenance).", "warn") },
                 new[] { Ui.Btn("E768", "Resume now", () => { Kit.SetOpt("pause-until", ""); Shell.Say("Maintenance runs again as usual."); Shell.Refresh(true); }) }, calm: true));
-            if (todo.Count > 0) o.Add(Ui.Card("Needs you", "E7BA", TodoLines(needs.Lines), null, calm: true));
+            if (todo.Count > 0) o.Add(Ui.Card("Needs you", "E7BA", TodoLines(needs.Lines, s.Ram != null && s.Ram.Count > 0), null, calm: true));
 
             // the PC went off without a blue screen: did the owner do that? - one at a time, newest first, last 30 days
             var ask = s.Power.Where(e => e.Kind == "off" && e.Answer == "" && e.Key > DateTime.Now.AddDays(-30)).OrderByDescending(e => e.Key).ToList();
@@ -93,7 +93,7 @@ namespace Messiah.Pages
             var next = sched.Lines.Select(l => Regex.Match(l.Text, @"^([^:]+):\s+(.*)$")).FirstOrDefault(m => m.Success);
             var p = s.PerfLast; var h = s.HealthLast; var free = Json.N(h, "freeGB");
             tiles.Children.Add(Ui.Tile("EA18", "Guarded", guardVal, guardSub, guardOld ? "warn" : "info", "Status"));
-            tiles.Children.Add(Ui.Tile("E7FC", "Last game", p != null ? $"{Math.Round(Json.N(p, "fps") ?? 0)} fps" : "Nothing yet", p != null ? $"{Json.S(p, "game")}, 1% low {Math.Round(Json.N(p, "low1") ?? 0)} fps" : "Measured while you play", "info", "Activity/Trends"));
+            tiles.Children.Add(Ui.Tile("E7FC", "Last game", p != null ? $"{Math.Round(Json.N(p, "fps") ?? 0)} fps" : "Nothing yet", p != null ? $"{Data.GameName(Json.S(p, "game"))}, 1% low {Math.Round(Json.N(p, "low1") ?? 0)} fps" : "Measured while you play", "info", "Activity/Trends"));
             tiles.Children.Add(Ui.Tile("EDA2", "Free space on C:", free != null ? $"{Math.Round(free.Value)} GB" : "-", "Cleaned up every week", free != null && free < 30 ? "warn" : "info", "Activity/Trends"));
             tiles.Children.Add(Ui.Tile("E787", "Next", next != null ? next.Groups[1].Value : "At login", next != null ? Kit.FormatLine(next.Groups[2].Value) : "And every 4 hours", "info", "Activity/Checks"));
             o.Add(tiles);
@@ -126,7 +126,9 @@ namespace Messiah.Pages
             if (Regex.IsMatch(t, "storage|full|free space")) return ("Storage settings", "ms-settings:storagesense");
             return null;
         }
-        public static IEnumerable<object> TodoLines(IEnumerable<Line> lines)
+        // ramTest: the RAM stick test runs - a to-do that changes the RAM speed (EXPO) waits for it (10/22 audit: Home said
+        // "turn EXPO on" right above the test's "leave EXPO off")
+        public static IEnumerable<object> TodoLines(IEnumerable<Line> lines, bool ramTest = false)
         {
             bool first = true;
             foreach (var l in lines)
@@ -143,6 +145,7 @@ namespace Messiah.Pages
                 var hm = Regex.Match(text, @"^(.{30,160}?)(?: - |\. |: )(.+)$");
                 if (text.Length > 140 && hm.Success) { head = hm.Groups[1].Value.TrimEnd('.') + "."; more = hm.Groups[2].Value; }
                 body.Children.Add(Ui.Text(head, B("Text"), 14, null, "0"));
+                if (ramTest && Regex.IsMatch(text, @"\bEXPO\b|\bXMP\b")) body.Children.Add(Ui.Text("Wait with this until the RAM stick test is done - the test needs EXPO off, so its starts and crashes compare.", B("Warn"), 13, null, "0,4,0,0"));
                 TextBlock mt = null; if (more != null) { mt = Ui.Text(more, B("Sub"), 13, null, "0,6,0,0"); mt.Visibility = Visibility.Collapsed; body.Children.Add(mt); }
                 var bp = new WrapPanel { Margin = Ui.Th("0,8,0,0") };
                 if (mt != null) bp.Children.Add(Ui.Btn("E946", "How to", () => mt.Visibility = mt.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible, small: true));

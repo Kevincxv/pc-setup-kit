@@ -25,7 +25,7 @@ namespace Messiah.Pages
                 .OrderByDescending(g => Kit.Date(Json.Get(g.Last(), "date"))).ToList();
             if (games.Count == 0)
                 o.Add(Ui.Card("Nothing measured yet", "E7FC", new object[] { new Line("While you play, a minute of each game is measured (every 25 minutes; menus and lobbies don't count): its frame rate, the slowest frames, the graphics card's heat. Play a game for a few minutes and it shows here.", "dim") }));
-            foreach (var g in games.Take(6)) o.Add(Game(g.Key, g.ToList()));
+            foreach (var g in games.Take(6)) o.Add(Game(Data.GameName(g.Key), g.ToList()));
             var tune = Tuning(s); if (tune != null) o.Add(tune);
             if (games.Count > 0) o.Add(Updates(games));
             var drv = DriverTest(s); if (drv != null) o.Add(drv);
@@ -35,7 +35,7 @@ namespace Messiah.Pages
         }
 
         // --- tuning by measurement (game-tune.ps1): the setting being tried both ways in your matches, and what each test found
-        static readonly Dictionary<string, string> GameNames = new Dictionary<string, string> { ["cod"] = "Call of Duty" };
+        
         internal static string Say(string id, string v)
         {
             switch (id)
@@ -56,7 +56,7 @@ namespace Messiah.Pages
                 string id = Json.S(a, "id"), game = Json.S(a, "game"); var since = Kit.Date(Json.Get(a, "started")) ?? DateTime.MinValue;
                 int Count(string arm) => s.Perf.Count(r => Json.S(r, "game") == game && Json.S(r, "tune") == id + ":" + arm && (Kit.Date(Json.Get(r, "date")) ?? DateTime.MinValue) >= since);
                 int na = Count("a"), nb = Count("b"); var on = Json.S(a, "arm") == "b" ? Json.S(a, "b") : Json.S(a, "a");
-                lines.Add(new Line($"Trying now in {(GameNames.TryGetValue(game, out var gn) ? gn : game)}: {Say(id, Json.S(a, "a"))} (as before) against {Say(id, Json.S(a, "b"))} - {Math.Min(na, 4) + Math.Min(nb, 4)} of 8 minutes of play measured. On now: {Say(id, on)}.", "info"));
+                lines.Add(new Line($"Trying now in {Data.GameName(game)}: {Say(id, Json.S(a, "a"))} (as before) against {Say(id, Json.S(a, "b"))} - {Math.Min(na, 4) + Math.Min(nb, 4)} of 8 minutes of play measured. On now: {Say(id, on)}.", "info"));
                 lines.Add(new Line("Switched only while the game is closed, back and forth so one evening doesn't decide it. The other value is kept only if it is clearly faster; anything else changing in the middle (a driver, Windows) ends the test with your setting back.", "dim"));
             }
             else if (Json.Get(s.GpuState, "trial") is Dictionary<string, object> tr && Json.S(tr, "verdict") == "")
@@ -106,16 +106,16 @@ namespace Messiah.Pages
             if (g != null)
             {
                 var thr = Json.S(g, "throttle");
-                gpu.Add($"up to {Json.N(g, "gpuTemp")} C while gaming" + (Json.N(g, "gpuFan") is double gf ? $", fan {gf}%" : "") + (Json.N(g, "gpuPower") is double gp ? $", {gp} W" : "") + (thr != "" ? $" - it slowed itself down ({thr.Replace(",", " and ")} limit)" : ""));
+                gpu.Add($"up to {Json.N(g, "gpuTemp")} °C while gaming" + (Json.N(g, "gpuFan") is double gf ? $", fan {gf}%" : "") + (Json.N(g, "gpuPower") is double gp ? $", {gp} W" : "") + (thr != "" ? $" - it slowed itself down ({thr.Replace(",", " and ")} limit)" : ""));
                 if (thr != "" || (Json.N(g, "gpuTemp") ?? 0) >= 85) gl = "warn";
             }
-            if (Json.N(h, "gpuIdle") is double gi) gpu.Add($"{gi} C at idle" + (Json.N(h, "gpuIdleFan") is double fi ? $", fan {fi}%" : ""));
+            if (Json.N(h, "gpuIdle") is double gi) gpu.Add($"{gi} °C at idle" + (Json.N(h, "gpuIdleFan") is double fi ? $", fan {fi}%" : ""));
             rows.Add(("Graphics card", gpu.Count > 0 ? string.Join("; ", gpu) : "measured from your next game", gpu.Count > 0 ? gl : "dim"));
             // the processor: its temperature (cpu-temp.ps1's driver) while gaming and at idle, and whether it was held back
             var c = s.Perf.LastOrDefault(r => Json.N(r, "cpuLimit") != null || Json.N(r, "cpuTemp") != null);
             var cpu = new List<string>(); var cl = "ok";
-            if (c != null && Json.N(c, "cpuTemp") is double ctg) { cpu.Add($"up to {ctg} C while gaming"); if (ctg >= 88) cl = "warn"; }
-            if (Json.N(h, "cpuIdle") is double cti) cpu.Add($"{cti} C at idle");
+            if (c != null && Json.N(c, "cpuTemp") is double ctg) { cpu.Add($"up to {ctg} °C while gaming"); if (ctg >= 88) cl = "warn"; }
+            if (Json.N(h, "cpuIdle") is double cti) cpu.Add($"{cti} °C at idle");
             if (c != null && Json.N(c, "cpuLimit") is double lim)
             {
                 if (lim >= 95) cpu.Add($"at full speed while gaming ({Json.N(c, "cpuPerf")}% of its base speed)");
@@ -126,21 +126,21 @@ namespace Messiah.Pages
             {
                 var mx = Json.N(h, "ssdTempMax");
                 var parts = new List<string>();
-                if (Json.N(h, "ssdTemp") is double t0) parts.Add($"{t0} C now");
-                if (mx != null) parts.Add($"{mx} C at its hottest{(mx >= 80 ? " (it slows itself down from about 80 C - a heatsink helps)" : "")}");
+                if (Json.N(h, "ssdTemp") is double t0) parts.Add($"{t0} °C now");
+                if (mx != null) parts.Add($"{mx} °C at its hottest{(mx >= 80 ? " (it slows itself down from about 80 °C - a heatsink helps)" : "")}");
                 if (Json.N(h, "ssdWear") is double w) parts.Add($"{w}% worn");
                 rows.Add(("SSD", string.Join(", ", parts), mx >= 80 ? "warn" : "info"));
             }
             var lines = new List<object> { Ui.Rows(rows) };
             var grid = new UniformGrid { Columns = 2, Margin = Ui.Th("0,8,-14,0") };
             var gt = s.Perf.Where(r => Json.N(r, "gpuTemp") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "gpuTemp").Value)).ToList();
-            if (gt.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Graphics card while gaming", " C", gt, 0, 10)));
+            if (gt.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Graphics card while gaming", " °C", gt, 0, 10)));
             var it = s.Health.Where(r => Json.N(r, "gpuIdle") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "gpuIdle").Value)).ToList();
-            if (it.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Graphics card at idle", " C", it, 0, 10)));
+            if (it.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Graphics card at idle", " °C", it, 0, 10)));
             var cg = s.Perf.Where(r => Json.N(r, "cpuTemp") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "cpuTemp").Value)).ToList();
-            if (cg.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Processor while gaming", " C", cg, 0, 10)));
+            if (cg.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Processor while gaming", " °C", cg, 0, 10)));
             var ci = s.Health.Where(r => Json.N(r, "cpuIdle") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "cpuIdle").Value)).ToList();
-            if (ci.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Processor at idle", " C", ci, 0, 10)));
+            if (ci.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Processor at idle", " °C", ci, 0, 10)));
             if (grid.Children.Count > 0) lines.Add(grid);
             lines.Add(new Line("Warming up over the months usually means dust - Messiah says when it's time to clean the fans and filters.", "dim"));
             return Ui.Card("Heat and wear", "E9CA", lines.ToArray());
@@ -158,7 +158,7 @@ namespace Messiah.Pages
                     (rows.Count > 1 ? $" (usual {Math.Round(usual)} fps over {rows.Count} sessions)" : ""), fps < usual * 0.9 && rows.Count > 2 ? "warn" : "info")
             };
             var gt = Json.N(last, "gpuTemp"); var thr = Json.S(last, "throttle");
-            if (gt != null) lines.Add(new Line($"Graphics card up to {gt} C, {Json.N(last, "gpuUse") ?? 0}% busy{(thr != "" ? $" - it slowed itself down ({thr.Replace(",", " and ")} limit)" : "")}", thr != "" ? "warn" : "dim"));
+            if (gt != null) lines.Add(new Line($"Graphics card up to {gt} °C, {Json.N(last, "gpuUse") ?? 0}% busy{(thr != "" ? $" - it slowed itself down ({thr.Replace(",", " and ")} limit)" : "")}", thr != "" ? "warn" : "dim"));
             // drivers' time on the busiest core while playing (interrupts and deferred calls): over 15% steals time from the game
             var dpc = Json.N(last, "dpcMax");
             if (dpc != null) lines.Add(new Line(dpc >= 15 ? $"Drivers took up to {dpc}% of a core while you played - enough to cause stutters the frame rate hides (audio, network or USB drivers are the usual ones)" : $"Drivers took up to {dpc}% of a core while you played - fine", dpc >= 15 ? "warn" : "dim"));
@@ -185,7 +185,7 @@ namespace Messiah.Pages
         static UIElement Updates(List<IGrouping<string, Dictionary<string, object>>> games)
         {
             var lines = new List<(string, string, string)>();
-            foreach (var g in games) foreach (var v in Verdicts(g.Key, g.ToList())) lines.Add((v.When, v.Text, v.Level));
+            foreach (var g in games) foreach (var v in Verdicts(Data.GameName(g.Key), g.ToList())) lines.Add((v.When, v.Text, v.Level));
             if (lines.Count == 0) lines.Add(("", "Nothing changed between sessions yet - after the next change (a driver, Windows, EXPO, a setting), each game's sessions before and after show here with what it came to.", "dim"));
             return Ui.Card("Before and after changes", "E895", new object[] { Ui.Rows(lines.OrderByDescending(l => l.Item1).ToList()) });
         }
