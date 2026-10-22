@@ -38,6 +38,7 @@
       <Border.Effect><DropShadowEffect BlurRadius="24" ShadowDepth="4" Opacity="0.35" Color="Black"/></Border.Effect>
       <DockPanel>
         <TextBlock DockPanel.Dock="Left" FontFamily="{DynamicResource f.Icons}" FontSize="14" Foreground="{DynamicResource c.Accent}" VerticalAlignment="Center" Margin="0,0,10,0" Text="&#xE946;"/>
+        <Button x:Name="NoteAct" Content="Restart" DockPanel.Dock="Right" Visibility="Collapsed" Style="{StaticResource AccentBtn}" Margin="14,0,0,0" Padding="12,5" VerticalAlignment="Center"/>
         <TextBlock x:Name="Note" FontSize="13" TextWrapping="Wrap" VerticalAlignment="Center"/>
       </DockPanel>
     </Border>

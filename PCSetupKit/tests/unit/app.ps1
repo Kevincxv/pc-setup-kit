@@ -101,6 +101,35 @@ foreach ($k in $kinds.Keys) {
     Check "every page builds, nothing fails ($k)" ($r.Code -eq 0 -and $n -eq $pages.Count -and -not (Errs $r)) ("exit $($r.Code), $n pages: " + (Errs $r)).Substring(0, [Math]::Min(600, ("exit $($r.Code), $n pages: " + (Errs $r)).Length))
 }
 
+Section 'an update while the window is open: offered, never swapped under the owner'
+# (a copy of its own in $Work, without --live: the test names - the real app is not touched; the update the way
+# kit-update does it: the running exe moved aside, the new one copied in)
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+$U = "$Work\upd"; New-Item $U -ItemType Directory -Force | Out-Null; Copy-Item "$(Split-Path $AppExe)\MessiahApp.exe*" $U -Force
+$H = "$Work\updhome"; New-Item "$H\.claude", "$H\Documents" -ItemType Directory -Force | Out-Null
+$psi = New-Object Diagnostics.ProcessStartInfo "$U\MessiahApp.exe", '--page Activity/Trends'; $psi.UseShellExecute = $false
+$psi.EnvironmentVariables['USERPROFILE'] = $H; $psi.EnvironmentVariables['PCKIT_IN_TESTS'] = '1'; $psi.EnvironmentVariables.Remove('PCKIT_CLAUDE_DIR')
+function UWin($procId) { for ($i = 0; $i -lt 40; $i++) { $p = Get-Process -Id $procId -ErrorAction SilentlyContinue; if ($p -and $p.MainWindowHandle -ne 0) { return [Windows.Automation.AutomationElement]::FromHandle($p.MainWindowHandle) }; Start-Sleep -Milliseconds 500 } }
+function UFind($w, $name) { if ($w) { $w.FindFirst([Windows.Automation.TreeScope]::Descendants, (New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::NameProperty, $name))) } }
+$p1 = [Diagnostics.Process]::Start($psi); $w = UWin $p1.Id
+if (-not $w) { Skip 'update offer' 'no window here (no desktop)' }
+else {
+    Start-Sleep 2
+    Move-Item "$U\MessiahApp.exe" "$U\MessiahApp.exe.$PID.old" -Force; Copy-Item "$U\MessiahApp.exe.$PID.old" "$U\MessiahApp.exe"; (Get-Item "$U\MessiahApp.exe").LastWriteTime = Get-Date
+    $btn = $null; for ($i = 0; $i -lt 45 -and -not $btn; $i++) { Start-Sleep 1; $btn = UFind $w 'Restart' }
+    $seen = if (-not $btn) { (@($w.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name } | Where-Object { $_ }) | Select-Object -First 25) -join ' | ' }
+    Check 'a new version while the window is open: "A new version of Messiah is ready." with a Restart button (within the 30 s check)' ($btn -and (UFind $w 'A new version of Messiah is ready.')) "exited=$($p1.HasExited) on screen: $seen"
+    Check '... and the open window is left alone until then' (-not $p1.HasExited) ''
+    if ($btn) {
+        $btn.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke(); $p1.WaitForExit(10000) | Out-Null; Start-Sleep 2
+        $p2 = Get-CimInstance Win32_Process -Filter "Name='MessiahApp.exe'" | Where-Object { $_.ExecutablePath -eq "$U\MessiahApp.exe" -and $_.ProcessId -ne $p1.Id } | Select-Object -First 1
+        $w2 = if ($p2) { UWin $p2.ProcessId }
+        Check 'Restart: the old copy ends, the new one opens on the same page (Activity > Trends)' ($p1.HasExited -and $p2 -and $p2.CommandLine -match "--after $($p1.Id)" -and (UFind $w2 'How this PC has been doing over time.')) "ended=$($p1.HasExited) new=$($p2.CommandLine)"
+        if ($p2) { Stop-Process -Id $p2.ProcessId -Force -ErrorAction SilentlyContinue }
+    }
+}
+if (-not $p1.HasExited) { $p1.Kill() }
+
 Section 'the switch-over: the tray, the Start menu, installs and updates run it'
 $trayText = Get-Content $env:PCKIT_TRAY -Raw
 Check 'the tray opens it (--live, --page) and starts it hidden (--background)' ($trayText -match 'app\\MessiahApp\.exe' -and $trayText -match "--live' \(page" -and $trayText -match '--live --background') ''

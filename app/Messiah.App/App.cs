@@ -29,7 +29,7 @@ namespace Messiah
         public static int Main(string[] args)
         {
             var sw = Stopwatch.StartNew();
-            string page = null, uri = null, trayTest = null; bool background = false, test = false, timing = false, tray = false, fs = false;
+            string page = null, uri = null, trayTest = null; bool background = false, test = false, timing = false, tray = false, fs = false; int after = 0;
             for (int i = 0; i < args.Length; i++)
             {
                 var a = args[i].TrimStart('-', '/').ToLowerInvariant();
@@ -42,10 +42,13 @@ namespace Messiah
                 else if (a == "uri" && i + 1 < args.Length) uri = Regex.Replace(args[++i], "^messiah:/*", "", RegexOptions.IgnoreCase).TrimEnd('/');   // (a notification clicked)
                 else if (a == "tray-test" && i + 1 < args.Length) trayTest = args[++i];
                 else if (a == "fs") fs = true;
+                else if (a == "after" && i + 1 < args.Length) int.TryParse(args[++i], out after);   // (Restart into an update: the copy before)
             }
             if (trayTest != null) return Tray.TrayLogic.Test(trayTest, fs);
             AppDomain.CurrentDomain.UnhandledException += (s, e) => Log("crash: " + e.ExceptionObject);
             if (test) return RunTest(page);
+            // restarted into an update: the copy before ends first (else this one would only hand over to it)
+            if (after > 0) try { using (var old = Process.GetProcessById(after)) old.WaitForExit(20000); } catch { }
 
             // one window: a second start hands over to the open one (it may be hidden - closing only hides it)
             // (both open to this user by name: the tray starts it with admin rights, the Start menu without - an admin
@@ -87,8 +90,9 @@ namespace Messiah
             app.DispatcherUnhandledException += (s, e) => { Log("ui: " + e.Exception); e.Handled = true; Shell.Say("Something went wrong there - it's logged; try again."); };
             app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/MessiahApp;component/Styles.xaml") });
             Theme.Apply(app.Resources);
+            bool asked = page != null;   // (-page: not the one from last time - the tour does not take it over)
             AppLast.Load(); if (page == null && AppLast.Page != "") page = AppLast.Page;
-            var w = new MainWindow();
+            var w = new MainWindow { pageAsked = asked };
             if (page == "Welcome") { w.startPage = "Welcome"; w.BuildNav(); }
             if (page == "Chat") w.ContentRendered += (s, e) => w.ShowChat(true);   // (-page Chat: open with the chat - the tray's Ask Claude)
             else if (page != null) w.ShowPage(page.Split('/')[0], page.Contains("/") ? page.Split('/')[1] : null);
@@ -106,7 +110,20 @@ namespace Messiah
             {
                 try
                 {
-                    if (w.Visibility == Visibility.Visible || File.GetLastWriteTime(self) == selfAt) return;
+                    if (File.GetLastWriteTime(self) == selfAt) return;
+                    // open on screen: never swapped under the owner - offered, and done when they click (10/21: until then an
+                    // open window kept the old version with nothing said)
+                    if (w.Visibility == Visibility.Visible)
+                    {
+                        if (!w.Offering) w.Offer("A new version of Messiah is ready.", "Restart", () =>
+                        {
+                            try { File.WriteAllText(Kit.P(Names.RequestFile), "page=" + AppLast.Page); } catch { }
+                            var keep = args.Where(x => Regex.IsMatch(x, "^[-/](live|tray)$", RegexOptions.IgnoreCase)).Concat(new[] { "--after", Process.GetCurrentProcess().Id.ToString() });
+                            try { Process.Start(new ProcessStartInfo(self, string.Join(" ", keep)) { UseShellExecute = false }); } catch (Exception ex) { Log("update: " + ex.Message); return; }
+                            w.Quit = true; w.Close();
+                        });
+                        return;
+                    }
                     // (the tray: the new version starts right away and takes over - it waits for this one to end)
                     if (tray && File.Exists(self)) Process.Start(new ProcessStartInfo(self, string.Join(" ", args.Select(x => x.Contains(" ") ? "\"" + x + "\"" : x))) { UseShellExecute = false });
                     w.Quit = true; w.Close();

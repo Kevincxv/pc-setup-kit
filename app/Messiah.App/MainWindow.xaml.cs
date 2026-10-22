@@ -50,6 +50,7 @@ namespace Messiah
             InitializeComponent();
             Shell.W = this;
             noteTimer.Tick += (s, e) => { NoteBar.Visibility = Visibility.Collapsed; noteTimer.Stop(); };
+            NoteAct.Click += (s, e) => noteAct?.Invoke();
             timer.Tick += (s, e) => Refresh(false);
             SourceInitialized += (s, e) => OnSource();
             SizeChanged += (s, e) => UpdateLayout2();
@@ -149,7 +150,7 @@ namespace Messiah
         void HideApp() { Hide(); timer.Stop(); fast.Stop(); StopWatching(); ShowChatMenu(false); AppLast.Seen = DateTime.Now; AppLast.Save(); }
 
         // another start asked for a page (app-request.txt "page=<Page>[/<Sub>]")
-        bool pageAsked;
+        internal bool pageAsked;
         void ReadRequest()
         {
             var f = Kit.P(App.Names.RequestFile); if (!File.Exists(f)) return;
@@ -258,7 +259,17 @@ namespace Messiah
         }
 
         // --- a short note floating at the bottom; it goes away by itself after 12 seconds
-        public void Say(string t) { Note.Text = t ?? ""; NoteBar.Visibility = string.IsNullOrEmpty(t) ? Visibility.Collapsed : Visibility.Visible; noteTimer.Stop(); if (!string.IsNullOrEmpty(t)) noteTimer.Start(); }
+        public void Say(string t) { if (string.IsNullOrEmpty(t) && noteAct != null) return; NoteAct.Visibility = Visibility.Collapsed; noteAct = null; Note.Text = t ?? ""; NoteBar.Visibility = string.IsNullOrEmpty(t) ? Visibility.Collapsed : Visibility.Visible; noteTimer.Stop(); if (!string.IsNullOrEmpty(t)) noteTimer.Start(); }
+
+        // a note with a button that stays until it is clicked (10/21: a new version waiting while the window is open);
+        // a Say after it replaces it - the one who offered it offers it again
+        Action noteAct;
+        public bool Offering => NoteAct.Visibility == Visibility.Visible;
+        public void Offer(string t, string button, Action act)
+        {
+            Note.Text = t; NoteAct.Content = button; AutomationProperties.SetName(NoteAct, button); noteAct = act;
+            NoteAct.Visibility = Visibility.Visible; NoteBar.Visibility = Visibility.Visible; noteTimer.Stop();
+        }
 
         // --- the layout follows the window's width (less margin, the app's name and the button words go as it narrows)
         void UpdateColumns()
