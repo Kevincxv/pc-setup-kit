@@ -243,6 +243,10 @@ namespace Messiah
                 var notes = Notes().Where(n => n.When > t).ToList();
                 if (notes.Count > 0) o.Add(new Line($"{notes.Count} alert{Kit.S(notes.Count)} - the newest: {notes.Last().Text}", "dim"));
                 var games = History("perf-history.json").Where(r => (Kit.Date(Json.Get(r, "date")) ?? DateTime.MinValue) > t).GroupBy(r => Json.S(r, "game")).ToList();
+                // a change's verdict that came in meanwhile (its 2nd session after it): better, worse, about the same
+                foreach (var g in History("perf-history.json").GroupBy(r => Json.S(r, "game")))
+                    foreach (var v in Pages.Performance.Verdicts(g.Key, g.ToList()).Where(x => x.Decided != null && x.Decided > t))
+                        o.Add(new Line(v.Text + " - Activity > Performance", v.Level));
                 if (games.Count > 0) o.Add(new Line("Games measured: " + string.Join(", ", games.Select(g => $"{g.Key} {Math.Round(Json.N(g.Last(), "fps") ?? 0)} fps")) + " - Activity > Performance", "dim"));
             }
             catch (Exception e) { App.Log("since: " + e.Message); }

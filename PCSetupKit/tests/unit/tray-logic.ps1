@@ -109,6 +109,8 @@ Check '... Resume now: the pause is gone, said' (-not (@(Get-Content "$C\kit-opt
 $m = T menu
 Check 'the menu: Open Messiah, the sessions, Run maintenance now, Pause (2 hours / until tomorrow / resume), Cancel restart' ($m -match '(?s)^Open Messiah\s+-\s+New session\s+Show sessions\s+Hide sessions\s+-\s+Run maintenance now\s+Pause maintenance\s+For 2 hours\s+Until tomorrow\s+Resume now\s+Cancel restart') $m
 Check '... without the AI assistant: no session entries' ((T menu -Env @{ TEST_AI = '0' }) -notmatch 'session') ''
+$bl = T boost
+Check 'while a game runs, browsers and the AI sessions step back - never voice chat, music or audio' ($bl -match 'chrome' -and $bl -match 'claude' -and $bl -notmatch 'Discord|Spotify|Sonar|audiodg') $bl
 Check 'a hotkey opens the app (Ctrl+Alt+M)' ((T hotkey) -eq 'Ctrl+Alt+M') ''
 $cm = T commands
 Check "the app's admin commands: the AI assistant on (10) / off (11), the driver rollback (12), apply the tweak choices now (7), repair (8), undo the last update (9), the chat (13)" ($cm -match '10 AiOn: plain ai-toggle\.ps1 -On' -and $cm -match '11 AiOff: hidden ai-toggle\.ps1 -Off' -and $cm -match '12 GpuRollback: window gpu-rollback\.ps1' -and $cm -match '7 ApplyTweaks: hidden after-update\.ps1 -Now' -and $cm -match '8 Repair: window kit-update\.ps1 -Reinstall' -and $cm -match '9 Rollback: window kit-update\.ps1 -Rollback' -and $cm -match '13 ChatHost: hidden chat-host\.ps1') $cm

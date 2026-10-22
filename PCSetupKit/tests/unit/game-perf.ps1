@@ -13,8 +13,8 @@ function New-Capture([int]$n = 900, [int]$slow = 12, [string]$app = 'TestGame.ex
     $rows | Set-Content $f; $f
 }
 $hf = "$Work\perf-history.json"
-function Invoke-Sample([string]$csv, [string[]]$gpu = @('70, 98, Not Active, Not Active, Not Active'), [datetime]$at = $now, [switch]$Force) {
-    @(& $gp -TestCsv $csv -TestGame 'TestGame' -TestGpu $gpu -History $hf -Now $at -Force:$Force)
+function Invoke-Sample([string]$csv, [string[]]$gpu = @('70, 98, Not Active, Not Active, Not Active'), [datetime]$at = $now, [switch]$Force, [double[]]$dpc = @(1.5, 22.4, 3.0)) {
+    @(& $gp -TestCsv $csv -TestGame 'TestGame' -TestGpu $gpu -TestDpc $dpc -History $hf -Now $at -Force:$Force)
 }
 function Hist { $j = Get-Content $hf -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json; @($j | ForEach-Object { $_ }) }   # (call as @(Hist): one item comes back bare, with no .Count in PS 5.1)
 
@@ -30,6 +30,8 @@ Check 'hitches counted' ($s.stutters -eq 12) "stutters: $($s.stutters)"
 Check 'the hottest reading and the average load' ($s.gpuTemp -eq 84 -and $s.gpuUse -eq 98) "$($s.gpuTemp) C, $($s.gpuUse)%"
 Check 'throttling recorded (heat, power)' ($s.throttle -eq 'heat,power') "$($s.throttle)"
 Check 'the minute second by second: each second''s frame rate and slowest frame (for the app''s Performance page)' (@($s.perSec).Count -eq 7 -and @($s.worstMs).Count -eq 7 -and (@($s.perSec) | Where-Object { $_ -lt 100 -or $_ -gt 130 }).Count -eq 0 -and (@($s.worstMs) | Measure-Object -Maximum).Maximum -eq 60) "$(@($s.perSec) -join ',') / $(@($s.worstMs) -join ',')"
+Check 'drivers'' time on the busiest core: the worst and the average reading (the stutters an average frame rate hides)' ($s.dpcMax -eq 22.4 -and $s.dpc -eq 9) "$($s.dpcMax) / $($s.dpc)"
+Check 'the RAM speed and Memory Integrity recorded (EXPO on or off, a change to compare across)' ($s.ram -match '^\d+ MT/s$' -and $s.hvci -in 'on', 'off') "$($s.ram) / $($s.hvci)"
 Check 'the driver and Windows build recorded (a change there explains a change here)' ($s.build -match '^\d+\.\d+$' -and $null -ne $s.driver) "$($s.driver) / $($s.build)"
 
 Section 'when not to sample'

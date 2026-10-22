@@ -172,6 +172,7 @@ namespace Messiah.Tray
                 case "menu": o.Append(TrayHost.MenuText(Environment.GetEnvironmentVariable("TEST_AI") != "0")); break;
                 case "commands": foreach (var kv in TrayHost.Scripts) o.Append($"{(int)kv.Key} {kv.Key}: {kv.Value.How} {kv.Value.Script} {kv.Value.Args}".TrimEnd()).Append('\n'); break;
                 case "hotkey": o.Append("Ctrl+Alt+M"); break;
+                case "boost": o.Append(string.Join(",", TrayHost.Background)); break;
             }
             var b = new UTF8Encoding(false).GetBytes(o.ToString()); var s = Console.OpenStandardOutput(); s.Write(b, 0, b.Length); s.Flush();
             return 0;

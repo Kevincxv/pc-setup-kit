@@ -55,14 +55,15 @@ Check 'with Claude: the Claude card with Open chat' ($r.Code -eq 0 -and $r.Out -
 Section 'Activity > Performance: each game''s last minute second by second, and what an update did to it'
 $H = "$Work\perf"; $C = "$H\.claude"; New-Item $C, "$H\Documents" -ItemType Directory -Force | Out-Null
 'claude=off' | Set-Content "$C\kit-options.txt"
-$now = Get-Date; $rows = @(foreach ($i in 0..5) { [ordered]@{ date = $now.AddDays(-12 + $i * 2).ToString('o'); game = 'TestGame'; fps = 58 + $i; low1 = 47 + $i; frames = 3500; stutters = 2; driver = $(if ($i -lt 3) { '1.0' } else { '2.0' }); build = '26200.1' } })
+$now = Get-Date; $rows = @(foreach ($i in 0..5) { [ordered]@{ date = $now.AddDays(-12 + $i * 2).ToString('o'); game = 'TestGame'; fps = 58 + $i; low1 = 47 + $i; frames = 3500; stutters = 2; driver = $(if ($i -lt 3) { '1.0' } else { '2.0' }); build = '26200.1'; ram = $(if ($i -lt 3) { '4800 MT/s' } else { '6000 MT/s' }) } })
 $rows[-1].perSec = @(1..60 | ForEach-Object { if ($_ -eq 20) { 38 } else { 60 } }); $rows[-1].worstMs = @(1..60 | ForEach-Object { if ($_ -eq 20) { 72.5 } else { 18 } })
 ConvertTo-Json -InputObject $rows -Depth 4 | Set-Content "$C\perf-history.json"
 $r = Run-App $H
 Check 'the page builds' ($r.Out -match '(?m)^PAGE: Activity/Performance' -and -not (Errs $r)) (Errs $r)
 Check 'the game''s last minute, second by second' ($r.Out -match 'CHART: The last minute, second by second \| 60 seconds, typical 60 fps') ''
-Check 'a driver update: the sessions before and after, side by side' ($r.Out -match 'TestGame - Graphics driver 1\.0 -> 2\.0: 59 -> 62 fps \(\+5%\), 1% low 48 -> 51 \(3 session\(s\) before, 3 after\)') ''
+Check 'a driver update: the sessions before and after, side by side, with a plain verdict' ($r.Out -match 'TestGame - Graphics driver 1\.0 -> 2\.0: better - 59 -> 62 fps \(\+5%\), 1% low 48 -> 51 \(\+6%\)') ''
 $H2 = "$Work\perf0"; New-Item "$H2\.claude", "$H2\Documents" -ItemType Directory -Force | Out-Null
+Check 'EXPO turned on (RAM 4800 -> 6000): its own verdict' ($r.Out -match 'TestGame - RAM speed 4800 MT/s -> 6000 MT/s: better') ''
 Check 'nothing measured yet: says how it gets measured' ((Run-App $H2).Out -match 'CARD: Nothing measured yet') ''
 Section 'Home: "Since you last looked" - what happened while the window was closed'
 $H = "$Work\since"; $C = "$H\.claude"; New-Item "$C\maint-history", "$H\Documents" -ItemType Directory -Force | Out-Null

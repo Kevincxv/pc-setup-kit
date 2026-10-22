@@ -7,7 +7,7 @@
 # PresentMon (MIT licence, signed by Intel) is fetched once to .claude\tools; nothing else is installed.
 # -TestCsv / -TestGame / -TestGpu: tests (a recorded capture, a game name, nvidia-smi rows) - nothing is captured.
 param([int]$Seconds = 60, [string]$History = "$PSScriptRoot\perf-history.json", [datetime]$Now = (Get-Date),
-    [string]$TestCsv, [string]$TestGame, [string[]]$TestGpu, [switch]$Force)
+    [string]$TestCsv, [string]$TestGame, [string[]]$TestGpu, [double[]]$TestDpc, [switch]$Force)   # -TestDpc: the busiest core's driver time (%) per reading
 $ErrorActionPreference = 'SilentlyContinue'
 $mx = New-Object Threading.Mutex($false, "Global\PCSetupKitGamePerf$(if ($TestCsv) { "-test-$PID" })")
 if (-not $mx.WaitOne(0)) { return }   # a sample is already running (tests never wait for a real one)
@@ -34,9 +34,16 @@ function Read-Gpu {
     if ($r -notmatch '^\d') { $r = "$(& nvidia-smi --query-gpu=$($q -replace 'clocks_event_reasons', 'clocks_throttle_reasons') --format=csv,noheader,nounits 2>$null | Select-Object -First 1)" }   # older drivers
     if ($r -match '^\d') { $r }
 }
-function Read-SsdTemp { if ($TestGpu) { return 50 }; (Get-Partition -DriveLetter C | Get-Disk | Get-StorageReliabilityCounter).Temperature }
+# drivers' time on the busiest core (interrupts + deferred calls, %): high = a driver steals time from the game - the
+# stutters a frame-rate average hides (audio, network, USB). English counter names; elsewhere: not measured
+function Read-Dpc {
+    try {
+        $s = (Get-Counter '\Processor(*)\% DPC Time', '\Processor(*)\% Interrupt Time' -ErrorAction Stop).CounterSamples | Where-Object InstanceName -ne '_total'
+        ($s | Group-Object InstanceName | ForEach-Object { ($_.Group | Measure-Object CookedValue -Sum).Sum } | Measure-Object -Maximum).Maximum
+    } catch { $null }
+}function Read-SsdTemp { if ($TestGpu) { return 50 }; (Get-Partition -DriveLetter C | Get-Disk | Get-StorageReliabilityCounter).Temperature }
 
-$csv = $TestCsv; $gpu = @(); $ssd = @()
+$csv = $TestCsv; $gpu = @(); $ssd = @(); $dpc = @()
 if (-not $csv) {
     $pm = "$PSScriptRoot\tools\PresentMon.exe"
     if (-not (Test-Path $pm)) {
@@ -59,12 +66,12 @@ if (-not $csv) {
     try { $p.PriorityClass = 'BelowNormal' } catch { }
     $w = [Diagnostics.Stopwatch]::StartNew()
     while (-not $p.HasExited -and $w.Elapsed.TotalSeconds -lt $Seconds + 30) {
-        $g = Read-Gpu; if ($g) { $gpu += $g }; $t = Read-SsdTemp; if ($t) { $ssd += [int]$t }
+        $g = Read-Gpu; if ($g) { $gpu += $g }; $t = Read-SsdTemp; if ($t) { $ssd += [int]$t }; $d = Read-Dpc; if ($null -ne $d) { $dpc += $d }
         Start-Sleep 5
     }
     if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
 }
-else { $gpu = @(Read-Gpu); $ssd = @(Read-SsdTemp) }
+else { $gpu = @(Read-Gpu); $ssd = @(Read-SsdTemp); $dpc = @($TestDpc) }
 
 # --- frame rate: the average and the 1% low (the frame time only 1 frame in 100 is slower than) ---
 $ms = @(Import-Csv $csv | Where-Object { $_.Application -like "$game*" } | ForEach-Object { $v = 0.0; if ([double]::TryParse($_.MsBetweenPresents, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$v) -and $v -gt 0) { $v } })
@@ -94,6 +101,13 @@ if ($ssd) { $e.ssdTemp = ($ssd | Measure-Object -Maximum).Maximum }
 # what the numbers depend on: a change here explains a change in the numbers
 $e.driver = "$((Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'NVIDIA|AMD|Radeon|Intel\(R\) Arc' } | Select-Object -First 1).DriverVersion)"
 $e.build = "$([Environment]::OSVersion.Version.Build).$((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').UBR)"
+if ($dpc.Count) { $e.dpcMax = [Math]::Round(($dpc | Measure-Object -Maximum).Maximum, 1); $e.dpc = [Math]::Round(($dpc | Measure-Object -Average).Average, 1) }
+$e.ram = "$((Get-CimInstance Win32_PhysicalMemory | Select-Object -First 1).ConfiguredClockSpeed) MT/s"   # (EXPO on/off shows here)
+$dg = Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard -ErrorAction SilentlyContinue
+$e.hvci = if (@($dg.SecurityServicesRunning) -contains 2) { 'on' } else { 'off' }   # Memory Integrity
+# the game's tuned settings (game-settings.ps1): a short fingerprint - a change to them is a change to compare across
+$gsf = "$PSScriptRoot\game-settings.json"
+if (Test-Path $gsf) { $md5 = [Security.Cryptography.MD5]::Create(); $e.settings = (($md5.ComputeHash([Text.Encoding]::UTF8.GetBytes(((Get-Content $gsf -Raw) -replace '"at":\s*"[^"]*"', '')))) | Select-Object -First 4 | ForEach-Object { $_.ToString('x2') }) -join '' }
 $h = @($h | Where-Object { $_.date }) + [pscustomobject]$e | Select-Object -Last 500
 # (the second-by-second curves only on the newest 30: the file stays small)
 for ($i = 0; $i -lt $h.Count - 30; $i++) { foreach ($p in 'perSec', 'worstMs') { if ($h[$i].PSObject.Properties[$p]) { $h[$i].PSObject.Properties.Remove($p) } } }

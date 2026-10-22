@@ -46,6 +46,68 @@ if (-not $gpu) { return }
 $opt = if ($T) { $T.Option } else { $l = @(Get-Content $Options) -match '^\s*nvidiasettings\s*=' | Select-Object -First 1; if ($l) { ($l -split '=', 2)[1].Trim() } }
 if ($opt -eq 'off') { return }
 $drv = if ($T) { $T.Driver } else { "$($gpu.DriverVersion)" }
+# per game (10/21): Call of Duty's own driver profile - V-Sync on (with G-SYNC and Reflex: no tearing on a frame spike and
+# no added lag, as Reflex keeps the frame rate under the refresh rate) and "Prefer maximum performance". The driver has
+# none for it: one is made ("Call of Duty (Messiah)" with cod.exe), as the NVIDIA Control Panel's "Add program" does.
+# Checked every run, written only with no game running, read back. Not under tests (they have their own stand-ins).
+if (-not $T -and (Test-Path "$env:LOCALAPPDATA\Activision\Call of Duty\players")) {
+    try {
+        if (-not ('KitNvApp' -as [type])) { Add-Type -TypeDefinition @"
+using System; using System.Runtime.InteropServices; using System.Text;
+public static class KitNvApp {
+  [DllImport("nvapi64.dll", EntryPoint="nvapi_QueryInterface", CallingConvention=CallingConvention.Cdecl)] static extern IntPtr QI(uint id);
+  [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int F0();
+  [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int FSess(out IntPtr s);
+  [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int F1(IntPtr s);
+  [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int FFind(IntPtr s, byte[] app, out IntPtr p, byte[] appInfo);
+  [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int FGet(IntPtr s, IntPtr p, uint id, byte[] setting);
+  [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int FSet(IntPtr s, IntPtr p, byte[] setting);
+  [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int FNewProf(IntPtr s, byte[] info, out IntPtr p);
+  [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int FNewApp(IntPtr s, IntPtr p, byte[] app);
+  static T D<T>(uint id) { return (T)(object)Marshal.GetDelegateForFunctionPointer(QI(id), typeof(T)); }
+  static byte[] U(string s, int n) { var b = new byte[n]; var x = Encoding.Unicode.GetBytes(s); Array.Copy(x, b, Math.Min(x.Length, 4094)); return b; }
+  static byte[] App(string exe, string name) { var a = new byte[12296]; BitConverter.GetBytes((uint)(12296 | (1 << 16))).CopyTo(a, 0); U(exe, 4096).CopyTo(a, 8); U(name, 4096).CopyTo(a, 4104); return a; }
+  // the program's profile made if missing, these DWORD settings put on it if not yet; write=false: only report.
+  // "same" / "set" / "pending" (needs writing, not allowed now) / "error:<step>:<code>"
+  public static string Ensure(string exe, string profile, uint[] ids, uint[] vals, bool write) {
+    if (D<F0>(0x0150E828)() != 0) return "error:init:0";
+    IntPtr s; if (D<FSess>(0x0694D52E)(out s) != 0) return "error:session:0";
+    try {
+      int r = D<F1>(0x375DBD6B)(s); if (r != 0) return "error:load:" + r;
+      IntPtr p; r = D<FFind>(0xEEE566B2)(s, U(exe, 4096), out p, App("", ""));
+      bool made = false;
+      if (r == -166) {
+        if (!write) return "pending";
+        var info = new byte[4116]; BitConverter.GetBytes((uint)(4116 | (1 << 16))).CopyTo(info, 0); U(profile, 4096).CopyTo(info, 4);
+        r = D<FNewProf>(0xCC176068)(s, info, out p); if (r != 0) return "error:profile:" + r;
+        r = D<FNewApp>(0x4347A9DE)(s, p, App(exe, profile)); if (r != 0) return "error:app:" + r;
+        made = true;
+      } else if (r != 0) return "error:find:" + r;
+      bool same = !made;
+      for (int i = 0; i < ids.Length && same; i++) {
+        var b = new byte[12320]; BitConverter.GetBytes((uint)(12320 | (1 << 16))).CopyTo(b, 0);
+        same = D<FGet>(0x73BF8338)(s, p, ids[i], b) == 0 && BitConverter.ToUInt32(b, 8220) == vals[i];
+      }
+      if (same) return "same";
+      if (!write) return "pending";
+      for (int i = 0; i < ids.Length; i++) {
+        var b = new byte[12320]; BitConverter.GetBytes((uint)(12320 | (1 << 16))).CopyTo(b, 0);
+        BitConverter.GetBytes(ids[i]).CopyTo(b, 4100); BitConverter.GetBytes(vals[i]).CopyTo(b, 8220);
+        r = D<FSet>(0x577DD202)(s, p, b); if (r != 0) return "error:set:" + r;
+      }
+      r = D<F1>(0xFCBC7E14)(s); if (r != 0) return "error:save:" + r;
+      return "set";
+    } finally { D<F1>(0xDAD9CFF8)(s); }
+  }
+}
+"@ }
+        $ids = [uint32[]]@(0x00A879CF, 0x1057EB71); $vals = [uint32[]]@(0x47814940, 1)   # V-Sync: force on; power: prefer maximum performance
+        $r = [KitNvApp]::Ensure('cod.exe', 'Call of Duty (Messiah)', $ids, $vals, $false)
+        if ($r -eq 'pending' -and -not (Get-Process cod -ErrorAction SilentlyContinue)) { $r = [KitNvApp]::Ensure('cod.exe', 'Call of Duty (Messiah)', $ids, $vals, $true) }
+        if ($r -eq 'set') { "NVIDIA: Call of Duty set up for G-SYNC - V-Sync on and maximum performance on its own profile (Reflex keeps it under the refresh rate: no added lag)" }
+        elseif ($r -like 'error:*') { "NVIDIA: Call of Duty's profile could not be set ($r)" }
+    } catch { }
+}
 # checked at every run - not only once per driver: the NVIDIA app, a game's own optimizer or a driver repair can reset the
 # global profile without a new driver (10/2: guarded like every other setting). Reading it is instant and changes nothing.
 $done = "$(Get-Content $State -TotalCount 1)".Trim() -eq $drv

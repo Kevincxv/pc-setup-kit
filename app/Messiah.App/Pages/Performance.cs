@@ -47,6 +47,9 @@ namespace Messiah.Pages
             };
             var gt = Json.N(last, "gpuTemp"); var thr = Json.S(last, "throttle");
             if (gt != null) lines.Add(new Line($"Graphics card up to {gt} C, {Json.N(last, "gpuUse") ?? 0}% busy{(thr != "" ? $" - it slowed itself down ({thr.Replace(",", " and ")} limit)" : "")}", thr != "" ? "warn" : "dim"));
+            // drivers' time on the busiest core while playing (interrupts and deferred calls): over 15% steals time from the game
+            var dpc = Json.N(last, "dpcMax");
+            if (dpc != null) lines.Add(new Line(dpc >= 15 ? $"Drivers took up to {dpc}% of a core while you played - enough to cause stutters the frame rate hides (audio, network or USB drivers are the usual ones)" : $"Drivers took up to {dpc}% of a core while you played - fine", dpc >= 15 ? "warn" : "dim"));
             var per = Json.L(last, "perSec").Select(Num).ToList(); var worst = Json.L(last, "worstMs").Select(Num).ToList();
             var grid = new UniformGrid { Columns = 2, Margin = Ui.Th("0,8,-14,0") };
             if (per.Count >= 2)
@@ -64,30 +67,42 @@ namespace Messiah.Pages
         }
         static UIElement Pad(UIElement e) { ((FrameworkElement)e).Margin = Ui.Th("0,0,14,14"); return e; }
 
-        // a driver or Windows update: each game's sessions on the version before and on the one after
+        // something that changed between sessions - a graphics driver, Windows, the RAM speed (EXPO), Memory Integrity, the game's
+        // own settings: each game's sessions on the one before and on the one after, side by side, and what it came to
+        internal static readonly (string Field, string What)[] Changes = { ("driver", "Graphics driver"), ("build", "Windows"), ("ram", "RAM speed"), ("hvci", "Memory Integrity"), ("settings", "Your game settings") };
         static UIElement Updates(List<IGrouping<string, Dictionary<string, object>>> games)
         {
             var lines = new List<(string, string, string)>();
-            foreach (var (field, what) in new[] { ("driver", "Graphics driver"), ("build", "Windows") })
-                foreach (var g in games)
-                {
-                    var runs = new List<(string Ver, List<Dictionary<string, object>> Rows)>();
-                    foreach (var r in g) { var v = Json.S(r, field); if (v == "") continue; if (runs.Count == 0 || runs[runs.Count - 1].Ver != v) runs.Add((v, new List<Dictionary<string, object>>())); runs[runs.Count - 1].Rows.Add(r); }
-                    for (int i = 1; i < runs.Count; i++)
-                    {
-                        double A(List<Dictionary<string, object>> rr, string f) => rr.Average(r => Json.N(r, f) ?? 0);
-                        var before = runs[i - 1].Rows; var after = runs[i].Rows;
-                        double f0 = A(before, "fps"), f1 = A(after, "fps"), l0 = A(before, "low1"), l1 = A(after, "low1");
-                        var pct = f0 > 0 ? (f1 - f0) / f0 * 100 : 0;
-                        var level = pct <= -5 || (l0 > 0 && (l1 - l0) / l0 <= -0.08) ? "warn" : pct >= 5 ? "ok" : "info";
-                        var at = Kit.Date(Json.Get(after[0], "date")).Value;
-                        lines.Add((at.ToString("MMM d"), $"{g.Key} - {what} {runs[i - 1].Ver} -> {runs[i].Ver}: {Math.Round(f0)} -> {Math.Round(f1)} fps ({(pct >= 0 ? "+" : "")}{Math.Round(pct)}%), 1% low {Math.Round(l0)} -> {Math.Round(l1)} ({before.Count} session(s) before, {after.Count} after)", level));
-                    }
-                }
-            if (lines.Count == 0) lines.Add(("", "No driver or Windows update between sessions yet - after the next one, each game's sessions before and after show here side by side.", "dim"));
-            return Ui.Card("Before and after updates", "E895", new object[] { Ui.Rows(lines.OrderByDescending(l => l.Item1).ToList()) });
+            foreach (var g in games) foreach (var v in Verdicts(g.Key, g.ToList())) lines.Add((v.When, v.Text, v.Level));
+            if (lines.Count == 0) lines.Add(("", "Nothing changed between sessions yet - after the next change (a driver, Windows, EXPO, a setting), each game's sessions before and after show here with what it came to.", "dim"));
+            return Ui.Card("Before and after changes", "E895", new object[] { Ui.Rows(lines.OrderByDescending(l => l.Item1).ToList()) });
         }
-
+        internal static List<(string When, string Text, string Level, DateTime? Decided)> Verdicts(string game, List<Dictionary<string, object>> rows)
+        {
+            var o = new List<(string, string, string, DateTime?)>();
+            foreach (var (field, what) in Changes)
+            {
+                var runs = new List<(string Ver, List<Dictionary<string, object>> Rows)>();
+                foreach (var r in rows) { var v = Json.S(r, field); if (v == "") continue; if (runs.Count == 0 || runs[runs.Count - 1].Ver != v) runs.Add((v, new List<Dictionary<string, object>>())); runs[runs.Count - 1].Rows.Add(r); }
+                for (int i = 1; i < runs.Count; i++)
+                {
+                    double A(List<Dictionary<string, object>> rr, string f) => rr.Average(r => Json.N(r, f) ?? 0);
+                    var before = runs[i - 1].Rows; var after = runs[i].Rows;
+                    double f0 = A(before, "fps"), f1 = A(after, "fps"), l0 = A(before, "low1"), l1 = A(after, "low1");
+                    var pct = f0 > 0 ? (f1 - f0) / f0 * 100 : 0; var lpct = l0 > 0 ? (l1 - l0) / l0 * 100 : 0;
+                    // a verdict once there are 2 sessions on each side (one minute can be a quiet moment or a busy one)
+                    string verdict, level;
+                    if (before.Count < 2 || after.Count < 2) { verdict = $"too early to tell - {after.Count} session(s) since"; level = "dim"; }
+                    else if (pct <= -5 || lpct <= -8) { verdict = "worse"; level = "warn"; }
+                    else if (pct >= 5 || lpct >= 8) { verdict = "better"; level = "ok"; }
+                    else { verdict = "about the same"; level = "info"; }
+                    var from = field == "settings" ? "" : $" {runs[i - 1].Ver} -> {runs[i].Ver}";
+                    var at = Kit.Date(Json.Get(after[0], "date")).Value;
+                    o.Add((at.ToString("MMM d"), $"{game} - {what}{from}: {verdict} - {Math.Round(f0)} -> {Math.Round(f1)} fps ({(pct >= 0 ? "+" : "")}{Math.Round(pct)}%), 1% low {Math.Round(l0)} -> {Math.Round(l1)} ({(lpct >= 0 ? "+" : "")}{Math.Round(lpct)}%)", level, before.Count >= 2 && after.Count >= 2 ? Kit.Date(Json.Get(after[1], "date")) : null));
+                }
+            }
+            return o;
+        }
         static double Median(List<double> v) { if (v.Count == 0) return 0; var s = v.OrderBy(x => x).ToList(); int m = s.Count / 2; return s.Count % 2 == 1 ? s[m] : (s[m - 1] + s[m]) / 2; }
 
         // a minute second by second: the frame rate as a line; the slowest frames as bars (amber over 50 ms - a hitch)

@@ -49,13 +49,14 @@ namespace Messiah.Tray
             After(8, AtLogin);
             Every(30, Notify);
             Every(300, GamePerf);
+            Every(10, GameBoost);
             if (ai)
             {
                 Every(0.5, Watch); After(3, () => AutoStart(false)); Every(300, SessionCheck); Every(900, RefreshSession);
                 Every(3, ChatDone); Every(600, LiveTest);
             }
         }
-        public void Stop() { foreach (var t in timers) t.Stop(); try { icon.Visible = false; icon.Dispose(); } catch { } try { Native.UnregisterHotKey(src.Handle, HotkeyId); } catch { } }
+        public void Stop() { EndBoost(); foreach (var t in timers) t.Stop(); try { icon.Visible = false; icon.Dispose(); } catch { } try { Native.UnregisterHotKey(src.Handle, HotkeyId); } catch { } }
 
         System.Drawing.Icon LoadIcon()
         {
@@ -183,6 +184,36 @@ namespace Messiah.Tray
         }
         void RefreshSession() => Ps("refresh-session.ps1", "");   // the hidden session onto a new Claude Code, when it can't disturb
 
+        // --- while a game runs (kit-options.txt gameboost, on unless switched off): what runs beside it steps back - browsers,
+        // the Claude and Codex sessions, Steam's web helpers to "below normal" - and the game a step up ("above normal"); all
+        // as it was once the game closes. Voice chat, music and audio keep theirs (their sound has its own priority anyway).
+        public static readonly string[] Background = { "chrome", "msedge", "firefox", "brave", "opera", "claude", "node", "codex", "Codex", "ChatGPT", "steamwebhelper", "OneDrive", "EpicWebHelper", "Battle.net", "EADesktop" };
+        readonly Dictionary<int, ProcessPriorityClass> lowered = new Dictionary<int, ProcessPriorityClass>(); string boosted; int boostedPid;
+        void GameBoost()
+        {
+            var game = Kit.Opt("gameboost", "on") == "on" ? Data.Playing() : "";
+            if (game != "" && boosted == null)
+            {
+                foreach (var p in Process.GetProcesses())
+                    using (p)
+                    {
+                        try
+                        {
+                            if (p.ProcessName.Equals(game, StringComparison.OrdinalIgnoreCase) && p.PriorityClass == ProcessPriorityClass.Normal) { p.PriorityClass = ProcessPriorityClass.AboveNormal; boostedPid = p.Id; }
+                            else if (Background.Contains(p.ProcessName, StringComparer.OrdinalIgnoreCase) && p.PriorityClass == ProcessPriorityClass.Normal) { lowered[p.Id] = p.PriorityClass; p.PriorityClass = ProcessPriorityClass.BelowNormal; }
+                        }
+                        catch { }   // (a process that ended, or one Windows protects)
+                    }
+                boosted = game;
+            }
+            else if (game == "" && boosted != null) EndBoost();
+        }
+        public void EndBoost()
+        {
+            foreach (var kv in lowered) try { using (var p = Process.GetProcessById(kv.Key)) if (p.PriorityClass == ProcessPriorityClass.BelowNormal) p.PriorityClass = kv.Value; } catch { }
+            try { using (var p = Process.GetProcessById(boostedPid)) if (p.PriorityClass == ProcessPriorityClass.AboveNormal) p.PriorityClass = ProcessPriorityClass.Normal; } catch { }
+            lowered.Clear(); boosted = null; boostedPid = 0;
+        }
         // a game or video covering its whole monitor: nothing pops up
         public static bool IsFullscreen()
         {
