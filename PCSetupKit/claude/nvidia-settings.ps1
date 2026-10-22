@@ -101,10 +101,35 @@ public static class KitNvApp {
   }
 }
 "@ }
-        $ids = [uint32[]]@(0x00A879CF, 0x1057EB71); $vals = [uint32[]]@(0x47814940, 1)   # V-Sync: force on; power: prefer maximum performance
+        # V-Sync on only with G-SYNC really on for the main screen (with it: no tearing and no added lag; without it, V-Sync
+        # adds lag - 10/21: a screen that supports G-SYNC had it switched off). NVAPI's VRR info for the main display.
+        if (-not ('KitVrr' -as [type])) { Add-Type -TypeDefinition @"
+using System; using System.Runtime.InteropServices;
+public static class KitVrr {
+  [DllImport("nvapi64.dll", EntryPoint="nvapi_QueryInterface", CallingConvention=CallingConvention.Cdecl)] static extern IntPtr QI(uint id);
+  [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int F0();
+  [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int FPrim(out uint id);
+  [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int FVrr(uint id, byte[] info);
+  static T D<T>(uint id) { return (T)(object)Marshal.GetDelegateForFunctionPointer(QI(id), typeof(T)); }
+  // the main screen: 1 G-SYNC on, 0 off (but possible), -1 not possible / not known
+  public static int Primary() {
+    if (D<F0>(0x0150E828)() != 0) return -1;
+    uint d; if (D<FPrim>(0x1E9D8A31)(out d) != 0) return -1;
+    var b = new byte[24]; BitConverter.GetBytes((uint)(24 | (1 << 16))).CopyTo(b, 0);   // NV_GET_VRR_INFO v1
+    if (D<FVrr>(0xDF8FDA57)(d, b) != 0) return -1;
+    uint f = BitConverter.ToUInt32(b, 4); return (f & 1) == 1 ? 1 : ((f >> 1) & 1) == 1 ? 0 : -1;
+  }
+}
+"@ }
+        $gs = [KitVrr]::Primary()
+        $ids = [uint32[]]@(0x00A879CF, 0x1057EB71); $vals = [uint32[]]@($(if ($gs -eq 1) { 0x47814940 } else { 0x60925292 }), 1)   # V-Sync: on with G-SYNC, else the game decides; power: prefer maximum performance
+        # G-SYNC possible but off: said once (and again if it is switched off later)
+        $gf = "$PSScriptRoot\gsync.txt"; $was = "$(Get-Content $gf -TotalCount 1 -ErrorAction SilentlyContinue)".Trim()
+        if ($gs -eq 0 -and $was -ne '0') { "Reminder: G-SYNC is off for your main screen, which supports it - frames tear or stutter between refreshes. NVIDIA Control Panel > Display > Set up G-SYNC > tick Enable G-SYNC, G-SYNC Compatible > Enable for windowed and full screen mode > Apply. Messiah then sets the rest for Call of Duty." }
+        if ($gs -ge 0 -and $was -ne "$gs") { "$gs" | Set-Content $gf }
         $r = [KitNvApp]::Ensure('cod.exe', 'Call of Duty (Messiah)', $ids, $vals, $false)
         if ($r -eq 'pending' -and -not (Get-Process cod -ErrorAction SilentlyContinue)) { $r = [KitNvApp]::Ensure('cod.exe', 'Call of Duty (Messiah)', $ids, $vals, $true) }
-        if ($r -eq 'set') { "NVIDIA: Call of Duty set up for G-SYNC - V-Sync on and maximum performance on its own profile (Reflex keeps it under the refresh rate: no added lag)" }
+        if ($r -eq 'set') { if ($gs -eq 1) { "NVIDIA: Call of Duty set up for G-SYNC - V-Sync on and maximum performance on its own profile (Reflex keeps it under the refresh rate: no added lag)" } else { "NVIDIA: Call of Duty set to maximum performance on its own profile (V-Sync left to the game while G-SYNC is off)" } }
         elseif ($r -like 'error:*') { "NVIDIA: Call of Duty's profile could not be set ($r)" }
     } catch { }
 }
