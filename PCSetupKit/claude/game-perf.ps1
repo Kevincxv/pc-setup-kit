@@ -2,7 +2,8 @@
 # graphics card's temperature, load and throttling and the SSD's temperature - so "a driver/Windows update made my
 # games worse" and "it runs hot while gaming" show up as numbers (trends.ps1 compares them; the app charts them).
 # Started by the tray every 5 minutes while something is fullscreen; it does nothing unless game-check.ps1 names a
-# game, and samples each game at most once every 3 hours. One line per sample in perf-history.json (last 500).
+# game, and samples a game at most every 25 minutes (a few minutes of each session, 10/21 - was every 3 hours); a minute with
+# the graphics card hardly busy (a menu, a lobby, a kill-cam) is not a sample. One line per sample in perf-history.json (last 500).
 # PresentMon (MIT licence, signed by Intel) is fetched once to .claude\tools; nothing else is installed.
 # -TestCsv / -TestGame / -TestGpu: tests (a recorded capture, a game name, nvidia-smi rows) - nothing is captured.
 param([int]$Seconds = 60, [string]$History = "$PSScriptRoot\perf-history.json", [datetime]$Now = (Get-Date),
@@ -23,7 +24,7 @@ if (-not $game) {
 }
 if (-not $game) { return }
 $last = $h | Where-Object { $_.game -eq $game } | Select-Object -Last 1
-if (-not $Force -and $last -and [datetime]$last.date -gt $Now.AddHours(-3)) { return }
+if (-not $Force -and $last -and [datetime]$last.date -gt $Now.AddMinutes(-25)) { return }
 
 # --- the graphics card while the game runs (every 5 s during the capture) ---
 function Read-Gpu {
@@ -84,6 +85,7 @@ $rows = @($gpu | ForEach-Object { , ("$_" -split ',\s*') } | Where-Object { $_.C
 if ($rows) {
     $e.gpuTemp = ($rows | ForEach-Object { [int]$_[0] } | Measure-Object -Maximum).Maximum
     $e.gpuUse = [int](($rows | ForEach-Object { [int]$_[1] } | Measure-Object -Average).Average)
+    if ($e.gpuUse -lt 25) { return }   # the card hardly busy for the minute: a menu, a lobby or a kill-cam - not the game being played
     $thr = @(); if ($rows | Where-Object { $_.Count -ge 4 -and ($_[2] -eq 'Active' -or $_[3] -eq 'Active') }) { $thr += 'heat' }
     if ($rows | Where-Object { $_.Count -ge 5 -and $_[4] -eq 'Active' }) { $thr += 'power' }
     if ($thr) { $e.throttle = $thr -join ',' }

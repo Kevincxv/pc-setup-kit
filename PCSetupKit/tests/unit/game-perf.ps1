@@ -33,10 +33,12 @@ Check 'the minute second by second: each second''s frame rate and slowest frame 
 Check 'the driver and Windows build recorded (a change there explains a change here)' ($s.build -match '^\d+\.\d+$' -and $null -ne $s.driver) "$($s.driver) / $($s.build)"
 
 Section 'when not to sample'
-[void](Invoke-Sample $cap -at $now.AddHours(1))
-Check 'the same game again within 3 hours: skipped' (@(Hist).Count -eq 1) ''
-[void](Invoke-Sample $cap -at $now.AddHours(4))
-Check '... and sampled after 3 hours' (@(Hist).Count -eq 2) ''
+[void](Invoke-Sample $cap -at $now.AddMinutes(20))
+Check 'the same game again within 25 minutes: skipped' (@(Hist).Count -eq 1) ''
+[void](Invoke-Sample $cap -at $now.AddMinutes(30))
+Check '... and sampled after 25 minutes (a few samples of each session)' (@(Hist).Count -eq 2) ''
+[void](Invoke-Sample $cap @('45, 12', '44, 15') -at $now.AddHours(2))
+Check 'the graphics card hardly busy (a menu, a lobby, a kill-cam): not a sample' (@(Hist).Count -eq 2) ''
 $o = Invoke-Sample (New-Capture 150 0) -at $now.AddHours(8)
 Check 'too few frames (a menu, loading, alt-tabbed): not a sample' (@(Hist).Count -eq 2 -and -not $o) "$o"
 [void](Invoke-Sample (New-Capture 900 0) @('55, 40') -at $now.AddHours(12))

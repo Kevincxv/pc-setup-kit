@@ -254,6 +254,8 @@ if ((Test-Path "$PSScriptRoot\diag-modes.ps1") -and -not $env:PCKIT_IN_TESTS) {
 }
 # NVIDIA driver settings for games (low latency, unlimited shader cache) - once per driver version
 if (Test-Path "$PSScriptRoot\nvidia-settings.ps1") { & "$PSScriptRoot\nvidia-settings.ps1" }
+# the owner's tuned game settings kept (Call of Duty: a patch or a new driver resets them); the shader reminder after a new driver
+if (Test-Path "$PSScriptRoot\game-settings.ps1") { & "$PSScriptRoot\game-settings.ps1" }
 # ping, jitter, packet loss and DNS speed over time (a slow router DNS is switched to a fast public one where safe)
 if (Test-Path "$PSScriptRoot\network-check.ps1") { & "$PSScriptRoot\network-check.ps1" }
 

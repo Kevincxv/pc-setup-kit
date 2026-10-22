@@ -12,7 +12,7 @@ namespace Messiah.Pages
     // Activity > Performance (10/21): how the games run - each game's last minute second by second (its frame rate, and its
     // slowest frame each second: the hitches you feel), its frame rate over the sessions, and what a graphics driver or
     // Windows update did to it (the sessions before and after, side by side). From game-perf.ps1's samples (perf-history.json:
-    // a minute of a game every 3 hours while it's played).
+    // a minute every 25 minutes while a game is played - not its menus).
     static class Performance
     {
         static Brush B(string k) => Theme.B[k];
@@ -25,7 +25,7 @@ namespace Messiah.Pages
                 .OrderByDescending(g => Kit.Date(Json.Get(g.Last(), "date"))).ToList();
             if (games.Count == 0)
             {
-                o.Add(Ui.Card("Nothing measured yet", "E7FC", new object[] { new Line("While you play, a minute of each game is measured (at most every 3 hours): its frame rate, the slowest frames, the graphics card's heat. Play a game for a few minutes and it shows here.", "dim") }));
+                o.Add(Ui.Card("Nothing measured yet", "E7FC", new object[] { new Line("While you play, a minute of each game is measured (every 25 minutes; menus and lobbies don't count): its frame rate, the slowest frames, the graphics card's heat. Play a game for a few minutes and it shows here.", "dim") }));
                 return o;
             }
             foreach (var g in games.Take(6)) o.Add(Game(g.Key, g.ToList()));

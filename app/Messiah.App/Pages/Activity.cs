@@ -153,7 +153,7 @@ namespace Messiah.Pages
                 var l = g.Last(); var u = Median(g.Select(r => Json.N(r, "low1") ?? 0).ToList()); var gt = Json.N(l, "gpuTemp");
                 return (Kit.Date(Json.Get(l, "date")).Value.ToString("MMM d"), $"{g.Key}: {Math.Round(Json.N(l, "fps") ?? 0)} fps, 1% low {Math.Round(Json.N(l, "low1") ?? 0)} fps (usual {Math.Round(u ?? 0)}){(gt != null ? $", card {gt} C" : "")} - {g.Count()} sample(s)", "info");
             }).ToList();
-            if (games.Count == 0) games.Add(("", "Nothing recorded yet - a minute of each game is measured while you play (at most every 3 hours).", "dim"));
+            if (games.Count == 0) games.Add(("", "Nothing recorded yet - a minute of your game is measured every 25 minutes while you play (menus and lobbies don't count).", "dim"));
             o.Add(Ui.Card("Games", "E7FC", new object[] { Ui.Rows(games) }));
             o.Add(Foot("Recorded at every check (at each login and once a day); games while you play. Idle temperatures are taken only while the graphics card is idle, so a game never skews them."));
             return o;
