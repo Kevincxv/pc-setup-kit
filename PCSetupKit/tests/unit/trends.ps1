@@ -1,4 +1,4 @@
-﻿# trends.ps1: health over time vs this PC's own normal - start-up time (and what slowed it), C: filling up, graphics
+# trends.ps1: health over time vs this PC's own normal - start-up time (and what slowed it), C: filling up, graphics
 # card warmer at idle, SSD wear - with the event log, disks and nvidia-smi mocked and a made-up history.
 . "$PSScriptRoot\..\lib.ps1"
 $trendsScript = "$Src\trends.ps1"
@@ -17,8 +17,8 @@ function Get-WinEvent { param($FilterHashtable, $MaxEvents, $ErrorAction)
 function Get-PSDrive { [pscustomobject]@{ Free = $TR.FreeGB * 1GB; Used = $(if ($TR.SizeGB) { ($TR.SizeGB - $TR.FreeGB) * 1GB }) } }
 function Get-Partition { 'part' }
 function Get-Disk { 'disk' }
-function Get-StorageReliabilityCounter { [pscustomobject]@{ Wear = $TR.Wear; Temperature = 45 } }
-function nvidia-smi { "$($TR.Gpu), $($TR.GpuUse)" }
+function Get-StorageReliabilityCounter { [pscustomobject]@{ Wear = $TR.Wear; Temperature = 45; TemperatureMax = $TR.TempMax; ReadErrorsUncorrected = $TR.Errors } }
+function nvidia-smi { "$($TR.Gpu), $($TR.GpuUse)$(if ($null -ne $TR.Fan) { ", $($TR.Fan)" })" }
 if (-not (Assert-Mocks $mocked)) { Finish }
 $hf = "$Work\health-history.json"
 # a history: one check a day for 40 days, a boot each day of about 26 s, stable disk, GPU 30 C idle, SSD 2 % worn
@@ -79,6 +79,20 @@ Reset-T; New-History -gpuThen 31 -gpuNow 43; $TR.Gpu = 44; $o = T
 Check 'graphics card 10+ C warmer at idle than a month ago: a dust reminder' ($o -match '^Reminder: the graphics card runs \d+ C warmer at idle than a month ago \(43 C, was 31 C\)') ($o -join ' / ')
 Reset-T; New-History; $TR.Wear = 9; $o = T
 Check 'SSD wore 7 % in a month: a reminder' ($o -match '^Reminder: the SSD wore 7% in a month') ($o -join ' / ')
+Reset-T; New-History; $TR.TempMax = 72; $TR.Fan = 30; $o = T
+Check 'the SSD''s hottest ever and the card''s fan at idle are recorded; under 80 C: nothing said' (-not $o -and (Hist)[-1].ssdTempMax -eq 72 -and (Hist)[-1].gpuIdleFan -eq 30) ($o -join ' / ')
+$TR.TempMax = 86; $o = T
+Check 'the SSD''s hottest ever reaches 86 C: said, with what helps' ([bool]($o -match '^Reminder: the SSD has reached 86 C at its hottest - it slows itself down from about 80 C\. A heatsink')) ($o -join ' / ')
+$o = T
+Check '... once (the same peak again: nothing)' (-not ($o -match 'hottest')) ($o -join ' / ')
+$TR.TempMax = 88; $o = T
+Check '... and again when it goes higher' ([bool]($o -match 'reached 88 C')) ($o -join ' / ')
+Reset-T; [IO.File]::Delete($hf); $TR.TempMax = 86; $o = T
+Check 'already 80 C+ at the very first check: said (the drive has been that hot before)' ([bool]($o -match 'reached 86 C')) ($o -join ' / ')
+Reset-T; New-History; $TR.Errors = 0; [void](T); $TR.Errors = 3; $o = T
+Check 'data the SSD could not read back, rising: WARNING to back up' ([bool]($o -match '^WARNING: the SSD could not read back data 3 more time\(s\)')) ($o -join ' / ')
+$o = T
+Check '... not again while it stays the same' (-not ($o -match 'read back')) ($o -join ' / ')
 
 Section 'first days (no history yet)'
 Reset-T; [IO.File]::Delete($hf); $o = T
@@ -112,5 +126,15 @@ New-Perf -changeAt 20 -days 30; $o = T
 Check 'a change weeks ago: no longer repeated' (-not ($o -match 'runs slower')) ($o -join ' / ')
 New-Perf -changeAt 3 -fpsAfter 140 -lowAfter 92 -tempAfter 87 -thrAfter 'heat'; $o = T
 Check 'hot and throttling while gaming: said, with what to do' ([bool]($o -match '^Reminder: the graphics card gets hot while gaming \(up to 87 C, and slows itself down to cool off\) - clean the dust')) ($o -join ' / ')
+function Cpu-Perf([int[]]$limits) {
+    $i = $limits.Count; $rows = foreach ($l in $limits) { [ordered]@{ date = $now.AddHours(- $i--).ToString('o'); game = 'TestGame'; fps = 140; low1 = 92; gpuTemp = 70; cpuLimit = $l; driver = '1.0'; build = '26200.1' } }
+    ConvertTo-Json -InputObject @($rows) | Set-Content $pf
+}
+Cpu-Perf @(100, 100, 100, 100); $o = T
+Check 'the processor at full speed while gaming: nothing' (-not ($o -match 'processor')) ($o -join ' / ')
+Cpu-Perf @(100, 84, 100, 76); $o = T
+Check 'the processor held back while gaming in 2+ minutes: said, with what to check' ([bool]($o -match '^Reminder: the processor was held back to 76% of its speed while gaming \(2 of the last 4 measured minutes\) - nearly always heat')) ($o -join ' / ')
+Cpu-Perf @(100, 84, 100, 100); $o = T
+Check '... not for one minute' (-not ($o -match 'processor')) ($o -join ' / ')
 Clear-Path $pf
 Finish

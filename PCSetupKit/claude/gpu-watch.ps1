@@ -8,22 +8,26 @@
 #   previous driver had none in its last 14 days - and Messiah goes back to the previous driver by itself (gpu-rollback.ps1
 #   -Yes: a restore point first, never under a game, the bad version held back until a newer one comes). Once per driver
 #   version; kit-options.txt autorollback=off stops it (then it stays a WARNING with the one-click button).
+# - A new driver on trial (10/21): the owner's games measured on it (perf-history.json) against the driver before; clearly
+#   slower - back to the one before the same way. The result is kept for the app (gpu-state.json trial).
 # State: gpu-state.json (driver version and since when, recent resets and graphics blue screens). Prints only what's worth saying.
 # -Since: the last check; -State/-Root/-TestDriver/-TestEvents/-TestGame: tests.
 param([datetime]$Since = (Get-Date).AddDays(-7), [string]$State = "$PSScriptRoot\gpu-state.json", [datetime]$Now = (Get-Date),
-    [string]$Root, [string]$TestDriver, [object[]]$TestEvents, [string]$TestGame, [object[]]$TestBsods, [scriptblock]$Rollback, [string]$Options = "$PSScriptRoot\kit-options.txt")
+    [string]$Root, [string]$TestDriver, [object[]]$TestEvents, [string]$TestGame, [object[]]$TestBsods, [scriptblock]$Rollback, [string]$Options = "$PSScriptRoot\kit-options.txt",
+    [string]$PerfHistory = "$PSScriptRoot\perf-history.json")
 $ErrorActionPreference = 'SilentlyContinue'
 $s = try { Get-Content $State -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $null }
 if ($s -isnot [Management.Automation.PSCustomObject]) { $s = [pscustomobject]@{} }   # (valid JSON of the wrong shape - a number, a list - counts as no state, never as an error)
 foreach ($k in 'driver', 'driverSince', 'cachePending') { if (-not ($s.PSObject.Properties.Name -contains $k)) { $s | Add-Member $k $null } }
 foreach ($k in 'resets', 'bsods') { if (-not ($s.PSObject.Properties.Name -contains $k)) { $s | Add-Member $k @() } }
 if (-not ($s.PSObject.Properties.Name -contains 'rolledBack')) { $s | Add-Member rolledBack $null }
+if (-not ($s.PSObject.Properties.Name -contains 'trial')) { $s | Add-Member trial $null }
 
 $drv = $TestDriver
 if (-not $drv) { $drv = "$((Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'NVIDIA|AMD|Radeon|Intel\(R\) Arc' } | Select-Object -First 1).DriverVersion)" }
 $prev = $s.driver
 if ($drv -and $drv -ne $prev) {
-    if ($prev) { $s.cachePending = $drv }   # the first check only records the version
+    if ($prev) { $s.cachePending = $drv; $s.trial = [pscustomobject]@{ driver = $drv; from = $prev; since = $Now.ToString('o'); verdict = $null; text = $null } }   # the first check only records the version
     $s.driver = $drv; $s.driverSince = $Now.ToString('o')
 }
 
@@ -68,10 +72,51 @@ if ($ds -and $prev -ne $null -and $drv -and $s.rolledBack -ne $drv -and -not $op
         $why = "$(@(if ($after) { "$after driver reset(s)" }) + @(if ($afterB) { "$afterB blue screen(s)" }) -join ' and ') since it was installed on $($ds.ToString('d'))"
         # (never the real one under tests: they pass -Rollback)
         $res = @(if ($Rollback) { & $Rollback } elseif (-not $env:PCKIT_IN_TESTS -and $null -eq $TestEvents) { & "$PSScriptRoot\gpu-rollback.ps1" -Yes })
-        if ("$res" -match '^Graphics driver: back on') { $s.rolledBack = $drv; "Graphics driver: $drv caused $why - went back to the previous driver by itself ($res). The faulty version is held back until a newer one comes" }
+        if ("$res" -match '^Graphics driver: back on') {
+            $s.rolledBack = $drv; if ($s.trial -and $s.trial.driver -eq $drv) { $s.trial.verdict = 'rolled back'; $s.trial.text = "it caused $why - went back to $($s.trial.from)" }
+            "Graphics driver: $drv caused $why - went back to the previous driver by itself ($res). The faulty version is held back until a newer one comes"
+        }
         elseif (-not $res -or "$res" -match '^Close ') { }   # a game runs (or a test without a stand-in): at the next check
         else { $s.rolledBack = $drv; "WARNING: graphics driver $drv caused $why, and going back by itself wasn't possible: $res" }
     }
+}
+# --- a new driver on trial (10/21): the owner's games on it against the driver before. game-perf.ps1 measures a minute
+# every 25 minutes of play; once a game has 3 on each driver (under the same Windows, RAM speed, Memory Integrity and game
+# settings - else the driver is not what changed), the most-played one decides: clearly slower (1% low 10%+ down, or the
+# average 8%+ down) - back to the driver before, like a crashing one (autorollback=off: a WARNING instead); else it
+# passed. game-tune.ps1 tries no setting while a driver is on trial. Not enough play within 14 days: left as it is. ---
+$tr = $s.trial
+if ($tr -and -not $tr.verdict -and $tr.driver -eq $drv) {
+    $trSince = [datetime]$tr.since
+    $pj = try { Get-Content $PerfHistory -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
+    $mins = @($pj | ForEach-Object { $_ } | Where-Object { $_ -is [Management.Automation.PSCustomObject] -and $_.game -and "$($_.tune)" -notlike '*:b' -and $(try { [void][datetime]"$($_.date)"; $true } catch { $false }) })
+    function Median($v) { $q = @($v | Sort-Object); if (-not $q) { return 0 }; $m = [int][Math]::Floor($q.Count / 2); if ($q.Count % 2) { [double]$q[$m] } else { ([double]$q[$m - 1] + [double]$q[$m]) / 2 } }
+    $res = foreach ($g in $mins | Group-Object game) {
+        $key = { param($r) "$($r.build)|$($r.ram)|$($r.hvci)|$($r.settings)" }
+        $aft = @($g.Group | Where-Object { $_.driver -eq $tr.driver -and [datetime]$_.date -ge $trSince })
+        if ($aft.Count -lt 3) { continue }
+        $k = ($aft | Group-Object { & $key $_ } | Sort-Object Count -Descending | Select-Object -First 1).Name
+        $aft = @($aft | Where-Object { (& $key $_) -eq $k })
+        $bef = @($g.Group | Where-Object { $_.driver -eq $tr.from -and [datetime]$_.date -lt $trSince -and [datetime]$_.date -gt $trSince.AddDays(-45) -and (& $key $_) -eq $k } | Select-Object -Last 10)
+        if ($aft.Count -lt 3 -or $bef.Count -lt 3) { continue }
+        [pscustomobject]@{ Game = $g.Name; N = $aft.Count; F0 = Median ($bef | ForEach-Object { $_.fps }); F1 = Median ($aft | ForEach-Object { $_.fps }); L0 = Median ($bef | ForEach-Object { $_.low1 }); L1 = Median ($aft | ForEach-Object { $_.low1 }) }
+    }
+    $main = @($res) | Sort-Object N -Descending | Select-Object -First 1
+    if ($main) {
+        $nums = "1% low $([int]$main.L0) -> $([int]$main.L1) fps, average $([int]$main.F0) -> $([int]$main.F1) fps"
+        if ($main.L1 -le $main.L0 * 0.90 -or $main.F1 -le $main.F0 * 0.92) {
+            $why = "$($main.Game) runs slower on it than on $($tr.from) ($nums)"
+            if ($optOff) { $tr.verdict = 'slower'; $tr.text = $why; "WARNING: graphics driver $drv - $why; going back is one click (Settings > Tools > Go back to the previous graphics driver)" }
+            else {
+                $r = @(if ($Rollback) { & $Rollback } elseif (-not $env:PCKIT_IN_TESTS -and $null -eq $TestEvents) { & "$PSScriptRoot\gpu-rollback.ps1" -Yes })
+                if ("$r" -match '^Graphics driver: back on') { $s.rolledBack = $drv; $tr.verdict = 'rolled back'; $tr.text = "$why - went back to $($tr.from)"; "Graphics driver: $drv failed its test - $why. Went back to the previous driver by itself ($r); $drv is held back until a newer one comes" }
+                elseif (-not $r -or "$r" -match '^Close ') { }   # a game runs: at the next check
+                else { $tr.verdict = 'slower'; $tr.text = $why; "WARNING: graphics driver $drv - $why, and going back by itself wasn't possible: $r" }
+            }
+        }
+        else { $tr.verdict = 'passed'; $tr.text = "$($main.Game): $nums against $($tr.from)"; "Graphics driver $drv passed its test - $($main.Game) runs as well as on $($tr.from) or better ($nums)" }
+    }
+    elseif ($Now -gt $trSince.AddDays(14)) { $tr.verdict = 'not tested'; $tr.text = 'not enough play in its first 2 weeks to compare' }
 }
 # --- a new driver: clear the old shader caches once, never under a game ---
 if ($s.cachePending) {

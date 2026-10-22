@@ -24,14 +24,118 @@ namespace Messiah.Pages
             var games = s.Perf.Where(r => Json.S(r, "game") != "" && Kit.Date(Json.Get(r, "date")) != null).GroupBy(r => Json.S(r, "game"))
                 .OrderByDescending(g => Kit.Date(Json.Get(g.Last(), "date"))).ToList();
             if (games.Count == 0)
-            {
                 o.Add(Ui.Card("Nothing measured yet", "E7FC", new object[] { new Line("While you play, a minute of each game is measured (every 25 minutes; menus and lobbies don't count): its frame rate, the slowest frames, the graphics card's heat. Play a game for a few minutes and it shows here.", "dim") }));
-                return o;
-            }
             foreach (var g in games.Take(6)) o.Add(Game(g.Key, g.ToList()));
-            o.Add(Updates(games));
-            o.Add(Activity.Foot("Measured with Intel's PresentMon for one minute while the game runs. 1% low: only 1 frame in 100 is slower - what you feel as smoothness. A hitch: a frame over 50 ms."));
+            var tune = Tuning(s); if (tune != null) o.Add(tune);
+            if (games.Count > 0) o.Add(Updates(games));
+            var drv = DriverTest(s); if (drv != null) o.Add(drv);
+            o.Add(Heat(s));
+            if (games.Count > 0) o.Add(Activity.Foot("Measured with Intel's PresentMon for one minute while the game runs. 1% low: only 1 frame in 100 is slower - what you feel as smoothness. A hitch: a frame over 50 ms."));
             return o;
+        }
+
+        // --- tuning by measurement (game-tune.ps1): the setting being tried both ways in your matches, and what each test found
+        static readonly Dictionary<string, string> GameNames = new Dictionary<string, string> { ["cod"] = "Call of Duty" };
+        internal static string Say(string id, string v)
+        {
+            switch (id)
+            {
+                case "reflex": return v == "Enabled + boost" ? "Reflex Boost on" : "Reflex Boost off";
+                case "vram": return double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x) ? $"a {Math.Round(x * 100)}% video memory budget" : v;
+                case "workers": return v == "-1" ? "automatic renderer threads" : $"{v} renderer threads";
+                default: return v;
+            }
+        }
+        static UIElement Tuning(Snapshot s)
+        {
+            var t = s.Tune; var a = Json.Get(t, "active") as Dictionary<string, object>; var done = Json.L(t, "done").OfType<Dictionary<string, object>>().ToList();
+            if (a == null && done.Count == 0) return null;
+            var lines = new List<object>();
+            if (a != null)
+            {
+                string id = Json.S(a, "id"), game = Json.S(a, "game"); var since = Kit.Date(Json.Get(a, "started")) ?? DateTime.MinValue;
+                int Count(string arm) => s.Perf.Count(r => Json.S(r, "game") == game && Json.S(r, "tune") == id + ":" + arm && (Kit.Date(Json.Get(r, "date")) ?? DateTime.MinValue) >= since);
+                int na = Count("a"), nb = Count("b"); var on = Json.S(a, "arm") == "b" ? Json.S(a, "b") : Json.S(a, "a");
+                lines.Add(new Line($"Trying now in {(GameNames.TryGetValue(game, out var gn) ? gn : game)}: {Say(id, Json.S(a, "a"))} (as before) against {Say(id, Json.S(a, "b"))} - {Math.Min(na, 4) + Math.Min(nb, 4)} of 8 minutes of play measured. On now: {Say(id, on)}.", "info"));
+                lines.Add(new Line("Switched only while the game is closed, back and forth so one evening doesn't decide it. The other value is kept only if it is clearly faster; anything else changing in the middle (a driver, Windows) ends the test with your setting back.", "dim"));
+            }
+            else if (Json.Get(s.GpuState, "trial") is Dictionary<string, object> tr && Json.S(tr, "verdict") == "")
+                lines.Add(new Line("Waiting: a new graphics driver is being tested first (a setting tried at the same time would muddy both results).", "dim"));
+            var rows = new List<(string, string, string)>();
+            foreach (var d in done.AsEnumerable().Reverse().Take(8))
+            {
+                string id = Json.S(d, "id"), why = Json.S(d, "why"), kept = Json.S(d, "kept"); var at = Kit.Date(Json.Get(d, "at"));
+                double? aL = Json.N(d, "aLow"), bL = Json.N(d, "bLow"), aF = Json.N(d, "aFps"), bF = Json.N(d, "bFps");
+                string Pct(double x, double y) => y > 0 ? $"{(x >= y ? "+" : "")}{Math.Round((x - y) / y * 100)}%" : "";
+                var nums = aL != null && bL != null && aF != null && bF != null ? $" (1% low {Math.Round(aL.Value)} -> {Math.Round(bL.Value)} fps {Pct(bL.Value, aL.Value)}, average {Math.Round(aF.Value)} -> {Math.Round(bF.Value)} fps)" : "";
+                string text, level;
+                if (why == "faster") { text = $"{Say(id, Json.S(d, "b"))} is faster than {Say(id, Json.S(d, "a"))}{nums} - switched to it"; level = "ok"; }
+                else if (why == "no faster") { text = $"{Say(id, Json.S(d, "b"))} was no faster{nums} - kept {Say(id, Json.S(d, "a"))}"; level = "info"; }
+                else { text = $"{Json.S(d, "label")}: stopped - {why}{(kept != "" ? $"; {Say(id, kept)} kept" : "")}"; level = "dim"; }
+                rows.Add((at?.ToString("MMM d") ?? "", text, level));
+            }
+            if (rows.Count > 0) lines.Add(Ui.Rows(rows));
+            return Ui.Card("Tuned by measuring", "E9E9", lines.ToArray());
+        }
+
+        // --- a new graphics driver on test (gpu-watch.ps1): measured against the one before; clearly slower = back by itself
+        static UIElement DriverTest(Snapshot s)
+        {
+            if (!(Json.Get(s.GpuState, "trial") is Dictionary<string, object> tr)) return null;
+            var since = Kit.Date(Json.Get(tr, "since")); if (since == null || since < DateTime.Now.AddDays(-30)) return null;
+            string drv = Json.S(tr, "driver"), from = Json.S(tr, "from"), verdict = Json.S(tr, "verdict"), text = Json.S(tr, "text");
+            Line l;
+            if (verdict == "")
+            {
+                var n = s.Perf.Where(r => Json.S(r, "driver") == drv && (Kit.Date(Json.Get(r, "date")) ?? DateTime.MinValue) >= since).GroupBy(r => Json.S(r, "game")).Select(g => g.Count()).DefaultIfEmpty(0).Max();
+                l = new Line($"Driver {drv} (since {Kit.FormatWhen(since.Value, dateOnly: true)}) is on test against {from}: {Math.Min(n, 3)} of 3 minutes of play measured on it. If your games run clearly slower on it, Messiah goes back to {from} by itself.", "info");
+            }
+            else if (verdict == "passed") l = new Line($"Driver {drv} passed its test - {text}", "ok");
+            else if (verdict == "rolled back") l = new Line($"Driver {drv} was undone - {text}", "warn");
+            else if (verdict == "slower") l = new Line($"Driver {drv} is slower - {text}. Settings > Tools > Go back to the previous graphics driver", "warn");
+            else l = new Line($"Driver {drv}: {text}", "dim");
+            return Ui.Card("Graphics driver test", "E7F8", new object[] { l });
+        }
+
+        // --- heat and wear: the graphics card, the processor and the SSD - while gaming and over time
+        static UIElement Heat(Snapshot s)
+        {
+            var rows = new List<(string, string, string)>();
+            var g = s.Perf.LastOrDefault(r => Json.N(r, "gpuTemp") != null); var h = s.HealthLast;
+            var gpu = new List<string>(); var gl = "info";
+            if (g != null)
+            {
+                var thr = Json.S(g, "throttle");
+                gpu.Add($"up to {Json.N(g, "gpuTemp")} C while gaming" + (Json.N(g, "gpuFan") is double gf ? $", fan {gf}%" : "") + (Json.N(g, "gpuPower") is double gp ? $", {gp} W" : "") + (thr != "" ? $" - it slowed itself down ({thr.Replace(",", " and ")} limit)" : ""));
+                if (thr != "" || (Json.N(g, "gpuTemp") ?? 0) >= 85) gl = "warn";
+            }
+            if (Json.N(h, "gpuIdle") is double gi) gpu.Add($"{gi} C at idle" + (Json.N(h, "gpuIdleFan") is double fi ? $", fan {fi}%" : ""));
+            rows.Add(("Graphics card", gpu.Count > 0 ? string.Join("; ", gpu) : "measured from your next game", gpu.Count > 0 ? gl : "dim"));
+            var c = s.Perf.LastOrDefault(r => Json.N(r, "cpuLimit") != null);
+            if (c != null)
+            {
+                var lim = Json.N(c, "cpuLimit") ?? 100;
+                rows.Add(("Processor", lim >= 95 ? $"at full speed while gaming ({Json.N(c, "cpuPerf")}% of its base speed)" : $"held back to {lim}% of its speed while gaming - nearly always heat: the CPU cooler's fan or pump, its dust, the case's air flow", lim >= 95 ? "ok" : "warn"));
+            }
+            else rows.Add(("Processor", "measured from your next game (its temperature can't be read without a kernel driver; how much it is held back can)", "dim"));
+            if (h != null && (Json.N(h, "ssdTemp") != null || Json.N(h, "ssdWear") != null))
+            {
+                var mx = Json.N(h, "ssdTempMax");
+                var parts = new List<string>();
+                if (Json.N(h, "ssdTemp") is double t0) parts.Add($"{t0} C now");
+                if (mx != null) parts.Add($"{mx} C at its hottest{(mx >= 80 ? " (it slows itself down from about 80 C - a heatsink helps)" : "")}");
+                if (Json.N(h, "ssdWear") is double w) parts.Add($"{w}% worn");
+                rows.Add(("SSD", string.Join(", ", parts), mx >= 80 ? "warn" : "info"));
+            }
+            var lines = new List<object> { Ui.Rows(rows) };
+            var grid = new UniformGrid { Columns = 2, Margin = Ui.Th("0,8,-14,0") };
+            var gt = s.Perf.Where(r => Json.N(r, "gpuTemp") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "gpuTemp").Value)).ToList();
+            if (gt.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Graphics card while gaming", " C", gt, 0, 10)));
+            var it = s.Health.Where(r => Json.N(r, "gpuIdle") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "gpuIdle").Value)).ToList();
+            if (it.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Graphics card at idle", " C", it, 0, 10)));
+            if (grid.Children.Count > 0) lines.Add(grid);
+            lines.Add(new Line("Warming up over the months usually means dust - Messiah says when it's time to clean the fans and filters.", "dim"));
+            return Ui.Card("Heat and wear", "E9CA", lines.ToArray());
         }
 
         // one game: the last session's numbers, its minute second by second, and its frame rate over the sessions

@@ -3,8 +3,10 @@
 # - Start-up much slower than usual (1.5x and 10+ s): what slowed it (Windows' own start-up diagnostics); three slow
 #   start-ups in a row = WARNING (gets looked at)
 # - C: filling up: when it will be full at the current pace
-# - Graphics card 10+ C warmer at idle than a month ago (dust), SSD wear rising fast
-# - Games (perf-history.json from game-perf.ps1): slower since a driver or Windows update, hot while gaming
+# - Graphics card 10+ C warmer at idle than a month ago (dust), SSD wear rising fast, the SSD's hottest ever reaching
+#   80 C+, data the SSD could not read back
+# - Games (perf-history.json from game-perf.ps1): slower since a driver or Windows update, hot while gaming, the
+#   processor held back while gaming
 # Prints only what's worth saying. -History / -PerfHistory / -Now: test overrides.
 param([string]$History = "$PSScriptRoot\health-history.json", [datetime]$Now = (Get-Date), [string]$PerfHistory = "$PSScriptRoot\perf-history.json")
 $ErrorActionPreference = 'SilentlyContinue'
@@ -21,8 +23,10 @@ if ($bd.BootTime) { $e.bootAt = $b.TimeCreated.ToString('o'); $e.boot = [Math]::
 $drv = Get-PSDrive C; $free = $drv.Free; if ($free) { $e.freeGB = [Math]::Round($free / 1GB, 1); if ($drv.Used) { $e.sizeGB = [Math]::Round(($drv.Used + $free) / 1GB) } }
 $rc = Get-Partition -DriveLetter C | Get-Disk | Get-StorageReliabilityCounter
 if ($null -ne $rc.Wear) { $e.ssdWear = [int]$rc.Wear }; if ($rc.Temperature) { $e.ssdTemp = [int]$rc.Temperature }
-$g = "$(& nvidia-smi --query-gpu=temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>$null | Select-Object -First 1)" -split ',\s*'
-if ($g.Count -eq 2 -and [int]$g[1] -lt 10) { $e.gpuIdle = [int]$g[0] }   # only when the card is idle (a game would skew it)
+if ($rc.TemperatureMax) { $e.ssdTempMax = [int]$rc.TemperatureMax }   # the hottest it has ever been (the drive keeps it)
+if ($null -ne $rc.ReadErrorsUncorrected) { $e.ssdErrors = [int]$rc.ReadErrorsUncorrected }   # data it could not read back
+$g = "$(& nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,fan.speed --format=csv,noheader,nounits 2>$null | Select-Object -First 1)" -split ',\s*'
+if ($g.Count -ge 2 -and $g[1] -match '^\d+$' -and [int]$g[1] -lt 10) { $e.gpuIdle = [int]$g[0]; if ($g.Count -ge 3 -and $g[2] -match '^\d+$') { $e.gpuIdleFan = [int]$g[2] } }   # only when the card is idle (a game would skew it)
 $h = @($h | Where-Object { $_.date }) + [pscustomobject]$e | Select-Object -Last 300
 try { ConvertTo-Json -InputObject @($h) -Depth 3 | Set-Content "$History.tmp" -Encoding UTF8; Move-Item "$History.tmp" $History -Force } catch {}   # always an array, even with one entry
 
@@ -69,6 +73,14 @@ if ($then -and $recent -and $recent -ge $then + 10) { "Reminder: the graphics ca
 $w0 = $h | Where-Object { $null -ne $_.ssdWear -and [datetime]$_.date -gt $Now.AddDays(-31) } | Select-Object -First 1
 if ($null -ne $e.ssdWear -and $w0 -and $e.ssdWear - [int]$w0.ssdWear -ge 5) { "Reminder: the SSD wore $($e.ssdWear - [int]$w0.ssdWear)% in a month (now $($e.ssdWear)% used) - something is writing a lot" }
 
+# --- the SSD's hottest ever (10/21): said when it first shows 80 C or more, and again when it goes higher - NVMe drives
+# slow themselves down from about 80 C ---
+$hot0 = ($h | Select-Object -SkipLast 1 | Where-Object { $_.ssdTempMax } | ForEach-Object { [int]$_.ssdTempMax } | Measure-Object -Maximum).Maximum
+if ($e.ssdTempMax -ge 80 -and (-not $hot0 -or $e.ssdTempMax -gt $hot0)) { "Reminder: the SSD has reached $($e.ssdTempMax) C at its hottest - it slows itself down from about 80 C. A heatsink on it (most motherboards come with one, often under a cover) or a case fan blowing past it keeps it cooler" }
+# --- data the SSD could not read back: rising = the drive is failing ---
+$err0 = $h | Select-Object -SkipLast 1 | Where-Object { $null -ne $_.ssdErrors } | Select-Object -Last 1
+if ($null -ne $e.ssdErrors -and $err0 -and $e.ssdErrors -gt [int]$err0.ssdErrors) { "WARNING: the SSD could not read back data $($e.ssdErrors - [int]$err0.ssdErrors) more time(s) since the last check - back up your files; a drive that starts doing this often fails" }
+
 # --- games (perf-history.json, recorded by game-perf.ps1 while playing) ---
 $pj = try { Get-Content $PerfHistory -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
 $perf = @($pj | ForEach-Object { $_ } | Where-Object { $_ -is [Management.Automation.PSCustomObject] -and $(try { [void][datetime]"$($_.date)"; $true } catch { $false }) } | Where-Object { $_.game } | Sort-Object { [datetime]$_.date })
@@ -95,5 +107,9 @@ if ($recent.Count -ge 2 -and $hot.Count -ge 2) {
 $gt = { param($from, $to) Median ($perf | Where-Object { $_.gpuTemp -and [datetime]$_.date -ge $from -and [datetime]$_.date -lt $to } | ForEach-Object { [int]$_.gpuTemp }) }
 $gThen = & $gt $Now.AddDays(-75) $Now.AddDays(-30); $gNow = & $gt $Now.AddDays(-14) $Now.AddMinutes(1)
 if ($gThen -and $gNow -and $gNow -ge $gThen + 8 -and $hot.Count -lt 2) { "Reminder: the graphics card runs $($gNow - $gThen) C warmer while gaming than a month or two ago ($gNow C, was $gThen C) - dust in the fans or filters? A clean usually fixes it" }
+# the processor held back while gaming (10/21): Windows' performance limit under 90% in 2+ of the recent minutes - on a
+# desktop that is nearly always heat (the cooler: its fan or pump, old thermal paste, or a case with no air flow)
+$cpuHeld = @($recent | Where-Object { $null -ne $_.cpuLimit -and [int]$_.cpuLimit -lt 90 })
+if ($cpuHeld.Count -ge 2) { "Reminder: the processor was held back to $(($cpuHeld | Measure-Object cpuLimit -Minimum).Minimum)% of its speed while gaming ($($cpuHeld.Count) of the last $($recent.Count) measured minutes) - nearly always heat: check that the CPU cooler's fan (or pump) runs, clean its dust, and that the case fans move air through" }
 $st = @($recent | Where-Object { $_.ssdTemp -ge 75 })
 if ($st.Count -ge 2) { "Reminder: the SSD reaches $(($recent | Measure-Object ssdTemp -Maximum).Maximum) C while gaming - a heatsink on it (most motherboards come with one) or more airflow keeps it from slowing down" }

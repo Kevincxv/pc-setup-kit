@@ -256,6 +256,8 @@ if ((Test-Path "$PSScriptRoot\diag-modes.ps1") -and -not $env:PCKIT_IN_TESTS) {
 if (Test-Path "$PSScriptRoot\nvidia-settings.ps1") { & "$PSScriptRoot\nvidia-settings.ps1" }
 # the owner's tuned game settings kept (Call of Duty: a patch or a new driver resets them); the shader reminder after a new driver
 if (Test-Path "$PSScriptRoot\game-settings.ps1") { & "$PSScriptRoot\game-settings.ps1" }
+# the game's speed-only settings tried both ways in the owner's matches, the faster kept (after gpu-watch: none while a driver is on trial)
+if (Test-Path "$PSScriptRoot\game-tune.ps1") { & "$PSScriptRoot\game-tune.ps1" }
 # ping, jitter, packet loss and DNS speed over time (a slow router DNS is switched to a fast public one where safe)
 if (Test-Path "$PSScriptRoot\network-check.ps1") { & "$PSScriptRoot\network-check.ps1" }
 

@@ -65,6 +65,26 @@ Check 'a driver update: the sessions before and after, side by side, with a plai
 $H2 = "$Work\perf0"; New-Item "$H2\.claude", "$H2\Documents" -ItemType Directory -Force | Out-Null
 Check 'EXPO turned on (RAM 4800 -> 6000): its own verdict' ($r.Out -match 'TestGame - RAM speed 4800 MT/s -> 6000 MT/s: better') ''
 Check 'nothing measured yet: says how it gets measured' ((Run-App $H2).Out -match 'CARD: Nothing measured yet') ''
+Section 'Activity > Performance: a setting tried both ways, a driver on test, heat and wear (10/21)'
+$H = "$Work\tune"; $C = "$H\.claude"; New-Item $C, "$H\Documents" -ItemType Directory -Force | Out-Null
+'claude=off' | Set-Content "$C\kit-options.txt"; $now = Get-Date
+$rows = @(foreach ($i in 0..5) { [ordered]@{ date = $now.AddHours(-12 + $i).ToString('o'); game = 'cod'; fps = 200; low1 = 150; frames = 12000; stutters = 2; driver = '2.0'; gpuTemp = 70 + $i; gpuFan = 55; gpuPower = 290; cpuLimit = 100; cpuPerf = 112; tune = $(if ($i -lt 3) { 'vram:a' } else { 'vram:b' }) } })
+ConvertTo-Json -InputObject $rows -Depth 4 | Set-Content "$C\perf-history.json"
+@{ active = @{ id = 'vram'; game = 'cod'; label = 'the video memory budget'; a = '0.850000'; b = '0.750000'; arm = 'b'; started = $now.AddDays(-1).ToString('o') }
+   done = @(@{ id = 'reflex'; label = 'Reflex Boost'; a = 'Enabled + boost'; b = 'Enabled'; kept = 'Enabled'; why = 'faster'; at = $now.AddDays(-2).ToString('o'); aFps = 200; bFps = 204; aLow = 150; bLow = 165 },
+            @{ id = 'workers'; label = 'the renderer thread count'; a = '9'; b = '8'; kept = '9'; why = 'the graphics driver reset during the test'; at = $now.AddDays(-3).ToString('o') }) } | ConvertTo-Json -Depth 4 | Set-Content "$C\game-tune.json"
+@{ trial = @{ driver = '2.0'; from = '1.0'; since = $now.AddDays(-1).ToString('o'); verdict = $null; text = $null } } | ConvertTo-Json -Depth 3 | Set-Content "$C\gpu-state.json"
+ConvertTo-Json -InputObject @(@{ date = $now.ToString('o'); ssdTemp = 49; ssdTempMax = 86; ssdWear = 3; gpuIdle = 28; gpuIdleFan = 70 }) | Set-Content "$C\health-history.json"
+$r = Run-App $H
+Check 'the page builds' (-not (Errs $r)) (Errs $r)
+Check 'the setting being tried: both values in words, how far along, which one is on now' ($r.Out -match 'Trying now in Call of Duty: a 85% video memory budget \(as before\) against a 75% video memory budget - 6 of 8 minutes of play measured\. On now: a 75% video memory budget\.') ''
+Check '... each test''s result: what was faster and by how much, what was kept' ($r.Out -match 'Reflex Boost off is faster than Reflex Boost on \(1% low 150 -> 165 fps \+10%, average 200 -> 204 fps\) - switched to it' -and $r.Out -match 'the renderer thread count: stopped - the graphics driver reset during the test; 9 renderer threads kept') ''
+Check 'a new driver on test: against which one, how far along, what happens if it is slower' ($r.Out -match 'CARD: Graphics driver test' -and $r.Out -match 'Driver 2\.0 \(since .+\) is on test against 1\.0: 3 of 3 minutes of play measured on it\. If your games run clearly slower on it, Messiah goes back to 1\.0 by itself\.') ''
+Check 'heat and wear: the graphics card while gaming and at idle, the processor, the SSD''s hottest' ($r.Out -match 'Graphics card: up to 75 C while gaming, fan 55%, 290 W; 28 C at idle, fan 70%' -and $r.Out -match 'Processor: at full speed while gaming \(112% of its base speed\)' -and $r.Out -match 'SSD: 49 C now, 86 C at its hottest \(it slows itself down from about 80 C - a heatsink helps\), 3% worn' -and $r.Out -match 'CHART: Graphics card while gaming \| 6 points') ''
+'{"trial":{"driver":"2.0","from":"1.0","since":"' + $now.AddDays(-3).ToString('o') + '","verdict":"rolled back","text":"cod runs slower on it than on 1.0 (1% low 150 -> 128 fps) - went back to 1.0"}}' | Set-Content "$C\gpu-state.json"
+$r = Run-App $H
+Check '... a driver that failed its test: said it was undone, and why' ($r.Out -match 'Driver 2\.0 was undone - cod runs slower on it than on 1\.0') ''
+Check 'Settings: the switch for tuning by measuring' ($r.Out -match 'Tune my games by measuring') ''
 Section 'Home: "Since you last looked" - what happened while the window was closed'
 $H = "$Work\since"; $C = "$H\.claude"; New-Item "$C\maint-history", "$H\Documents" -ItemType Directory -Force | Out-Null
 'claude=off' | Set-Content "$C\kit-options.txt"; $now = Get-Date
@@ -78,7 +98,7 @@ Check '... a blue screen, a driver change' ($r.Out -match 'A blue screen [^\r\n]
 Check 'never closed before (no time recorded): no card' ((Run-App $H).Out -notmatch 'Since you last looked') ''
 Section 'break it: every state file garbage, in a profile path with spaces and non-English letters'
 $H = "$Work\Jörg Müller ÄÖÜ ñ"; $C = "$H\.claude"; New-Item $C, "$H\Documents", "$C\maint-history", "$C\chats\20260101-000000" -ItemType Directory -Force | Out-Null
-$states = 'actions-state.json', 'guard-state.json', 'benchmarks.json', 'display-state.json', 'files-backup-state.json', 'gaming-state.json', 'gpu-state.json',
+$states = 'actions-state.json', 'guard-state.json', 'benchmarks.json', 'display-state.json', 'files-backup-state.json', 'gaming-state.json', 'gpu-state.json', 'game-tune.json',
     'health-history.json', 'junk-state.json', 'maint-state.json', 'net-history.json', 'perf-history.json', 'restart-ledger.json', 'self-test.json',
     'todo-scripted.json', 'update-state.json', 'vendor-state.json', 'kit-options.txt', 'maint-report.txt', 'maint-todo.txt', 'notifications.log',
     'tray-news.txt', 'tray-notified.ini', 'gpu-hold.txt', 'admin-sessions.txt', 'app-window.txt', 'tray-hwnd.txt', 'restart-night.log',

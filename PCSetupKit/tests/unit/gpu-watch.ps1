@@ -7,7 +7,7 @@ $now = Get-Date
 $st = "$Work\gpu-state.json"; $root = "$Work\root"
 function Ev([datetime]$t) { [pscustomobject]@{ TimeCreated = $t } }
 function GW([string]$drv = '1.0', [object[]]$ev = @(), [string]$game = '', [datetime]$at = $now, [datetime]$since = $now.AddDays(-1)) {
-    @(& $gw -Since $since -State $st -Now $at -Root $root -TestDriver $drv -TestEvents $ev -TestGame $game)
+    @(& $gw -Since $since -State $st -Now $at -Root $root -TestDriver $drv -TestEvents $ev -TestGame $game -PerfHistory "$Work\perf-history.json")
 }
 function New-Caches { foreach ($d in 'Local\NVIDIA\DXCache', 'Local\D3DSCache\x', 'LocalLow\Intel\ShaderCache') { New-Item "$root\$d" -ItemType Directory -Force | Out-Null; [IO.File]::WriteAllBytes("$root\$d\cache.bin", (New-Object byte[] (2MB))) } }
 New-Item "$root\Local\Keep" -ItemType Directory -Force | Out-Null; 'x' | Set-Content "$root\Local\Keep\other.txt"
@@ -42,7 +42,7 @@ Check 'resets that began right after a driver update: that driver named, with ho
 
 Section 'a new driver that crashes: back to the previous one by itself'
 function GWR([string]$drv, [object[]]$ev = @(), [object[]]$bs = @(), [datetime]$at, [string]$res = 'Graphics driver: back on 1.0 (from 2026-01-01); 9.0 won''t be installed again') {
-    $global:rolled = 0; $r = $res; @(& $gw -Since $at.AddDays(-1) -State $st -Now $at -Root $root -TestDriver $drv -TestEvents $ev -TestGame '' -TestBsods $bs -Rollback ([scriptblock]::Create("`$global:rolled++; '$($r.Replace("'", "''"))'")) -Options "$Work\opts.txt")
+    $global:rolled = 0; $r = $res; @(& $gw -Since $at.AddDays(-1) -State $st -Now $at -Root $root -TestDriver $drv -TestEvents $ev -TestGame '' -TestBsods $bs -Rollback ([scriptblock]::Create("`$global:rolled++; '$($r.Replace("'", "''"))'")) -Options "$Work\opts.txt" -PerfHistory "$Work\perf-history.json")
 }
 Clear-Path $st; '' | Set-Content "$Work\opts.txt"
 $d0 = $now.AddDays(-5)
@@ -80,4 +80,46 @@ Clear-Path $st; 'autorollback=off' | Set-Content "$Work\opts.txt"
 [void](GWR '8.0' -at $d0.AddDays(-20)); [void](GWR '9.0' -at $d0)
 $o = GWR '9.0' -ev @((Ev $d0.AddDays(1)), (Ev $d0.AddDays(2)), (Ev $d0.AddDays(3))) -at $d0.AddDays(3).AddMinutes(5)
 Check 'switched off (autorollback=off): only the warning, no rollback' ($global:rolled -eq 0) ($o -join ' / ')
+
+Section 'a new driver on trial: the games on it against the driver before'
+$pf = "$Work\perf-history.json"
+function Mins([string]$drv, [datetime]$from, [int]$n, [double]$fps, [double]$low, [string]$game = 'cod', [string]$build = 'B1', [string]$tune) {
+    0..($n - 1) | ForEach-Object { [pscustomobject]@{ date = $from.AddHours($_).ToString('o'); game = $game; fps = $fps; low1 = $low; driver = $drv; build = $build; ram = '6000 MT/s'; hvci = 'off'; settings = 'abc'; tune = $tune } }
+}
+function Set-Perf([object[]]$rows) { ConvertTo-Json -InputObject @($rows) -Depth 3 | Set-Content $pf }
+function Trial { (Get-Content $st -Raw | ConvertFrom-Json).trial }
+Clear-Path $st; '' | Set-Content "$Work\opts.txt"; Set-Perf @()
+$d0 = $now.AddDays(-6)
+[void](GWR '8.0' -at $d0.AddDays(-20)); [void](GWR '9.0' -at $d0)
+Check 'a new driver: on trial against the one before' ((Trial).driver -eq '9.0' -and (Trial).from -eq '8.0' -and -not (Trial).verdict) ''
+Set-Perf (@(Mins '8.0' $d0.AddDays(-10) 4 200 150) + @(Mins '9.0' $d0.AddDays(1) 2 200 120))
+$o = GWR '9.0' -at $d0.AddDays(2)
+Check 'two minutes on it: too early to tell (nothing done)' (-not $o -and $global:rolled -eq 0 -and -not (Trial).verdict) ($o -join ' / ')
+Set-Perf (@(Mins '8.0' $d0.AddDays(-10) 4 200 150) + @(Mins '9.0' $d0.AddDays(1) 3 196 128))
+$o = GWR '9.0' -at $d0.AddDays(2)
+Check '3 on each, the 1% low clearly down: back to the driver before by itself, with the numbers' ($global:rolled -eq 1 -and "$o" -match '^Graphics driver: 9\.0 failed its test - cod runs slower on it than on 8\.0 \(1% low 150 -> 128 fps, average 200 -> 196 fps\)\. Went back' -and (Trial).verdict -eq 'rolled back') ($o -join ' / ')
+$o = GWR '9.0' -at $d0.AddDays(2).AddHours(1)
+Check '... once (never a loop)' ($global:rolled -eq 0 -and -not $o) ($o -join ' / ')
+Clear-Path $st; Set-Perf @(); [void](GWR '8.0' -at $d0.AddDays(-20)); [void](GWR '9.0' -at $d0)
+Set-Perf (@(Mins '8.0' $d0.AddDays(-10) 4 200 150) + @(Mins '9.0' $d0.AddDays(1) 3 204 152))
+$o = GWR '9.0' -at $d0.AddDays(2)
+Check 'as fast or faster: it passed, said once' ($global:rolled -eq 0 -and "$o" -match '^Graphics driver 9\.0 passed its test - cod runs as well as on 8\.0 or better' -and (Trial).verdict -eq 'passed') ($o -join ' / ')
+Check '... and nothing more after that' (-not (GWR '9.0' -at $d0.AddDays(3))) ''
+Clear-Path $st; Set-Perf @(); [void](GWR '8.0' -at $d0.AddDays(-20)); [void](GWR '9.0' -at $d0)
+Set-Perf (@(Mins '8.0' $d0.AddDays(-10) 4 200 150) + @(Mins '9.0' $d0.AddDays(1) 3 150 100 -build 'B2'))
+$o = GWR '9.0' -at $d0.AddDays(2)
+Check 'Windows changed too (another build on the new driver''s minutes): not blamed on the driver' ($global:rolled -eq 0 -and -not (Trial).verdict) ($o -join ' / ')
+Set-Perf (@(Mins '8.0' $d0.AddDays(-10) 4 200 150 -tune 'reflex:b') + @(Mins '9.0' $d0.AddDays(1) 3 150 100))
+$o = GWR '9.0' -at $d0.AddDays(2)
+Check 'minutes with a setting being tried (game-tune''s second value) don''t count as the driver before' ($global:rolled -eq 0 -and -not (Trial).verdict) ($o -join ' / ')
+Set-Perf @()
+$o = GWR '9.0' -at $d0.AddDays(15)
+Check 'no play in 2 weeks: left as it is, marked not tested' ($global:rolled -eq 0 -and -not $o -and (Trial).verdict -eq 'not tested') ($o -join ' / ')
+Clear-Path $st; Set-Perf @(); [void](GWR '8.0' -at $d0.AddDays(-20)); [void](GWR '9.0' -at $d0)
+Set-Perf (@(Mins '8.0' $d0.AddDays(-10) 4 200 150) + @(Mins '9.0' $d0.AddDays(1) 3 180 140))
+$o = GWR '9.0' -at $d0.AddDays(2) -res 'Close cod first - the screen goes black for a few seconds while the driver switches'
+Check 'slower, but a game is running: at the next check' (-not $o -and -not (Trial).verdict) ($o -join ' / ')
+'autorollback=off' | Set-Content "$Work\opts.txt"
+$o = GWR '9.0' -at $d0.AddDays(2).AddHours(2)
+Check 'automatic undo off: a WARNING with the one-click way back, nothing done' ($global:rolled -eq 0 -and "$o" -match '^WARNING: graphics driver 9\.0 - cod runs slower on it than on 8\.0 .+one click' -and (Trial).verdict -eq 'slower') ($o -join ' / ')
 Finish

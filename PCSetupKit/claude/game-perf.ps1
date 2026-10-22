@@ -1,5 +1,6 @@
 # In-game performance sample: while a game runs, one minute of its real frame times (Intel's PresentMon) plus the
-# graphics card's temperature, load and throttling and the SSD's temperature - so "a driver/Windows update made my
+# graphics card's temperature, load, fan, power and throttling, the processor's speed limit and the SSD's temperature
+# (and which setting game-tune.ps1 is trying out, if any) - so "a driver/Windows update made my
 # games worse" and "it runs hot while gaming" show up as numbers (trends.ps1 compares them; the app charts them).
 # Started by the tray every 5 minutes while something is fullscreen; it does nothing unless game-check.ps1 names a
 # game, and samples a game at most every 25 minutes (a few minutes of each session, 10/21 - was every 3 hours); a minute with
@@ -7,7 +8,8 @@
 # PresentMon (MIT licence, signed by Intel) is fetched once to .claude\tools; nothing else is installed.
 # -TestCsv / -TestGame / -TestGpu: tests (a recorded capture, a game name, nvidia-smi rows) - nothing is captured.
 param([int]$Seconds = 60, [string]$History = "$PSScriptRoot\perf-history.json", [datetime]$Now = (Get-Date),
-    [string]$TestCsv, [string]$TestGame, [string[]]$TestGpu, [double[]]$TestDpc, [switch]$Force)   # -TestDpc: the busiest core's driver time (%) per reading
+    [string]$TestCsv, [string]$TestGame, [string[]]$TestGpu, [double[]]$TestDpc, [string[]]$TestCpu, [switch]$Force,   # -TestDpc: the busiest core's driver time (%) per reading; -TestCpu: "limit,performance" readings
+    [string]$Tune = "$PSScriptRoot\game-tune.json", [string]$GameSettings = "$PSScriptRoot\game-settings.json")
 $ErrorActionPreference = 'SilentlyContinue'
 $mx = New-Object Threading.Mutex($false, "Global\PCSetupKitGamePerf$(if ($TestCsv) { "-test-$PID" })")
 if (-not $mx.WaitOne(0)) { return }   # a sample is already running (tests never wait for a real one)
@@ -29,10 +31,22 @@ if (-not $Force -and $last -and [datetime]$last.date -gt $Now.AddMinutes(-25)) {
 # --- the graphics card while the game runs (every 5 s during the capture) ---
 function Read-Gpu {
     if ($TestGpu) { return $TestGpu }
+    # (fan and power last: a card or driver without them still gives the rest)
     $q = 'temperature.gpu,utilization.gpu,clocks_event_reasons.hw_thermal_slowdown,clocks_event_reasons.sw_thermal_slowdown,clocks_event_reasons.sw_power_cap'
-    $r = "$(& nvidia-smi --query-gpu=$q --format=csv,noheader,nounits 2>$null | Select-Object -First 1)"
-    if ($r -notmatch '^\d') { $r = "$(& nvidia-smi --query-gpu=$($q -replace 'clocks_event_reasons', 'clocks_throttle_reasons') --format=csv,noheader,nounits 2>$null | Select-Object -First 1)" }   # older drivers
-    if ($r -match '^\d') { $r }
+    foreach ($qq in "$q,fan.speed,power.draw", ($q -replace 'clocks_event_reasons', 'clocks_throttle_reasons'), $q) {   # (older drivers: the throttle names)
+        $r = "$(& nvidia-smi --query-gpu=$qq --format=csv,noheader,nounits 2>$null | Select-Object -First 1)"
+        if ($r -match '^\d') { return $r }
+    }
+}
+# the processor held back (10/21): Windows' "% Performance Limit" drops under 100 when the CPU is kept from its full
+# speed - by heat (this PC's CPU has no temperature Windows can read without a kernel driver) or by power; and how fast
+# it runs against its base speed. English counter names; elsewhere: not measured
+function Read-Cpu {
+    if ($TestCpu) { return $TestCpu }
+    try {
+        $s = (Get-Counter '\Processor Information(_Total)\% Performance Limit', '\Processor Information(_Total)\% Processor Performance' -ErrorAction Stop).CounterSamples
+        "$([Math]::Round(($s | Where-Object Path -match 'limit').CookedValue)),$([Math]::Round(($s | Where-Object Path -match 'processor performance').CookedValue))"
+    } catch { }
 }
 # drivers' time on the busiest core (interrupts + deferred calls, %): high = a driver steals time from the game - the
 # stutters a frame-rate average hides (audio, network, USB). English counter names; elsewhere: not measured
@@ -43,7 +57,7 @@ function Read-Dpc {
     } catch { $null }
 }function Read-SsdTemp { if ($TestGpu) { return 50 }; (Get-Partition -DriveLetter C | Get-Disk | Get-StorageReliabilityCounter).Temperature }
 
-$csv = $TestCsv; $gpu = @(); $ssd = @(); $dpc = @()
+$csv = $TestCsv; $gpu = @(); $ssd = @(); $dpc = @(); $cpu = @()
 if (-not $csv) {
     $pm = "$PSScriptRoot\tools\PresentMon.exe"
     if (-not (Test-Path $pm)) {
@@ -66,12 +80,12 @@ if (-not $csv) {
     try { $p.PriorityClass = 'BelowNormal' } catch { }
     $w = [Diagnostics.Stopwatch]::StartNew()
     while (-not $p.HasExited -and $w.Elapsed.TotalSeconds -lt $Seconds + 30) {
-        $g = Read-Gpu; if ($g) { $gpu += $g }; $t = Read-SsdTemp; if ($t) { $ssd += [int]$t }; $d = Read-Dpc; if ($null -ne $d) { $dpc += $d }
+        $g = Read-Gpu; if ($g) { $gpu += $g }; $t = Read-SsdTemp; if ($t) { $ssd += [int]$t }; $d = Read-Dpc; if ($null -ne $d) { $dpc += $d }; $c = Read-Cpu; if ($c) { $cpu += $c }
         Start-Sleep 5
     }
     if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
 }
-else { $gpu = @(Read-Gpu); $ssd = @(Read-SsdTemp); $dpc = @($TestDpc) }
+else { $gpu = @(Read-Gpu); $ssd = @(Read-SsdTemp); $dpc = @($TestDpc); $cpu = @($TestCpu) }
 
 # --- frame rate: the average and the 1% low (the frame time only 1 frame in 100 is slower than) ---
 $ms = @(Import-Csv $csv | Where-Object { $_.Application -like "$game*" } | ForEach-Object { $v = 0.0; if ([double]::TryParse($_.MsBetweenPresents, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$v) -and $v -gt 0) { $v } })
@@ -96,7 +110,14 @@ if ($rows) {
     $thr = @(); if ($rows | Where-Object { $_.Count -ge 4 -and ($_[2] -eq 'Active' -or $_[3] -eq 'Active') }) { $thr += 'heat' }
     if ($rows | Where-Object { $_.Count -ge 5 -and $_[4] -eq 'Active' }) { $thr += 'power' }
     if ($thr) { $e.throttle = $thr -join ',' }
+    # its fan (average %) and power (most watts) while playing - the Performance page's heat and wear
+    $fan = @($rows | Where-Object { $_.Count -ge 7 -and $_[5] -match '^\d+$' } | ForEach-Object { [int]$_[5] })
+    if ($fan) { $e.gpuFan = [int](($fan | Measure-Object -Average).Average) }
+    $pw = @($rows | Where-Object { $_.Count -ge 7 -and $_[6] -match '^\d' } | ForEach-Object { [double]$_[6] })
+    if ($pw) { $e.gpuPower = [int](($pw | Measure-Object -Maximum).Maximum) }
 }
+$cr = @($cpu | ForEach-Object { , ("$_" -split ',') } | Where-Object { $_.Count -eq 2 -and $_[0] -match '^\d+$' -and $_[1] -match '^\d+$' })
+if ($cr) { $e.cpuLimit = ($cr | ForEach-Object { [int]$_[0] } | Measure-Object -Minimum).Minimum; $e.cpuPerf = [int](($cr | ForEach-Object { [int]$_[1] } | Measure-Object -Average).Average) }
 if ($ssd) { $e.ssdTemp = ($ssd | Measure-Object -Maximum).Maximum }
 # what the numbers depend on: a change here explains a change in the numbers
 $e.driver = "$((Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'NVIDIA|AMD|Radeon|Intel\(R\) Arc' } | Select-Object -First 1).DriverVersion)"
@@ -105,9 +126,18 @@ if ($dpc.Count) { $e.dpcMax = [Math]::Round(($dpc | Measure-Object -Maximum).Max
 $e.ram = "$((Get-CimInstance Win32_PhysicalMemory | Select-Object -First 1).ConfiguredClockSpeed) MT/s"   # (EXPO on/off shows here)
 $dg = Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard -ErrorAction SilentlyContinue
 $e.hvci = if (@($dg.SecurityServicesRunning) -contains 2) { 'on' } else { 'off' }   # Memory Integrity
-# the game's tuned settings (game-settings.ps1): a short fingerprint - a change to them is a change to compare across
-$gsf = "$PSScriptRoot\game-settings.json"
-if (Test-Path $gsf) { $md5 = [Security.Cryptography.MD5]::Create(); $e.settings = (($md5.ComputeHash([Text.Encoding]::UTF8.GetBytes(((Get-Content $gsf -Raw) -replace '"at":\s*"[^"]*"', '')))) | Select-Object -First 4 | ForEach-Object { $_.ToString('x2') }) -join '' }
+# a setting being tested right now (game-tune.ps1): which one, and which of its two values - the test reads its samples by this
+$tj = try { Get-Content $Tune -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
+if ($tj.active -and $tj.active.game -eq $game) { $e.tune = "$($tj.active.id):$($tj.active.arm)" }
+# the game's tuned settings (game-settings.ps1): a short fingerprint - a change to them is a change to compare across.
+# Only the settings' values (10/21: not the driver it also keeps, nor a setting game-tune.ps1 is trying out - those
+# are compared on their own)
+$gj = try { Get-Content $GameSettings -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
+if ($gj) {
+    $tk = @($tj.keys)
+    $flat = @(foreach ($p in $gj.PSObject.Properties) { if ($p.Value.values) { foreach ($v in $p.Value.values.PSObject.Properties) { if ($v.Name -notin $tk) { "$($v.Name)=$($v.Value)" } } } }) | Sort-Object
+    if ($flat) { $md5 = [Security.Cryptography.MD5]::Create(); $e.settings = (($md5.ComputeHash([Text.Encoding]::UTF8.GetBytes($flat -join "`n"))) | Select-Object -First 4 | ForEach-Object { $_.ToString('x2') }) -join '' }
+}
 $h = @($h | Where-Object { $_.date }) + [pscustomobject]$e | Select-Object -Last 500
 # (the second-by-second curves only on the newest 30: the file stays small)
 for ($i = 0; $i -lt $h.Count - 30; $i++) { foreach ($p in 'perSec', 'worstMs') { if ($h[$i].PSObject.Properties[$p]) { $h[$i].PSObject.Properties.Remove($p) } } }

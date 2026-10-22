@@ -242,8 +242,15 @@ namespace Messiah
                     }
                     return;
                 }
-                var chart = All<StackPanel>(card.Child).FirstOrDefault(x => (x.Tag as string ?? "").StartsWith("CHART:"));
-                if (chart != null) { o.AppendLine("  " + chart.Tag); return; }
+                var charts = All<StackPanel>(card.Child).Where(x => (x.Tag as string ?? "").StartsWith("CHART:")).ToList();
+                if (charts.Count > 0)
+                {
+                    // (a card with charts: its label | value rows too - Heat and wear - then each chart)
+                    foreach (var g in Find<Grid>(card.Child).Where(x => (x.Tag as string) == "rows"))
+                        foreach (var rr in g.Children.OfType<TextBlock>().GroupBy(x => Grid.GetRow(x))) o.AppendLine("  " + string.Join(": ", rr.Select(x => x.Text).Where(x => x != "")));
+                    foreach (var ch in charts) o.AppendLine("  " + ch.Tag);
+                    return;
+                }
                 foreach (var g in Find<Grid>(card.Child).Where(x => (x.Tag as string) == "rows"))
                     foreach (var rr in g.Children.OfType<TextBlock>().GroupBy(x => Grid.GetRow(x))) o.AppendLine("  " + string.Join(": ", rr.Select(x => x.Text).Where(x => x != "")));
                 foreach (var tb in Texts(card.Child).SkipWhile((x, i) => i == 0 && x == info.Title)) o.AppendLine("  " + tb);
