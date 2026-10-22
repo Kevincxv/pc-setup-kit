@@ -12,6 +12,7 @@ Section 'a new install (nothing written yet)'
 $H = "$Work\new"; New-Item "$H\.claude", "$H\Documents" -ItemType Directory -Force | Out-Null
 $r = Run-App $H
 Check 'it runs and ends by itself' ($r.Code -eq 0) "exit $($r.Code) $($r.Err)"
+Check 'Restart into an update keeps what the copy is (--live, --tray), not its page - the tray stays the tray (10/22: it lost --live)' ($r.Out -match '(?m)^RESTART ARGS: --live --tray --after 42 / --live --after 7\s*$') ''
 $miss = @($pages | Where-Object { $r.Out -notmatch "(?m)^PAGE: $([regex]::Escape($_)) " })
 Check 'every page is built' (-not $miss) "missing: $($miss -join ', ')"
 Check 'no page fails' (-not (Errs $r)) (Errs $r)

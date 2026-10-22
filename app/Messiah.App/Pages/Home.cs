@@ -44,7 +44,7 @@ namespace Messiah.Pages
             if (statusFirst) heroBtns.Add(Ui.Btn("EA18", "Open Status", () => Shell.ShowPage("Status"), accent: true));
             heroBtns.Add(Ui.Btn("E768", "Run maintenance now", Actions.RunMaint, accent: !statusFirst && todo.Count == 0));   // (something needs the owner: that is the next step - the card under it - not maintenance)
             heroBtns.Add(Ui.Btn("E945", "Optimize this PC", Actions.Optimize));
-            var hc = Ui.Card(null, null, new object[] { hero }, heroBtns); hc.Padding = Ui.Th("26,24"); o.Add(hc);
+            var hc = Ui.Card(null, null, new object[] { hero }, heroBtns); hc.Padding = Ui.Th("26,24"); o.Add(Ui.Wide(hc));
 
             // what happened while the window was closed (since the owner last looked) - nothing: no card
             if (s.Since != null && s.Since.Count > 0 && s.SinceAt != null) o.Add(Ui.Card("Since you last looked", "E81C", s.Since.Cast<object>().Concat(new object[] { new Line($"{Kit.FormatWhen(s.SinceAt.Value)} - the details are under Activity.", "dim") }).ToArray()));

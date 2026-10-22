@@ -235,8 +235,43 @@ namespace Messiah
                 PageError = e.Message;
                 els = new List<UIElement> { Ui.Card("This page couldn't be shown", "E783", new object[] { new Line("Something in its data is damaged. The other pages work; the next maintenance usually repairs it.", "warn"), new Line(e.Message, "dim") }) };
             }
-            foreach (var el in els) PageContent.Children.Add(el);
+            Flow(els);
             UpdateColumns();
+        }
+
+        // --- a wide window uses its width (10/22, the owner: "a lot of wasted space on the side"): the page's cards in 2
+        // columns from 1720 px of room, 3 from 2600 - each card into the shortest column, in order; what is wide (a page's
+        // summary, the tiles, a timeline, a note) across all of them, and the columns start again under it
+        int flowCols = 1;
+        int FlowCols()
+        {
+            var w = Math.Min(Body.MaxWidth, Scroll.ActualWidth) - Body.Margin.Left - Body.Margin.Right;
+            return onPage == "Welcome" ? 1 : w >= 2600 ? 3 : w >= 1720 ? 2 : 1;
+        }
+        static bool IsWide(UIElement el) => !(el is Border b && b.Tag is CardInfo ci && !ci.Wide);
+        void Flow(List<UIElement> els)
+        {
+            flowCols = FlowCols();
+            if (flowCols == 1) { foreach (var el in els) PageContent.Children.Add(el); return; }
+            const double gap = 14;
+            var colW = (Math.Min(Body.MaxWidth, Scroll.ActualWidth) - Body.Margin.Left - Body.Margin.Right - gap * (flowCols - 1)) / flowCols;
+            StackPanel[] cols = null; double[] h = null;
+            foreach (var el in els)
+            {
+                if (IsWide(el)) { cols = null; PageContent.Children.Add(el); continue; }
+                if (cols == null)
+                {
+                    var sec = new Grid(); cols = new StackPanel[flowCols]; h = new double[flowCols];
+                    for (int i = 0; i < flowCols; i++)
+                    {
+                        sec.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                        cols[i] = new StackPanel { Margin = new Thickness(0, 0, i < flowCols - 1 ? gap : 0, 0) }; Grid.SetColumn(cols[i], i); sec.Children.Add(cols[i]);
+                    }
+                    PageContent.Children.Add(sec);
+                }
+                el.Measure(new Size(colW, double.PositiveInfinity));
+                var k = Array.IndexOf(h, h.Min()); cols[k].Children.Add(el); h[k] += el.DesiredSize.Height + gap;
+            }
         }
         public string PageError;
         internal List<UIElement> BuildPage(string key, Snapshot s)
@@ -275,7 +310,7 @@ namespace Messiah
         void UpdateColumns()
         {
             var g = Pages.Home.TileGrid; if (g == null || Scroll.ActualWidth <= 0) return;
-            g.Columns = Math.Max(1, Math.Min(Math.Max(1, Math.Min(5, g.Children.Count)), (int)Math.Floor(Math.Min(1100, Scroll.ActualWidth - 2 * Body.Margin.Left) / 200)));
+            g.Columns = Math.Max(1, Math.Min(Math.Max(1, Math.Min(5, g.Children.Count)), (int)Math.Floor(Math.Min(Body.MaxWidth, Scroll.ActualWidth - 2 * Body.Margin.Left) / 200)));
         }
         void UpdateLayout2()
         {
@@ -299,6 +334,7 @@ namespace Messiah
             DockPanel.SetDock(SubBox, narrow ? Dock.Bottom : Dock.Right);
             SubBox.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch; SubBox.Margin = narrow ? Ui.Th("0,12,0,0") : Ui.Th("16,0,0,0");
             UpdateColumns();
+            if (snap != null && FlowCols() != flowCols) Dispatcher.BeginInvoke(new Action(() => Draw(false)), DispatcherPriority.Background);   // (the columns follow the window)
         }
     }
 }

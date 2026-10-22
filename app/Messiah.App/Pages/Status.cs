@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -48,7 +48,7 @@ namespace Messiah.Pages
             Grid.SetColumn(txt, 1); hero.Children.Add(ring); hero.Children.Add(txt);
             var chk = Ui.Btn("E72C", sm.Checking ? "Checking..." : "Check now", Actions.CheckNow, accent: true); chk.IsEnabled = !sm.Checking;
             var hc = Ui.Card(null, null, new object[] { hero }, new UIElement[] { chk, Ui.Btn("E7B3", "Preview changes", Actions.PreviewTweaks), Ui.Btn("E713", "Choose what Messiah changes", () => Shell.ShowPage("Settings", "Windows")), Ui.Btn("E8C8", "Copy a report", Actions.CopyReport) });
-            hc.Padding = Ui.Th("24,20"); o.Add(hc);
+            hc.Padding = Ui.Th("24,20"); o.Add(Ui.Wide(hc));
 
             // filters (All / Needs a look / Put back / Off, with counts) and a search box: rows are hidden in place, no redraw
             var cnt = new Dictionary<string, int> { ["all"] = sm.Rows.Count, ["warn"] = sm.Rows.Count(r => r.Level == "warn"), ["back"] = sm.Rows.Count(r => (r.State ?? "").StartsWith("Put back")), ["off"] = sm.Rows.Count(r => r.Level == "dim") };

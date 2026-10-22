@@ -118,7 +118,7 @@ namespace Messiah
                         if (!w.Offering) w.Offer("A new version of Messiah is ready.", "Restart", () =>
                         {
                             try { File.WriteAllText(Kit.P(Names.RequestFile), "page=" + AppLast.Page); } catch { }
-                            var keep = args.Where(x => Regex.IsMatch(x, "^[-/](live|tray)$", RegexOptions.IgnoreCase)).Concat(new[] { "--after", Process.GetCurrentProcess().Id.ToString() });
+                            var keep = RestartArgs(args, Process.GetCurrentProcess().Id);
                             try { Process.Start(new ProcessStartInfo(self, string.Join(" ", keep)) { UseShellExecute = false }); } catch (Exception ex) { Log("update: " + ex.Message); return; }
                             w.Quit = true; w.Close();
                         });
@@ -143,6 +143,12 @@ namespace Messiah
             return 0;
         }
 
+        // Restart into an update: the new copy keeps what this one is (--live: the app's own names, --tray: the tray) - never
+        // the page it was opened on (the request file carries that). 10/22: "^[-/]" missed "--live", and the restarted copy
+        // ran without the tray.
+        internal static IEnumerable<string> RestartArgs(string[] args, int pid) =>
+            args.Where(x => Regex.IsMatch(x, "^(--?|/)(live|tray)$", RegexOptions.IgnoreCase)).Concat(new[] { "--after", pid.ToString() });
+
         // what went wrong, for /self-improve (.claude\app-errors.log, kept short)
         public static void Log(string what)
         {
@@ -161,6 +167,7 @@ namespace Messiah
                 var w = new MainWindow();
                 if (page == "Welcome") { w.startPage = "Welcome"; w.BuildNav(); }
                 o.AppendLine("WINDOW: " + w.Title);
+                o.AppendLine("RESTART ARGS: " + string.Join(" ", RestartArgs(new[] { "--live", "--tray", "--page", "Status" }, 42)) + " / " + string.Join(" ", RestartArgs(new[] { "--live", "--page", "Home" }, 7)));
                 o.AppendLine("NAV: " + string.Join(" | ", w.NavList.Children.OfType<RadioButton>().Select(r => r.Tag)));
                 var sw = Stopwatch.StartNew(); var snap = Snapshot.Load(); o.AppendLine($"DATA: read in {sw.ElapsedMilliseconds} ms");
                 foreach (var key in new[] { "Welcome", "Home", "Status", "Activity/Checks", "Activity/Stability", "Activity/Trends", "Activity/Performance", "Activity/Alerts", "Settings/General", "Settings/Windows", "Settings/Tools" })
@@ -264,7 +271,14 @@ namespace Messiah
         static IEnumerable<string> Texts(object el)
         {
             if (el is Button) yield break;
-            if (el is TextBlock tb) { if ((tb.Tag as string) != "icon" && tb.Visibility == Visibility.Visible && tb.Text != "") yield return tb.Text; yield break; }
+            if (el is TextBlock tb)
+            {
+                // (a line made of runs - a setting's one line with its "More" link - and the details behind it, collapsed: the
+                // tests read them all)
+                var tt = tb.Text != "" ? tb.Text : new System.Windows.Documents.TextRange(tb.ContentStart, tb.ContentEnd).Text;
+                if ((tb.Tag as string) != "icon" && (tb.Visibility == Visibility.Visible || (tb.Tag as string) == "more") && tt != "") yield return tt;
+                yield break;
+            }
             if (el is Grid gr && (gr.Tag as string) == "rows") yield break;
             if (el is Panel p) { foreach (var c in p.Children) foreach (var s in Texts(c)) yield return s; yield break; }
             if (el is Decorator d) foreach (var s in Texts(d.Child)) yield return s;

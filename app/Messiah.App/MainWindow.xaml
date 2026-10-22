@@ -16,14 +16,14 @@
       <Border Grid.Column="1" Background="{DynamicResource c.Seg}" CornerRadius="10" Padding="4" VerticalAlignment="Center"><StackPanel x:Name="NavList" Orientation="Horizontal"/></Border>
       <Button x:Name="AiPill" AutomationProperties.Name="Ask Claude" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
-    <Border x:Name="NowBar" Grid.Row="1" Visibility="Collapsed" Margin="24,8,24,0" Padding="14,8" CornerRadius="10" Background="{DynamicResource c.Seg}" Cursor="Hand" HorizontalAlignment="Center" MaxWidth="1100">
+    <Border x:Name="NowBar" Grid.Row="1" Visibility="Collapsed" Margin="24,8,24,0" Padding="14,8" CornerRadius="10" Background="{DynamicResource c.Seg}" Cursor="Hand" HorizontalAlignment="Center" MaxWidth="3400">
       <StackPanel Orientation="Horizontal">
         <Ellipse x:Name="NowDot" Width="8" Height="8" Fill="{DynamicResource c.Accent}" VerticalAlignment="Center" Margin="0,0,10,0"/>
         <TextBlock x:Name="NowText" FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
       </StackPanel>
     </Border>
     <ScrollViewer x:Name="Scroll" Grid.Row="2" VerticalScrollBarVisibility="Auto">
-      <StackPanel x:Name="Body" MaxWidth="1100" Margin="24,14,24,28">
+      <StackPanel x:Name="Body" MaxWidth="3400" Margin="24,14,24,28">
         <DockPanel x:Name="Header" Margin="2,4,0,18">
           <Border x:Name="SubBox" DockPanel.Dock="Right" Background="{DynamicResource c.Seg}" CornerRadius="8" Padding="3" VerticalAlignment="Center" Margin="16,0,0,0"><StackPanel x:Name="SubNav" Orientation="Horizontal"/></Border>
           <StackPanel VerticalAlignment="Center">

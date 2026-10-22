@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -70,6 +70,8 @@ namespace Messiah
 
         // a card: a title with its icon chip, lines (or ready elements), buttons under them. calm: warn lines in the normal
         // text color (long text, the header says it)
+        // a card that spans all columns on a wide window (a page's summary, a timeline)
+        public static Border Wide(Border card) { if (card.Tag is CardInfo ci) ci.Wide = true; return card; }
         public static Border Card(string title, string glyph, IEnumerable<object> lines, IEnumerable<UIElement> buttons = null, bool calm = false)
         {
             var card = new Border { Background = B("Card"), BorderBrush = B("Border"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = Th("22,18"), Margin = Th("0,0,0,14") };
@@ -138,9 +140,24 @@ namespace Messiah
             s.Click += (x, e) => { try { click?.Invoke(s); } catch (Exception ex) { Shell.Say("Couldn't do that: " + ex.Message); } };
             var l = new StackPanel();
             l.Children.Add(Text(title, B("Text"), 14, null, "0"));
+            // one line of what it does; the rest (the details, what "off" means) behind "More" - 10/22 audit: three-line
+            // descriptions under every switch were a wall of text (PowerToys' settings cards show one line and expand)
             var parts = Regex.Split(sub ?? "", @"(?<=\.|\))\s+(?=Off(?: again)?: |Off \(default\): )");
-            l.Children.Add(Text(parts[0], B("Sub"), 12, null, "0,2,0,0"));
-            if (parts.Length > 1) l.Children.Add(Text(string.Join(" ", parts.Skip(1)), B("Sub"), 12, null, "0,1,0,0"));
+            var fm = Regex.Match(parts[0], @"^(.{30,}?[.:])\s+(?=[A-Z(])(.+)$");
+            var first = fm.Success ? fm.Groups[1].Value : parts[0];
+            var rest = string.Join(" ", new[] { fm.Success ? fm.Groups[2].Value : "" }.Concat(parts.Skip(1)).Where(x => x != ""));
+            var line = new TextBlock { Foreground = B("Sub"), FontSize = 12, Margin = Th("0,2,0,0"), TextWrapping = TextWrapping.Wrap };
+            line.Inlines.Add(new System.Windows.Documents.Run(first));
+            l.Children.Add(line);
+            if (rest != "")
+            {
+                var more = Text(rest, B("Sub"), 12, null, "0,3,0,0"); more.Visibility = Visibility.Collapsed; more.Tag = "more";
+                var link = new System.Windows.Documents.Hyperlink(new System.Windows.Documents.Run("More")) { Foreground = B("Accent"), TextDecorations = null };
+                AutomationProperties.SetName(link, "More about " + title);
+                link.Click += (x, e) => { var open = more.Visibility != Visibility.Visible; more.Visibility = open ? Visibility.Visible : Visibility.Collapsed; ((System.Windows.Documents.Run)link.Inlines.FirstInline).Text = open ? "Less" : "More"; };
+                line.Inlines.Add(new System.Windows.Documents.Run("  ")); line.Inlines.Add(link);
+                l.Children.Add(more);
+            }
             r.Children.Add(s); r.Children.Add(l); return r;
         }
 
@@ -174,5 +191,5 @@ namespace Messiah
             return ring;
         }
     }
-    class CardInfo { public string Title; public string Tile; }
+    class CardInfo { public string Title; public string Tile; public bool Wide; }   // Wide: across all columns on a wide window (MainWindow.Flow)
 }

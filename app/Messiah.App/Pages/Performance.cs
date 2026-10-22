@@ -25,10 +25,17 @@ namespace Messiah.Pages
                 .OrderByDescending(g => Kit.Date(Json.Get(g.Last(), "date"))).ToList();
             if (games.Count == 0)
                 o.Add(Ui.Card("Nothing measured yet", "E7FC", new object[] { new Line("While you play, a minute of each game is measured (every 25 minutes; menus and lobbies don't count): its frame rate, the slowest frames, the graphics card's heat. Play a game for a few minutes and it shows here.", "dim") }));
-            foreach (var g in games.Take(6)) o.Add(Game(Data.GameName(g.Key), g.ToList()));
+            // what's going on first (a test under way, a driver on test), then the games played this month, then the rest in a
+            // line each (10/22 audit: a game last played weeks ago led the page)
             var tune = Tuning(s); if (tune != null) o.Add(tune);
-            if (games.Count > 0) o.Add(Updates(games));
             var drv = DriverTest(s); if (drv != null) o.Add(drv);
+            var cut = DateTime.Now.AddDays(-30);
+            var recent = games.Where(g => Kit.Date(Json.Get(g.Last(), "date")) >= cut).Take(6).ToList();
+            foreach (var g in recent) o.Add(Game(Data.GameName(g.Key), g.ToList()));
+            var older = games.Except(recent).ToList();
+            if (older.Count > 0)
+                o.Add(Ui.Card(recent.Count > 0 ? "Earlier games" : "Games - not played this month", "E7FC", new object[] { Ui.Rows(older.Select(g => { var l = g.Last(); return (Data.GameName(g.Key), $"{Math.Round(Json.N(l, "fps") ?? 0)} fps average, 1% low {Math.Round(Json.N(l, "low1") ?? 0)} fps - last played {Kit.FormatWhen(Kit.Date(Json.Get(l, "date")).Value, dateOnly: true)}", "dim"); })) }));
+            if (games.Count > 0) o.Add(Updates(games));
             o.Add(Heat(s));
             if (games.Count > 0) o.Add(Activity.Foot("Measured with Intel's PresentMon for one minute while the game runs. 1% low: only 1 frame in 100 is slower - what you feel as smoothness. A hitch: a frame over 50 ms."));
             return o;

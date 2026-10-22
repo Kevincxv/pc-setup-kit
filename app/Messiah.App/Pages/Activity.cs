@@ -67,7 +67,7 @@ namespace Messiah.Pages
             foreach (var (label, big, sub) in new[] {
                 ("Days since the last crash", lastC != null ? Math.Round((DateTime.Now - lastC.At).TotalDays).ToString() : "-", lastC != null ? $"{(lastC.Kind == "bsod" ? "Blue screen " + lastC.Code : lastC.Answer == "froze" ? "Went off by itself" : "Went off - not answered yet")}, {Kit.FormatWhen(lastC.At)}" : "None recorded"),
                 ("Blue screens, 90 days", evs.Count(e => e.Kind == "bsod" && e.At > d90).ToString(), "Each with a crash dump"),
-                ("Power-offs, 90 days", Off(e => true).ToString(), $"{Off(e => e.Answer == "me")} by you, {Off(e => e.Answer == "froze")} froze, {Off(e => e.Answer == "")} not answered") })
+                ("Power-offs, 90 days", Off(e => true).ToString(), $"{Off(e => e.Answer == "me")} by you, {Off(e => e.Answer == "froze")} froze" + (Off(e => e.Answer == "" && e.At > DateTime.Now.AddDays(-30)) is int na && na > 0 ? $", {na} to answer on Home" : "")) })
             {
                 var tsp = new StackPanel();
                 tsp.Children.Add(Ui.Text(label, B("Sub"), 12, null, "0"));
@@ -129,7 +129,7 @@ namespace Messiah.Pages
                 lg.Children.Add(lsp);
             }
             var tsp2 = new StackPanel { Tag = $"CHART: Stability timeline | {evs.Count(e => e.At > t0)} event(s), {chs.Count(c => c.At > t0)} change(s)" }; tsp2.Children.Add(vb); tsp2.Children.Add(lg);
-            o.Add(Ui.Card("Last 120 days", "E9D9", new object[] { tsp2 }));
+            o.Add(Ui.Wide(Ui.Card("Last 120 days", "E9D9", new object[] { tsp2 })));
             // the same, as a list (the table view: every event in words, newest first)
             var rows = evs.Select(e => (e.At, e.Kind == "bsod" ? "Blue screen " + e.Code : "Went off without a blue screen - " + Ans(e.Answer), IsCrash(e) ? "info" : "dim"))
                 .Concat(chs.Select(c => (c.At, $"{c.What}: {c.From} → {c.To}{(c.Approx ? " (date approximate)" : "")}", "dim")))
