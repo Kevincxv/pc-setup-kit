@@ -3,7 +3,7 @@
 . "$PSScriptRoot\..\lib.ps1"
 $trendsScript = "$Src\trends.ps1"
 if (-not (Test-Path $trendsScript)) { Skip 'trends' 'not installed here'; Finish }
-$mocked = 'Get-WinEvent', 'Get-PSDrive', 'Get-Partition', 'Get-Disk', 'Get-StorageReliabilityCounter', 'nvidia-smi'
+$mocked = 'Get-WinEvent', 'Get-PSDrive', 'Get-Partition', 'Get-Disk', 'Get-StorageReliabilityCounter', 'nvidia-smi', 'Get-CimInstance'
 if (-not (Test-Tripwire $trendsScript $mocked)) { Finish }
 Import-MockTargets $mocked
 $now = Get-Date
@@ -16,6 +16,7 @@ function Get-WinEvent { param($FilterHashtable, $MaxEvents, $ErrorAction)
     @($TR.Slowed | Where-Object { $_.TimeCreated -ge $FilterHashtable.StartTime -and $_.TimeCreated -le $FilterHashtable.EndTime }) }
 function Get-PSDrive { [pscustomobject]@{ Free = $TR.FreeGB * 1GB; Used = $(if ($TR.SizeGB) { ($TR.SizeGB - $TR.FreeGB) * 1GB }) } }
 function Get-Partition { 'part' }
+function Get-CimInstance { [pscustomobject]@{ LoadPercentage = $TR.CpuLoad } }
 function Get-Disk { 'disk' }
 function Get-StorageReliabilityCounter { [pscustomobject]@{ Wear = $TR.Wear; Temperature = 45; TemperatureMax = $TR.TempMax; ReadErrorsUncorrected = $TR.Errors } }
 function nvidia-smi { "$($TR.Gpu), $($TR.GpuUse)$(if ($null -ne $TR.Fan) { ", $($TR.Fan)" })" }
@@ -30,9 +31,9 @@ function New-History([double]$gpuThen = 30, [double]$gpuNow = 30, [double]$freeT
     }
     $rows | ConvertTo-Json | Set-Content $hf
 }
-function Reset-T { $global:TR = @{ Boot = (Ev 100 $now.AddMinutes(-3) @{ BootTime = 26500 }); Slowed = @(); FreeGB = 500; Wear = 2; Gpu = 30; GpuUse = 3 } }
+function Reset-T { $global:TR = @{ Boot = (Ev 100 $now.AddMinutes(-3) @{ BootTime = 26500 }); Slowed = @(); FreeGB = 500; Wear = 2; Gpu = 30; GpuUse = 3; CpuLoad = 4; CpuT = $null } }
 $pf = "$Work\perf-history.json"   # (games: none unless a test writes some)
-function T { @(& $trendsScript -History $hf -PerfHistory $pf -Now $now) }
+function T { $v = $TR.CpuT; @(& $trendsScript -History $hf -PerfHistory $pf -Now $now -CpuReader { $v }.GetNewClosure()) }
 function Hist { $j = Get-Content $hf -Raw | ConvertFrom-Json; @($j | ForEach-Object { $_ }) }   # (PowerShell 5.1 returns a JSON array as one item)
 
 Section 'a normal day'
@@ -94,6 +95,14 @@ Check 'data the SSD could not read back, rising: WARNING to back up' ([bool]($o 
 $o = T
 Check '... not again while it stays the same' (-not ($o -match 'read back')) ($o -join ' / ')
 
+Reset-T; New-History; $TR.CpuT = 41; [void](T)
+Check 'the processor at idle recorded (once its temperature driver is on)' ((Hist)[-1].cpuIdle -eq 41) ((Hist)[-1] | ConvertTo-Json -Compress)
+Reset-T; New-History; $TR.CpuT = 70; $TR.CpuLoad = 60; [void](T)
+Check '... not while the processor is busy (it would skew it)' ($null -eq (Hist)[-1].cpuIdle) ''
+Reset-T; New-History; $r = Get-Content $hf -Raw | ConvertFrom-Json; foreach ($x in $r) { $x | Add-Member cpuIdle $(if ([datetime]$x.date -gt $now.AddDays(-7)) { 53 } else { 41 }) }; $r | ConvertTo-Json | Set-Content $hf
+$TR.CpuT = 54; $o = T
+Check 'the processor 10+ C warmer at idle than a month ago: a dust reminder for the CPU cooler' ([bool]($o -match '^Reminder: the processor runs 12 C warmer at idle than a month ago \(53 C, was 41 C\)')) ($o -join ' / ')
+
 Section 'first days (no history yet)'
 Reset-T; [IO.File]::Delete($hf); $o = T
 Check 'no history: records, says nothing, no errors (saved as a list even with one entry)' (-not $o -and (Test-Path $hf) -and (Get-Content $hf -Raw).TrimStart().StartsWith('[')) ($o -join ' / ')
@@ -136,5 +145,8 @@ Cpu-Perf @(100, 84, 100, 76); $o = T
 Check 'the processor held back while gaming in 2+ minutes: said, with what to check' ([bool]($o -match '^Reminder: the processor was held back to 76% of its speed while gaming \(2 of the last 4 measured minutes\) - nearly always heat')) ($o -join ' / ')
 Cpu-Perf @(100, 84, 100, 100); $o = T
 Check '... not for one minute' (-not ($o -match 'processor')) ($o -join ' / ')
+$rows = @(foreach ($v in 75, 90, 91) { [ordered]@{ date = $now.AddHours(-1).ToString('o'); game = 'TestGame'; fps = 140; low1 = 92; gpuTemp = 70; cpuTemp = $v; driver = '1.0'; build = '26200.1' } }); ConvertTo-Json -InputObject $rows | Set-Content $pf
+$o = T
+Check 'the processor at its heat limit (88 C+) in 2+ minutes while gaming: said, with what to check' ([bool]($o -match '^Reminder: the processor reaches 91 C while gaming - at its limit')) ($o -join ' / ')
 Clear-Path $pf
 Finish

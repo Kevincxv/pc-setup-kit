@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -53,7 +53,7 @@ namespace Messiah.Tray
             if (ai)
             {
                 Every(0.5, Watch); After(3, () => AutoStart(false)); Every(300, SessionCheck); Every(900, RefreshSession);
-                Every(3, ChatDone); Every(600, LiveTest);
+                Every(3, ChatDone); Every(600, LiveTest); Every(600, RamCheck);
             }
         }
         public void Stop() { EndBoost(); foreach (var t in timers) t.Stop(); try { icon.Visible = false; icon.Dispose(); } catch { } try { Native.UnregisterHotKey(src.Handle, HotkeyId); } catch { } }
@@ -118,6 +118,7 @@ namespace Messiah.Tray
             [Actions.Cmd.AiOn] = ("plain", "ai-toggle.ps1", "-On"),   // installs Claude Code, then its sign-in
             [Actions.Cmd.AiOff] = ("hidden", "ai-toggle.ps1", "-Off"), [Actions.Cmd.GpuRollback] = ("window", "gpu-rollback.ps1", ""),
             [Actions.Cmd.ChatHost] = ("hidden", "chat-host.ps1", ""),   // the app's chat with Claude (with admin rights, no window)
+            [Actions.Cmd.RamBootArm] = ("hidden", "ram-check.ps1", "-ArmBoot"), [Actions.Cmd.RamBootCancel] = ("hidden", "ram-check.ps1", "-CancelBoot"),
         };
         void Command(int n)
         {
@@ -182,6 +183,9 @@ namespace Messiah.Tray
             if (File.Exists(f) && (DateTime.Now - File.GetLastWriteTime(f)).TotalDays < 7) return;
             Ps("live-test.ps1", "");
         }
+        // the nightly memory test: after 30+ minutes without keyboard or mouse, no game (ram-check.ps1 decides how often, and
+        // stops within a second of the owner coming back)
+        void RamCheck() { if (!Kit.InTests && Native.IdleMs() >= 1800000 && !IsFullscreen()) Ps("ram-check.ps1", "-Stress"); }
         void RefreshSession() => Ps("refresh-session.ps1", "");   // the hidden session onto a new Claude Code, when it can't disturb
 
         // --- while a game runs (kit-options.txt gameboost, on unless switched off): what runs beside it steps back - browsers,

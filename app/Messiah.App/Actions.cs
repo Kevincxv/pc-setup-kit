@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -12,7 +12,7 @@ namespace Messiah
     static class Actions
     {
         static readonly uint TrayMsg = Native.RegisterWindowMessage("PCSetupKitAppCommand");
-        public enum Cmd { NewSession = 1, ShowSessions = 2, HideSessions = 3, RunMaint = 4, Optimize = 5, WatchLive = 6, ApplyTweaks = 7, Repair = 8, Rollback = 9, AiOn = 10, AiOff = 11, GpuRollback = 12, ChatHost = 13 }
+        public enum Cmd { NewSession = 1, ShowSessions = 2, HideSessions = 3, RunMaint = 4, Optimize = 5, WatchLive = 6, ApplyTweaks = 7, Repair = 8, Rollback = 9, AiOn = 10, AiOff = 11, GpuRollback = 12, ChatHost = 13, RamBootArm = 14, RamBootCancel = 15 }
         public static bool SendTray(Cmd n)
         {
             if (!long.TryParse(Kit.FirstLine(Kit.P("tray-hwnd.txt")), out var hl)) return false;
@@ -28,6 +28,14 @@ namespace Messiah
         public static void RunMaint() { if (!SendTray(Cmd.RunMaint)) StartTask("Claude Background Maintenance"); Shell.Say("Maintenance started in the background - the result shows here when it finishes."); }
         public static void Optimize() { if (!SendTray(Cmd.Optimize)) Ps("optimize.ps1", keep: true, admin: true); }
         public static void GpuRollback() { if (SendTray(Cmd.GpuRollback)) Shell.Say("A window opens with the driver versions - it asks before changing anything."); else Ps("gpu-rollback.ps1", keep: true, admin: true); }
+        // Windows' deep memory test at the next start-up (ram-check.ps1 -ArmBoot / -CancelBoot) - the owner restarts, never Messiah
+        public static void RamBoot(bool arm)
+        {
+            if (arm && MessageBox.Show("Run Windows' deep memory test at the next start-up?\n\nIt tests all of the memory before Windows loads and can take a few hours - so start it at night: restart the PC yourself and leave it. Windows then loads by itself, and the result shows here.\n\nMessiah never restarts the PC.", "Deep memory test", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            var c = arm ? Cmd.RamBootArm : Cmd.RamBootCancel;
+            if (!SendTray(c)) Ps("ram-check.ps1", extra: arm ? "-ArmBoot" : "-CancelBoot", admin: true, hidden: true);
+            Shell.Say(arm ? "Set: the deep memory test runs the next time the PC starts - restart it yourself when you can leave it for a few hours." : "The deep memory test is off - the next start-up is a normal one.");
+        }
         public static void CheckNow() { if (SendTray(Cmd.ApplyTweaks)) { Shell.CheckingSince = DateTime.Now.AddSeconds(-2); Shell.Refresh(true); } else { Shell.Say("The tray isn't running - it starts at the next login."); StartTask("Messiah Tray"); } }
         public static void FilesBackup() { Ps("files-backup.ps1", extra: "-Enable", hidden: true); Data.RunPs("todo.ps1", "-Id backup -Done"); Shell.Say("Backing up your files to that drive now - from now on it happens by itself whenever the drive is connected."); Shell.Refresh(true); }
         public static void DiagOff(string id)

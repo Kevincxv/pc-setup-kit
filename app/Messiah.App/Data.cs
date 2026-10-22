@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -330,6 +330,9 @@ namespace Messiah
             var g = new Dictionary<string, (int Starts, int Crashes, string Since)>(); var order = new List<string>();
             foreach (var l in log)
             {
+                // (a memory test that found errors - ram-check.ps1 - counts as a crash for that stick setup: it is proof)
+                var mt = Regex.Match(l, @"^(\S+ \S+) \| (stress|boottest) \| (.+?) \| (.+)$");
+                if (mt.Success) { if (mt.Groups[4].Value.EndsWith("errors found") || Regex.IsMatch(mt.Groups[4].Value, @": [1-9]\d* errors")) { var ks = mt.Groups[3].Value.Trim(); if (!g.ContainsKey(ks)) { g[ks] = (0, 0, mt.Groups[1].Value); order.Add(ks); } var kv = g[ks]; g[ks] = (kv.Starts, kv.Crashes + 1, kv.Since); } continue; }
                 var m = Regex.Match(l, @"^(\S+ \S+) \| (start|crash) \| (.+)$"); if (!m.Success) continue;
                 if (m.Groups[2].Value == "crash" && mine != null && mine.Contains(m.Groups[1].Value)) continue;
                 var s = m.Groups[3].Value.Trim(); if (!g.ContainsKey(s)) { g[s] = (0, 0, m.Groups[1].Value); order.Add(s); }
@@ -377,6 +380,20 @@ namespace Messiah
             var now = sticks;
             var mine = new HashSet<string>(PowerEvents().Where(e => e.Answer == "me").Select(e => e.Key.ToString("yyyy-MM-dd HH:mm")));
             return RamTest(Kit.Lines(Kit.P("ram-test.log")), now, mine);
+        }
+
+        // --- the memory tests (ram-check.ps1): the nightly one in Windows and Windows' deep one at start-up, newest first
+        public class RamCheck { public DateTime At; public string Kind, Setup, Result; public bool Bad; }
+        public static List<RamCheck> RamChecks()
+        {
+            var o = new List<RamCheck>();
+            foreach (var l in Kit.Lines(Kit.P("ram-test.log")))
+            {
+                var m = Regex.Match(l, @"^(\S+ \S+) \| (stress|boottest) \| (.+?) \| (.+)$"); if (!m.Success || !DateTime.TryParse(m.Groups[1].Value, out var at)) continue;
+                var r = m.Groups[4].Value; var bad = r.EndsWith("errors found") || Regex.IsMatch(r, @": [1-9]\d* errors");
+                o.Add(new RamCheck { At = at, Kind = m.Groups[2].Value, Setup = m.Groups[3].Value, Result = r, Bad = bad });
+            }
+            o.Reverse(); return o;
         }
 
         // --- the stability record (power-log.json, power-log.ps1)

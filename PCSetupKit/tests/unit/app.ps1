@@ -85,6 +85,22 @@ Check 'heat and wear: the graphics card while gaming and at idle, the processor,
 $r = Run-App $H
 Check '... a driver that failed its test: said it was undone, and why' ($r.Out -match 'Driver 2\.0 was undone - cod runs slower on it than on 1\.0') ''
 Check 'Settings: the switch for tuning by measuring' ($r.Out -match 'Tune my games by measuring') ''
+Section 'the memory test and the processor''s temperature (10/22)'
+$H = "$Work\mem"; $C = "$H\.claude"; New-Item $C, "$H\Documents" -ItemType Directory -Force | Out-Null
+'claude=off' | Set-Content "$C\kit-options.txt"; $now = Get-Date
+$two = '2 stick(s), 32 GB in P0 CHANNEL A + P0 CHANNEL B'; $oneA = '1 stick(s), 16 GB in P0 CHANNEL A'
+@("2026-10-05 09:54 | start | $two", "$($now.AddDays(-2).ToString('yyyy-MM-dd HH:mm')) | stress | $two | 612 passes over 17 GB in 45 min at 4800 MT/s: 0 errors",
+  "$($now.AddDays(-1).ToString('yyyy-MM-dd HH:mm')) | boottest | $oneA | Windows' extended memory test at start-up: errors found") | Set-Content "$C\ram-test.log"
+'{"bootArmed":"' + $now.ToString('o') + '"}' | Set-Content "$C\ram-check.json"
+ConvertTo-Json -InputObject @(@{ date = $now.AddHours(-1).ToString('o'); game = 'cod'; fps = 200; low1 = 150; cpuTemp = 78.5; cpuLimit = 100; cpuPerf = 110 }) | Set-Content "$C\perf-history.json"
+ConvertTo-Json -InputObject @(@{ date = $now.ToString('o'); cpuIdle = 41.2; ssdTemp = 40 }) | Set-Content "$C\health-history.json"
+$r = Run-App $H
+Check 'the page builds' (-not (Errs $r)) (Errs $r)
+Check 'Stability: the memory test card - each result, newest first, the one with errors flagged' ($r.Out -match 'CARD: Memory test' -and $r.Out -match 'Deep test at start-up - Windows'' extended memory test at start-up: errors found \(one stick, 16 GB in P0 CHANNEL A\)' -and $r.Out -match 'Nightly test - 612 passes over 17 GB in 45 min at 4800 MT/s: 0 errors' -and $r.Out -match 'Errors mean faulty memory') ''
+Check '... the deep test set for the next start-up: said, with how to start it and a way to cancel' ($r.Out -match 'The deep test is set for the next start-up: restart the PC yourself' -and $r.Out -match 'BUTTONS: [^\r\n]*Cancel the deep test') ''
+Check 'the stick test counts a memory test with errors like a crash for that stick' ($r.Out -match '(?m)^RAMTEST A memory test errors: Only the stick in slot A Next') ''
+Check 'Heat and wear: the processor''s temperature while gaming and at idle' ($r.Out -match 'Processor: up to 78\.5 C while gaming; 41\.2 C at idle; at full speed while gaming \(110% of its base speed\)') ''
+Check 'Settings: the switches for the processor''s temperature and the nightly memory test' ($r.Out -match 'Measure the processor''s temperature' -and $r.Out -match 'Test the memory at night') ''
 Section 'Home: "Since you last looked" - what happened while the window was closed'
 $H = "$Work\since"; $C = "$H\.claude"; New-Item "$C\maint-history", "$H\Documents" -ItemType Directory -Force | Out-Null
 'claude=off' | Set-Content "$C\kit-options.txt"; $now = Get-Date
@@ -98,7 +114,7 @@ Check '... a blue screen, a driver change' ($r.Out -match 'A blue screen [^\r\n]
 Check 'never closed before (no time recorded): no card' ((Run-App $H).Out -notmatch 'Since you last looked') ''
 Section 'break it: every state file garbage, in a profile path with spaces and non-English letters'
 $H = "$Work\Jörg Müller ÄÖÜ ñ"; $C = "$H\.claude"; New-Item $C, "$H\Documents", "$C\maint-history", "$C\chats\20260101-000000" -ItemType Directory -Force | Out-Null
-$states = 'actions-state.json', 'guard-state.json', 'benchmarks.json', 'display-state.json', 'files-backup-state.json', 'gaming-state.json', 'gpu-state.json', 'game-tune.json',
+$states = 'actions-state.json', 'guard-state.json', 'benchmarks.json', 'display-state.json', 'files-backup-state.json', 'gaming-state.json', 'gpu-state.json', 'game-tune.json', 'ram-check.json',
     'health-history.json', 'junk-state.json', 'maint-state.json', 'net-history.json', 'perf-history.json', 'restart-ledger.json', 'self-test.json',
     'todo-scripted.json', 'update-state.json', 'vendor-state.json', 'kit-options.txt', 'maint-report.txt', 'maint-todo.txt', 'notifications.log',
     'tray-news.txt', 'tray-notified.ini', 'gpu-hold.txt', 'admin-sessions.txt', 'app-window.txt', 'tray-hwnd.txt', 'restart-night.log',

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -38,11 +38,25 @@ namespace Messiah.Pages
         }
 
         // --- Stability: every blue screen and power-off, the owner's answers, and what changed - the crash hunt at one glance
+        // the memory test (ram-check.ps1): the nightly test's and the deep test's results, and the deep test's button
+        static UIElement MemoryTest(Snapshot s)
+        {
+            var armed = Kit.Date(Json.Get(s.RamState, "bootArmed"));
+            var lines = new List<object>();
+            if (armed != null) lines.Add(new Line("The deep test is set for the next start-up: restart the PC yourself when you can leave it for a few hours (best at night). Windows loads by itself after it, and the result shows here.", "info"));
+            var rows = s.RamChecks.Take(6).Select(r => (Kit.FormatWhen(r.At, dateOnly: true), (r.Kind == "boottest" ? "Deep test at start-up - " : "Nightly test - ") + r.Result + (r.Setup.StartsWith("1 stick") ? $" ({r.Setup.Replace("1 stick(s), ", "one stick, ")})" : ""), r.Bad ? "warn" : "ok")).ToList();
+            if (rows.Count > 0) lines.Add(Ui.Rows(rows));
+            else lines.Add(new Line("No results yet. The nightly test runs by itself once the PC has been left alone for 30 minutes (no game): most of the free memory is filled with patterns and read back, again and again - it stops the moment you touch the mouse or keyboard. Every night while blue screens keep coming, else once a month.", "dim"));
+            if (s.RamChecks.Any(r => r.Bad)) lines.Add(new Line("Errors mean faulty memory - test one stick at a time to find which (the RAM stick test).", "warn"));
+            var btn = armed != null ? Ui.Btn("E711", "Cancel the deep test", () => Actions.RamBoot(false)) : Ui.Btn("E950", "Deep test at the next start-up", () => Actions.RamBoot(true));
+            return Ui.Card("Memory test", "E950", lines.ToArray(), new[] { btn });
+        }
+
         public static List<UIElement> Stability(Snapshot s, double width)
         {
             var o = new List<UIElement>();
             var evs = s.Power; var chs = s.Changes;
-            if (evs.Count == 0 && chs.Count == 0) { o.Add(Ui.Card("Stability", "E9D9", new object[] { new Line("Nothing recorded yet - the record is made at the next check.", "dim") })); return o; }
+            if (evs.Count == 0 && chs.Count == 0) { o.Add(Ui.Card("Stability", "E9D9", new object[] { new Line("Nothing recorded yet - the record is made at the next check.", "dim") })); o.Add(MemoryTest(s)); return o; }
             bool IsCrash(Data.PowerEvent e) => e.Kind == "bsod" || e.Answer != "me";   // (a power-off the owner made isn't one)
             var lastC = evs.Where(IsCrash).OrderBy(e => e.At).LastOrDefault();
             var d90 = DateTime.Now.AddDays(-90);
@@ -60,6 +74,7 @@ namespace Messiah.Pages
                 var tc = Ui.Card(null, null, new object[] { tsp }); tc.Margin = Ui.Th("0,0,12,14"); ((CardInfo)tc.Tag).Tile = $"{label}: {big} / {sub}"; tiles.Children.Add(tc);
             }
             o.Add(tiles);
+            o.Add(MemoryTest(s));
             // the timeline: three lanes - blue screens, power-offs, changes - over the last 120 days. Each kind has its own
             // shape as well as its color (never color alone), a legend, and hover details on every mark.
             var t1 = DateTime.Now; var t0 = t1.AddDays(-120);

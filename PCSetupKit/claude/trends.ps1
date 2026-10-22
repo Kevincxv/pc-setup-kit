@@ -7,8 +7,9 @@
 #   80 C+, data the SSD could not read back
 # - Games (perf-history.json from game-perf.ps1): slower since a driver or Windows update, hot while gaming, the
 #   processor held back while gaming
-# Prints only what's worth saying. -History / -PerfHistory / -Now: test overrides.
-param([string]$History = "$PSScriptRoot\health-history.json", [datetime]$Now = (Get-Date), [string]$PerfHistory = "$PSScriptRoot\perf-history.json")
+# - The processor at idle 10+ C warmer than a month ago, or 88 C+ while gaming (cpu-temp.ps1's driver)
+# Prints only what's worth saying. -History / -PerfHistory / -Now / -CpuReader: test overrides.
+param([string]$History = "$PSScriptRoot\health-history.json", [datetime]$Now = (Get-Date), [string]$PerfHistory = "$PSScriptRoot\perf-history.json", [scriptblock]$CpuReader)   # -CpuReader: tests (the processor's temperature)
 $ErrorActionPreference = 'SilentlyContinue'
 $j = try { Get-Content $History -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
 $h = @($j | ForEach-Object { $_ } | Where-Object { $_ -is [Management.Automation.PSCustomObject] -and $(try { [void][datetime]"$($_.date)"; $true } catch { $false }) })   # PowerShell 5.1 hands a JSON array over as ONE item: unrolled here (a damaged entry is dropped)
@@ -26,6 +27,9 @@ if ($null -ne $rc.Wear) { $e.ssdWear = [int]$rc.Wear }; if ($rc.Temperature) { $
 if ($rc.TemperatureMax) { $e.ssdTempMax = [int]$rc.TemperatureMax }   # the hottest it has ever been (the drive keeps it)
 if ($null -ne $rc.ReadErrorsUncorrected) { $e.ssdErrors = [int]$rc.ReadErrorsUncorrected }   # data it could not read back
 $g = "$(& nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,fan.speed --format=csv,noheader,nounits 2>$null | Select-Object -First 1)" -split ',\s*'
+# the processor at idle (cpu-temp.ps1, once its driver is on): only when the processor is quiet
+$cl = (Get-CimInstance Win32_Processor | Measure-Object LoadPercentage -Average).Average
+if ($null -ne $cl -and $cl -lt 15) { $rt = if ($CpuReader) { $CpuReader } else { & "$PSScriptRoot\cpu-temp.ps1" -Reader }; if ($rt) { $v = & $rt; if ($v) { $e.cpuIdle = $v } } }
 if ($g.Count -ge 2 -and $g[1] -match '^\d+$' -and [int]$g[1] -lt 10) { $e.gpuIdle = [int]$g[0]; if ($g.Count -ge 3 -and $g[2] -match '^\d+$') { $e.gpuIdleFan = [int]$g[2] } }   # only when the card is idle (a game would skew it)
 $h = @($h | Where-Object { $_.date }) + [pscustomobject]$e | Select-Object -Last 300
 try { ConvertTo-Json -InputObject @($h) -Depth 3 | Set-Content "$History.tmp" -Encoding UTF8; Move-Item "$History.tmp" $History -Force } catch {}   # always an array, even with one entry
@@ -69,6 +73,11 @@ $idle = { param($from, $to) Median ($h | Where-Object { $_.gpuIdle -and [datetim
 $then = & $idle $Now.AddDays(-45) $Now.AddDays(-25); $recent = & $idle $Now.AddDays(-7) $Now.AddMinutes(1)
 if ($then -and $recent -and $recent -ge $then + 10) { "Reminder: the graphics card runs $($recent - $then) C warmer at idle than a month ago ($recent C, was $then C) - dust in the fans or filters? A clean usually fixes it" }
 
+# --- the processor at idle: this week vs a month ago (dust in the CPU cooler, dried-out thermal paste) ---
+$cThen = Median ($h | Where-Object { $_.cpuIdle -and [datetime]$_.date -ge $Now.AddDays(-45) -and [datetime]$_.date -lt $Now.AddDays(-25) } | ForEach-Object { [double]$_.cpuIdle })
+$cNow = Median ($h | Where-Object { $_.cpuIdle -and [datetime]$_.date -ge $Now.AddDays(-7) } | ForEach-Object { [double]$_.cpuIdle })
+if ($cThen -and $cNow -and $cNow -ge $cThen + 10) { "Reminder: the processor runs $([int]($cNow - $cThen)) C warmer at idle than a month ago ($([int]$cNow) C, was $([int]$cThen) C) - dust in the CPU cooler? A clean usually fixes it" }
+
 # --- SSD wear: fast rise ---
 $w0 = $h | Where-Object { $null -ne $_.ssdWear -and [datetime]$_.date -gt $Now.AddDays(-31) } | Select-Object -First 1
 if ($null -ne $e.ssdWear -and $w0 -and $e.ssdWear - [int]$w0.ssdWear -ge 5) { "Reminder: the SSD wore $($e.ssdWear - [int]$w0.ssdWear)% in a month (now $($e.ssdWear)% used) - something is writing a lot" }
@@ -109,6 +118,9 @@ $gThen = & $gt $Now.AddDays(-75) $Now.AddDays(-30); $gNow = & $gt $Now.AddDays(-
 if ($gThen -and $gNow -and $gNow -ge $gThen + 8 -and $hot.Count -lt 2) { "Reminder: the graphics card runs $($gNow - $gThen) C warmer while gaming than a month or two ago ($gNow C, was $gThen C) - dust in the fans or filters? A clean usually fixes it" }
 # the processor held back while gaming (10/21): Windows' performance limit under 90% in 2+ of the recent minutes - on a
 # desktop that is nearly always heat (the cooler: its fan or pump, old thermal paste, or a case with no air flow)
+# the processor hot while gaming (Ryzen 7000 slow themselves down at about 89-95 C; X3D at 89 C)
+$cpuHot = @($recent | Where-Object { $_.cpuTemp -ge 88 })
+if ($cpuHot.Count -ge 2) { "Reminder: the processor reaches $(($recent | Measure-Object cpuTemp -Maximum).Maximum) C while gaming - at its limit, where it slows itself down. Check the CPU cooler (its fan or pump runs, dust, that it sits firmly), and that the case fans move air through" }
 $cpuHeld = @($recent | Where-Object { $null -ne $_.cpuLimit -and [int]$_.cpuLimit -lt 90 })
 if ($cpuHeld.Count -ge 2) { "Reminder: the processor was held back to $(($cpuHeld | Measure-Object cpuLimit -Minimum).Minimum)% of its speed while gaming ($($cpuHeld.Count) of the last $($recent.Count) measured minutes) - nearly always heat: check that the CPU cooler's fan (or pump) runs, clean its dust, and that the case fans move air through" }
 $st = @($recent | Where-Object { $_.ssdTemp -ge 75 })

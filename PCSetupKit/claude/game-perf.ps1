@@ -1,5 +1,5 @@
 # In-game performance sample: while a game runs, one minute of its real frame times (Intel's PresentMon) plus the
-# graphics card's temperature, load, fan, power and throttling, the processor's speed limit and the SSD's temperature
+# graphics card's temperature, load, fan, power and throttling, the processor's temperature and speed limit, the SSD's temperature
 # (and which setting game-tune.ps1 is trying out, if any) - so "a driver/Windows update made my
 # games worse" and "it runs hot while gaming" show up as numbers (trends.ps1 compares them; the app charts them).
 # Started by the tray every 5 minutes while something is fullscreen; it does nothing unless game-check.ps1 names a
@@ -8,7 +8,7 @@
 # PresentMon (MIT licence, signed by Intel) is fetched once to .claude\tools; nothing else is installed.
 # -TestCsv / -TestGame / -TestGpu: tests (a recorded capture, a game name, nvidia-smi rows) - nothing is captured.
 param([int]$Seconds = 60, [string]$History = "$PSScriptRoot\perf-history.json", [datetime]$Now = (Get-Date),
-    [string]$TestCsv, [string]$TestGame, [string[]]$TestGpu, [double[]]$TestDpc, [string[]]$TestCpu, [switch]$Force,   # -TestDpc: the busiest core's driver time (%) per reading; -TestCpu: "limit,performance" readings
+    [string]$TestCsv, [string]$TestGame, [string[]]$TestGpu, [double[]]$TestDpc, [string[]]$TestCpu, [double[]]$TestCpuTemp, [switch]$Force,   # -TestDpc: the busiest core's driver time (%) per reading; -TestCpu: "limit,performance" readings
     [string]$Tune = "$PSScriptRoot\game-tune.json", [string]$GameSettings = "$PSScriptRoot\game-settings.json")
 $ErrorActionPreference = 'SilentlyContinue'
 $mx = New-Object Threading.Mutex($false, "Global\PCSetupKitGamePerf$(if ($TestCsv) { "-test-$PID" })")
@@ -57,7 +57,7 @@ function Read-Dpc {
     } catch { $null }
 }function Read-SsdTemp { if ($TestGpu) { return 50 }; (Get-Partition -DriveLetter C | Get-Disk | Get-StorageReliabilityCounter).Temperature }
 
-$csv = $TestCsv; $gpu = @(); $ssd = @(); $dpc = @(); $cpu = @()
+$csv = $TestCsv; $gpu = @(); $ssd = @(); $dpc = @(); $cpu = @(); $ct = @()
 if (-not $csv) {
     $pm = "$PSScriptRoot\tools\PresentMon.exe"
     if (-not (Test-Path $pm)) {
@@ -78,14 +78,16 @@ if (-not $csv) {
     $p = Start-Process $pm -ArgumentList '--process_name', "$game.exe", '--timed', $Seconds, '--terminate_after_timed', '--no_console_stats',
         '--session_name', 'PCSetupKitPerf', '--stop_existing_session', '--output_file', "`"$csv`"" -WindowStyle Hidden -PassThru
     try { $p.PriorityClass = 'BelowNormal' } catch { }
+    # the processor's temperature (cpu-temp.ps1: the PawnIO driver and LibreHardwareMonitor, once installed)
+    $readT = & "$PSScriptRoot\cpu-temp.ps1" -Reader
     $w = [Diagnostics.Stopwatch]::StartNew()
     while (-not $p.HasExited -and $w.Elapsed.TotalSeconds -lt $Seconds + 30) {
-        $g = Read-Gpu; if ($g) { $gpu += $g }; $t = Read-SsdTemp; if ($t) { $ssd += [int]$t }; $d = Read-Dpc; if ($null -ne $d) { $dpc += $d }; $c = Read-Cpu; if ($c) { $cpu += $c }
+        $g = Read-Gpu; if ($g) { $gpu += $g }; $t = Read-SsdTemp; if ($t) { $ssd += [int]$t }; $d = Read-Dpc; if ($null -ne $d) { $dpc += $d }; $c = Read-Cpu; if ($c) { $cpu += $c }; if ($readT) { $tc = & $readT; if ($tc) { $ct += $tc } }
         Start-Sleep 5
     }
     if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
 }
-else { $gpu = @(Read-Gpu); $ssd = @(Read-SsdTemp); $dpc = @($TestDpc); $cpu = @($TestCpu) }
+else { $gpu = @(Read-Gpu); $ssd = @(Read-SsdTemp); $dpc = @($TestDpc); $cpu = @($TestCpu); $ct = @($TestCpuTemp) }
 
 # --- frame rate: the average and the 1% low (the frame time only 1 frame in 100 is slower than) ---
 $ms = @(Import-Csv $csv | Where-Object { $_.Application -like "$game*" } | ForEach-Object { $v = 0.0; if ([double]::TryParse($_.MsBetweenPresents, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$v) -and $v -gt 0) { $v } })
@@ -117,6 +119,7 @@ if ($rows) {
     if ($pw) { $e.gpuPower = [int](($pw | Measure-Object -Maximum).Maximum) }
 }
 $cr = @($cpu | ForEach-Object { , ("$_" -split ',') } | Where-Object { $_.Count -eq 2 -and $_[0] -match '^\d+$' -and $_[1] -match '^\d+$' })
+if ($ct) { $e.cpuTemp = ($ct | Measure-Object -Maximum).Maximum }   # (the hottest reading of the minute)
 if ($cr) { $e.cpuLimit = ($cr | ForEach-Object { [int]$_[0] } | Measure-Object -Minimum).Minimum; $e.cpuPerf = [int](($cr | ForEach-Object { [int]$_[1] } | Measure-Object -Average).Average) }
 if ($ssd) { $e.ssdTemp = ($ssd | Measure-Object -Maximum).Maximum }
 # what the numbers depend on: a change here explains a change in the numbers

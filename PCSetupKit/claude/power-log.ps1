@@ -5,7 +5,7 @@
 #            for the ones without a blue screen: me (turned it off themselves) / froze (it froze or went off by itself) /
 #            unsure. 10/12: three times "did you turn it off?" was asked in the chat - now the app asks, once.
 #   changes  what changed that matters for crashes: the graphics driver, the BIOS, the RAM (sticks, speed - EXPO), Driver
-#            Verifier - seen at each update, so the timeline shows what was different before and after a crash
+#            Verifier, the hardware-monitor driver (PawnIO) - seen at each update, so the timeline shows what was different before and after a crash
 # -Update: health-check.ps1 (at each login - right after a crash). -Answer <key> <me|froze|unsure>: the app's buttons.
 # Test overrides: -File, -Events (@{ At; Bugcheck; OffAt }), -Snapshot (@{ gpu; bios; ram; verifier }), -Now.
 param([switch]$Update, [string]$Answer, [string]$Key, [string]$File = "$env:USERPROFILE\.claude\power-log.json", [object[]]$Events, [hashtable]$Snapshot, [datetime]$Now = (Get-Date))
@@ -45,11 +45,13 @@ $s = if ($Snapshot) { $Snapshot } else {
     @{ gpu = "$((Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'NVIDIA|Radeon|Arc' } | Select-Object -First 1).Name) $(try { (& nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>$null | Select-Object -First 1).Trim() } catch { '' })".Trim()
         bios = "$((Get-CimInstance Win32_BIOS).SMBIOSBIOSVersion)"
         ram = "$($sticks.Count) x $([math]::Round(($sticks | Select-Object -First 1).Capacity / 1GB)) GB at $(($sticks | Select-Object -First 1).ConfiguredClockSpeed) MT/s in $(@($sticks | ForEach-Object { "$($_.BankLabel)".Trim() -replace '^P0 CHANNEL ', 'slot ' }) -join ' + ')"
-        verifier = $(if ("$((Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management').VerifyDrivers)".Trim()) { 'on' } else { 'off' }) }
+        verifier = $(if ("$((Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management').VerifyDrivers)".Trim()) { 'on' } else { 'off' })
+        # the hardware-monitor kernel driver (cpu-temp.ps1 - 10/22): a kernel driver is what matters around a crash
+        monitor = $($v = "$((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO' -ErrorAction SilentlyContinue).DisplayVersion)"; if ($v) { "PawnIO $v" } else { 'none' }) }
 }
-$names = @{ gpu = 'Graphics driver'; bios = 'BIOS'; ram = 'RAM'; verifier = 'Driver Verifier' }
+$names = @{ gpu = 'Graphics driver'; bios = 'BIOS'; ram = 'RAM'; verifier = 'Driver Verifier'; monitor = 'Hardware monitor driver' }
 if ($last) {
-    foreach ($k in 'gpu', 'bios', 'ram', 'verifier') {
+    foreach ($k in 'gpu', 'bios', 'ram', 'verifier', 'monitor') {
         if ("$($s[$k])" -and "$($last.$k)" -and "$($s[$k])" -ne "$($last.$k)") { $ch += [pscustomobject]@{ at = $Now.ToString('yyyy-MM-ddTHH:mm:ss'); what = $names[$k]; from = "$($last.$k)"; to = "$($s[$k])" } }
     }
 }

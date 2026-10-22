@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -186,6 +186,7 @@ namespace Messiah
                     ("A bad", cat(new[] { bas, st(2, oA, 1), st(10, oB, 0) }), oB), ("both bad", cat(new[] { bas, st(2, oA, 1), st(3, oB, 1) }), oB),
                     ("both clean", cat(new[] { bas, st(10, oA, 0), st(10, oB, 0) }), oB), ("back too soon", cat(new[] { bas, st(3, oA, 0) }), two) })
                     o.AppendLine($"RAMTEST {name}: {firsts(Data.RamTest(log, now, new string[0]))}");
+                o.AppendLine($"RAMTEST A memory test errors: {firsts(Data.RamTest(cat(new[] { bas, st(1, oA, 0), new[] { $"2026-10-14 03:00 | stress | {oA} | 40 passes over 12 GB in 45 min at 4800 MT/s: 2 errors" } }), oA, new string[0]))}");
                 o.AppendLine($"RAMTEST A off by the owner: {firsts(Data.RamTest(cat(new[] { bas, st(2, oA, 1) }), oA, new[] { "2026-10-14 10:01" }))}");
                 // the help report (Settings > Tools > Copy a report for help), on one line
                 if (Environment.GetEnvironmentVariable("PCKIT_REPORT_TEST") != null) o.AppendLine("REPORT: " + Actions.Report().Replace("\r", "").Replace("\n", " // "));

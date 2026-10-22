@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -111,13 +111,17 @@ namespace Messiah.Pages
             }
             if (Json.N(h, "gpuIdle") is double gi) gpu.Add($"{gi} C at idle" + (Json.N(h, "gpuIdleFan") is double fi ? $", fan {fi}%" : ""));
             rows.Add(("Graphics card", gpu.Count > 0 ? string.Join("; ", gpu) : "measured from your next game", gpu.Count > 0 ? gl : "dim"));
-            var c = s.Perf.LastOrDefault(r => Json.N(r, "cpuLimit") != null);
-            if (c != null)
+            // the processor: its temperature (cpu-temp.ps1's driver) while gaming and at idle, and whether it was held back
+            var c = s.Perf.LastOrDefault(r => Json.N(r, "cpuLimit") != null || Json.N(r, "cpuTemp") != null);
+            var cpu = new List<string>(); var cl = "ok";
+            if (c != null && Json.N(c, "cpuTemp") is double ctg) { cpu.Add($"up to {ctg} C while gaming"); if (ctg >= 88) cl = "warn"; }
+            if (Json.N(h, "cpuIdle") is double cti) cpu.Add($"{cti} C at idle");
+            if (c != null && Json.N(c, "cpuLimit") is double lim)
             {
-                var lim = Json.N(c, "cpuLimit") ?? 100;
-                rows.Add(("Processor", lim >= 95 ? $"at full speed while gaming ({Json.N(c, "cpuPerf")}% of its base speed)" : $"held back to {lim}% of its speed while gaming - nearly always heat: the CPU cooler's fan or pump, its dust, the case's air flow", lim >= 95 ? "ok" : "warn"));
+                if (lim >= 95) cpu.Add($"at full speed while gaming ({Json.N(c, "cpuPerf")}% of its base speed)");
+                else { cpu.Add($"held back to {lim}% of its speed while gaming - nearly always heat: the CPU cooler's fan or pump, its dust, the case's air flow"); cl = "warn"; }
             }
-            else rows.Add(("Processor", "measured from your next game (its temperature can't be read without a kernel driver; how much it is held back can)", "dim"));
+            rows.Add(("Processor", cpu.Count > 0 ? string.Join("; ", cpu) : "measured from your next game", cpu.Count > 0 ? cl : "dim"));
             if (h != null && (Json.N(h, "ssdTemp") != null || Json.N(h, "ssdWear") != null))
             {
                 var mx = Json.N(h, "ssdTempMax");
@@ -133,6 +137,10 @@ namespace Messiah.Pages
             if (gt.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Graphics card while gaming", " C", gt, 0, 10)));
             var it = s.Health.Where(r => Json.N(r, "gpuIdle") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "gpuIdle").Value)).ToList();
             if (it.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Graphics card at idle", " C", it, 0, 10)));
+            var cg = s.Perf.Where(r => Json.N(r, "cpuTemp") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "cpuTemp").Value)).ToList();
+            if (cg.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Processor while gaming", " C", cg, 0, 10)));
+            var ci = s.Health.Where(r => Json.N(r, "cpuIdle") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "cpuIdle").Value)).ToList();
+            if (ci.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Processor at idle", " C", ci, 0, 10)));
             if (grid.Children.Count > 0) lines.Add(grid);
             lines.Add(new Line("Warming up over the months usually means dust - Messiah says when it's time to clean the fans and filters.", "dim"));
             return Ui.Card("Heat and wear", "E9CA", lines.ToArray());

@@ -13,8 +13,8 @@ function New-Capture([int]$n = 900, [int]$slow = 12, [string]$app = 'TestGame.ex
     $rows | Set-Content $f; $f
 }
 $hf = "$Work\perf-history.json"
-function Invoke-Sample([string]$csv, [string[]]$gpu = @('70, 98, Not Active, Not Active, Not Active'), [datetime]$at = $now, [switch]$Force, [double[]]$dpc = @(1.5, 22.4, 3.0), [string[]]$cpu = @(), [string]$game = 'TestGame') {
-    @(& $gp -TestCsv $csv -TestGame $game -TestGpu $gpu -TestDpc $dpc -TestCpu $cpu -History $hf -Now $at -Force:$Force -Tune "$Work\game-tune.json" -GameSettings "$Work\game-settings.json")
+function Invoke-Sample([string]$csv, [string[]]$gpu = @('70, 98, Not Active, Not Active, Not Active'), [datetime]$at = $now, [switch]$Force, [double[]]$dpc = @(1.5, 22.4, 3.0), [string[]]$cpu = @(), [string]$game = 'TestGame', [double[]]$cpuT = @()) {
+    @(& $gp -TestCsv $csv -TestGame $game -TestGpu $gpu -TestDpc $dpc -TestCpu $cpu -TestCpuTemp $cpuT -History $hf -Now $at -Force:$Force -Tune "$Work\game-tune.json" -GameSettings "$Work\game-settings.json")
 }
 function Hist { $j = Get-Content $hf -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json; @($j | ForEach-Object { $_ }) }   # (call as @(Hist): one item comes back bare, with no .Count in PS 5.1)
 
@@ -52,10 +52,11 @@ $hh = @(Hist)
 Check 'the second-by-second curves are kept only on the newest 30 samples (the file stays small)' (@($hh | Where-Object { $_.perSec }).Count -eq 30 -and $hh[-1].perSec -and -not $hh[0].perSec) "$(@($hh | Where-Object { $_.perSec }).Count) with curves"
 Section 'heat, the processor, and a setting being tried (10/21)'
 Clear-Path $hf
-$o = Invoke-Sample $cap @('70, 98, Not Active, Not Active, Not Active, 55, 280.5', '76, 99, Not Active, Not Active, Not Active, 61, 301.2') -cpu @('100,112', '87,104', '100,110') -Force
+$o = Invoke-Sample $cap @('70, 98, Not Active, Not Active, Not Active, 55, 280.5', '76, 99, Not Active, Not Active, Not Active, 61, 301.2') -cpu @('100,112', '87,104', '100,110') -cpuT @(71.5, 78.2, 74) -Force
 $s = @(Hist)[-1]
 Check 'the graphics card''s fan (average %) and power (most watts) while playing' ($s.gpuFan -eq 58 -and $s.gpuPower -eq 301) "$($s.gpuFan) / $($s.gpuPower)"
 Check 'the processor: its lowest speed limit (under 100 = held back by heat or power) and its average speed against base' ($s.cpuLimit -eq 87 -and $s.cpuPerf -eq 109) "$($s.cpuLimit) / $($s.cpuPerf)"
+Check 'the processor''s temperature: the hottest reading of the minute' ($s.cpuTemp -eq 78.2) "$($s.cpuTemp)"
 Check '... nothing invented when a card or Windows doesn''t give them' (-not (@(Hist)[0].PSObject.Properties.Name -contains 'tune')) ''
 '{"active":{"id":"reflex","game":"TestGame","arm":"b"},"keys":["Reflex@0"]}' | Set-Content "$Work\game-tune.json"
 [void](Invoke-Sample $cap -at $now.AddHours(1) -Force)

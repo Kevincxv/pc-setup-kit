@@ -35,6 +35,8 @@ if (-not $bsods -and -not $hard -and -not $whea) { 'Crashes: none since last che
 # the stability record (power-log.json): every crash and power-off, the owner's "did you turn it off?" answers, and what
 # changed (driver, BIOS, RAM, Driver Verifier) - the app's Home question and Activity > Stability
 if (Test-Path "$PSScriptRoot\power-log.ps1") { & "$PSScriptRoot\power-log.ps1" -Update }
+# the memory test (ram-check.ps1): the deep test's result after the start-up it ran at, errors the nightly test found
+if (Test-Path "$PSScriptRoot\ram-check.ps1") { & "$PSScriptRoot\ram-check.ps1" -Check }
 # CPU slowed down by the firmware (heat or power limit; event 37). A laptop on battery does this on purpose.
 # (Windows logs one event per CPU thread: events in the same minute are one slowdown, not 16 on a 16-thread CPU)
 $slow = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Kernel-Processor-Power'; Id = 37; StartTime = $since } |
@@ -254,6 +256,8 @@ if ((Test-Path "$PSScriptRoot\diag-modes.ps1") -and -not $env:PCKIT_IN_TESTS) {
 }
 # NVIDIA driver settings for games (low latency, unlimited shader cache) - once per driver version
 if (Test-Path "$PSScriptRoot\nvidia-settings.ps1") { & "$PSScriptRoot\nvidia-settings.ps1" }
+# the processor's temperature: its driver and library installed once (never under a game), removed when switched off
+if (Test-Path "$PSScriptRoot\cpu-temp.ps1") { & "$PSScriptRoot\cpu-temp.ps1" -Ensure }
 # the owner's tuned game settings kept (Call of Duty: a patch or a new driver resets them); the shader reminder after a new driver
 if (Test-Path "$PSScriptRoot\game-settings.ps1") { & "$PSScriptRoot\game-settings.ps1" }
 # the game's speed-only settings tried both ways in the owner's matches, the faster kept (after gpu-watch: none while a driver is on trial)

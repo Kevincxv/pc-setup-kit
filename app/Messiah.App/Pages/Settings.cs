@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -41,7 +41,9 @@ namespace Messiah.Pages
                 ("gameboost", "on", "Background programs step back while I play", "While a game runs, browsers, the Claude and Codex sessions and Steam's web pages run at a lower priority and the game at a higher one - back as they were once you quit. Voice chat, music and audio are left alone. Off: Windows decides."),
                 ("gamesettings", "on", "Keep my game settings", "Call of Duty: a game update or a new graphics driver can put your settings back to the game's \"recommended\" ones - your tuned ones go back in by themselves (what you change in the game yourself is kept). After a new driver it also reminds you to let the game compile its shaders at the main menu. Off: left as the game sets them."),
                 ("autorollback", "on", "Undo a graphics driver that crashes or is slower", "A new graphics driver is on test for its first two weeks: if it causes freezes or blue screens, or your games run clearly slower on it than on the one before, it is swapped back to the one before by itself, and held back until a newer version comes. Off: you get a warning with a one-click button instead."),
-                ("gametune", "on", "Tune my games by measuring", "Call of Duty's settings that only change speed (never how it looks) are tried both ways in your own matches - switched only while the game is closed - and the faster one is kept. Results: Activity > Performance. Off: a test under way ends with your setting back.") };
+                ("gametune", "on", "Tune my games by measuring", "Call of Duty's settings that only change speed (never how it looks) are tried both ways in your own matches - switched only while the game is closed - and the faster one is kept. Results: Activity > Performance. Off: a test under way ends with your setting back."),
+                ("cputemp", "on", "Measure the processor's temperature", "Windows can't read it by itself: a small signed driver (PawnIO, open source - the one LibreHardwareMonitor and FanControl use) and LibreHardwareMonitor's library read the processor's own sensor - while you play and at idle (Activity > Performance: Heat and wear). Off: both are removed at the next check."),
+                ("ramcheck", "on", "Test the memory at night", "Once the PC has been left alone for 30 minutes (no game), most of the free memory is filled with patterns and read back, again and again - a flipped bit means faulty memory. It stops the moment you touch the mouse or keyboard. Every night while blue screens keep coming, else once a month. Results: Activity > Stability.") };
             o.Add(Ui.Card("Games", "E7FC", games.Select(g => (object)Ui.SwitchRow(g.Item3, g.Item4, Kit.Opt(g.Item1, g.Item2) == "on",
                 sw => { Kit.SetOpt(g.Item1, OnOff(sw.IsChecked == true)); Shell.Say("Saved - applied at the next check (or click Run maintenance now)."); }, g.Item1))));
             // backup
