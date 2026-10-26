@@ -22,6 +22,9 @@ namespace Messiah
         public static class Names
         {
             public static string Mutex = @"Local\MessiahApp.Next", ShowEvent = @"Local\MessiahAppShow.Next", QuitEvent = @"Local\MessiahAppQuit.Next", HwndFile = "app-window-next.txt", RequestFile = "app-request-next.txt", PlaceFile = "app-window-place.txt", LastFile = "app-last-next.txt";
+            // tests (PCKIT_IN_TESTS): each test's copy its own names, from its sandbox home - 10/25: tests run side by side,
+            // and a copy that found another test's window open handed over to it and ended (the update-offer test failed)
+            public static void Isolate() { var h = "." + ((uint)(Environment.GetEnvironmentVariable("USERPROFILE") ?? "").ToLowerInvariant().GetHashCode()).ToString("x"); Mutex += h; ShowEvent += h; QuitEvent += h; }
             public static void Live() { Mutex = @"Local\PCSetupKitStatusWindow"; ShowEvent = @"Local\MessiahAppShow"; QuitEvent = @"Local\MessiahAppQuit"; HwndFile = "app-window.txt"; RequestFile = "app-request.txt"; LastFile = "app-last.txt"; }
         }
 
@@ -43,8 +46,10 @@ namespace Messiah
                 else if (a == "tray-test" && i + 1 < args.Length) trayTest = args[++i];
                 else if (a == "fs") fs = true;
                 else if (a == "quick") return QuickTest();   // (the tray's quick panel on its own - to look at it)
+                else if (a == "audit" && i + 1 < args.Length) return RunAudit(args[i + 1], args.Skip(i + 2).ToArray());   // (MainWindow.Audit.cs: --audit <folder> [--widths 480,800] [--noshots])
                 else if (a == "after" && i + 1 < args.Length) int.TryParse(args[++i], out after);   // (Restart into an update: the copy before)
             }
+            if (Kit.InTests && Names.Mutex.EndsWith(".Next")) Names.Isolate();   // (never --live: the real app's names stay the real app's)
             if (trayTest != null) return Tray.TrayLogic.Test(trayTest, fs);
             AppDomain.CurrentDomain.UnhandledException += (s, e) => Log("crash: " + e.ExceptionObject);
             if (test) return RunTest(page);
@@ -85,6 +90,9 @@ namespace Messiah
             var showEvt = new EventWaitHandle(false, EventResetMode.AutoReset, Names.ShowEvent, out _, es);
             var quitEvt = new EventWaitHandle(false, EventResetMode.AutoReset, Names.QuitEvent, out _, es);
 
+            // the copies an update moved aside (MessiahApp.exe.<pid>.old - still running then): gone once nothing runs them
+            // (10/25: two from 10/22 were still there)
+            try { foreach (var f in Directory.GetFiles(Path.GetDirectoryName(Process.GetCurrentProcess().MainModule.FileName), "*.old")) try { File.Delete(f); } catch { } } catch { }
             Theme.Load();
             var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             // a fault in a click or a page never closes the window: logged, said
@@ -165,6 +173,30 @@ namespace Messiah
             try { var f = Kit.P("app-errors.log"); if (File.Exists(f) && new FileInfo(f).Length > 200000) File.Delete(f); File.AppendAllText(f, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {what}\r\n"); } catch { }
         }
         // --test: every page built once and printed as text - what the tests read (the PowerShell app's -Test format)
+        static int RunAudit(string dir, string[] rest)
+        {
+            Environment.SetEnvironmentVariable("PCKIT_IN_TESTS", "1");   // (the chat is never started, nothing is written to it)
+            var widths = new[] { 480, 800, 1040, 1366, 1920, 2560 }; bool shots = true;
+            for (int i = 0; i < rest.Length; i++)
+            {
+                var a = rest[i].TrimStart('-', '/').ToLowerInvariant();
+                if (a == "widths" && i + 1 < rest.Length) widths = rest[++i].Split(',').Select(int.Parse).ToArray();
+                else if (a == "noshots") shots = false;
+            }
+            var o = new StringBuilder();
+            var t = new Thread(() =>
+            {
+                Theme.Load();
+                var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+                app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/MessiahApp;component/Styles.xaml") });
+                Theme.Apply(app.Resources);
+                try { foreach (var l in new MainWindow().RunAudit(dir, widths, 900, shots)) o.AppendLine(l); }
+                catch (Exception e) { o.AppendLine("AUDIT ERROR: " + e); }
+            });
+            t.SetApartmentState(ApartmentState.STA); t.Start(); t.Join();
+            var outp = Console.OpenStandardOutput(); var bytes = new UTF8Encoding(false).GetBytes(o.ToString()); outp.Write(bytes, 0, bytes.Length); outp.Flush();
+            return 0;
+        }
         static int RunTest(string page)
         {
             var o = new StringBuilder();
@@ -180,7 +212,7 @@ namespace Messiah
                 o.AppendLine("RESTART ARGS: " + string.Join(" ", RestartArgs(new[] { "--live", "--tray", "--page", "Status" }, 42)) + " / " + string.Join(" ", RestartArgs(new[] { "--live", "--page", "Home" }, 7)));
                 o.AppendLine("NAV: " + string.Join(" | ", w.NavList.Children.OfType<RadioButton>().Select(r => r.Tag)));
                 var sw = Stopwatch.StartNew(); var snap = Snapshot.Load(); o.AppendLine($"DATA: read in {sw.ElapsedMilliseconds} ms");
-                foreach (var key in new[] { "Welcome", "Home", "Status", "Activity/Checks", "Activity/Stability", "Activity/Trends", "Activity/Performance", "Activity/Alerts", "Settings/General", "Settings/Windows", "Settings/Tools" })
+                foreach (var key in new[] { "Welcome", "Home", "Status", "Activity/Checks", "Activity/Stability", "Activity/Trends", "Activity/Performance", "Activity/Storage", "Activity/Alerts", "Settings/General", "Settings/Windows", "Settings/Tools" })
                 {
                     sw.Restart();
                     List<UIElement> els; string err = null;

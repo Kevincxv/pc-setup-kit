@@ -13,7 +13,7 @@
         <Image x:Name="Logo" Width="26" Height="26" Margin="0,0,10,0" RenderOptions.BitmapScalingMode="HighQuality"/>
         <TextBlock x:Name="AppName" Text="Messiah" FontSize="17" FontWeight="SemiBold" FontFamily="{DynamicResource f.Display}" VerticalAlignment="Center"/>
       </StackPanel>
-      <Border Grid.Column="1" Background="{DynamicResource c.Seg}" CornerRadius="10" Padding="4" VerticalAlignment="Center"><StackPanel x:Name="NavList" Orientation="Horizontal"/></Border>
+      <Border Grid.Column="1" Background="{DynamicResource c.Seg}" CornerRadius="10" Padding="4" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="8,0"><StackPanel x:Name="NavList" Orientation="Horizontal"/></Border>
       <Button x:Name="AiPill" AutomationProperties.Name="Ask Claude" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
     <Border x:Name="NowBar" Grid.Row="1" Visibility="Collapsed" Margin="24,8,24,0" Padding="14,8" CornerRadius="10" Background="{DynamicResource c.Seg}" Cursor="Hand" HorizontalAlignment="Center" MaxWidth="3400">
@@ -25,9 +25,9 @@
     <ScrollViewer x:Name="Scroll" Grid.Row="2" VerticalScrollBarVisibility="Auto">
       <StackPanel x:Name="Body" MaxWidth="3400" Margin="24,14,24,28">
         <DockPanel x:Name="Header" Margin="2,4,0,18">
-          <Border x:Name="SubBox" DockPanel.Dock="Right" Background="{DynamicResource c.Seg}" CornerRadius="8" Padding="3" VerticalAlignment="Center" Margin="16,0,0,0"><StackPanel x:Name="SubNav" Orientation="Horizontal"/></Border>
+          <Border x:Name="SubBox" DockPanel.Dock="Right" Background="{DynamicResource c.Seg}" CornerRadius="8" Padding="3" VerticalAlignment="Center" Margin="16,0,0,0"><WrapPanel x:Name="SubNav"/></Border>
           <StackPanel VerticalAlignment="Center">
-            <TextBlock x:Name="PageTitle" FontSize="26" FontWeight="SemiBold" FontFamily="{DynamicResource f.Display}"/>
+            <TextBlock x:Name="PageTitle" FontSize="28" FontWeight="SemiBold" FontFamily="{DynamicResource f.Display}"/>
             <TextBlock x:Name="PageSub" Foreground="{DynamicResource c.Sub}" FontSize="13" TextWrapping="Wrap" Margin="0,2,0,0"/>
           </StackPanel>
         </DockPanel>
@@ -48,16 +48,16 @@
         <DockPanel DockPanel.Dock="Top" Margin="12,16,12,10">
           <Button x:Name="ChatMenu" AutomationProperties.Name="Chats and earlier conversations" DockPanel.Dock="Left" ToolTip="Chats and earlier conversations"/>
           <Button x:Name="ChatClose" AutomationProperties.Name="Close the chat" DockPanel.Dock="Right" ToolTip="Close the chat (Claude keeps working)"/>
-          <Button x:Name="ChatNew" AutomationProperties.Name="New conversation" DockPanel.Dock="Right" ToolTip="New conversation in a new tab (Ctrl+T)"/>
+          <Button x:Name="ChatNew" AutomationProperties.Name="New conversation" DockPanel.Dock="Right" ToolTip="New conversation (Ctrl+T) - the one before stays under Earlier conversations"/>
           <Button x:Name="ChatMode" DockPanel.Dock="Right"/>
           <Button x:Name="ChatRemote" AutomationProperties.Name="Open this chat in the browser (Remote Control)" DockPanel.Dock="Right" Visibility="Collapsed"/>
-          <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
-            <TextBlock FontFamily="{DynamicResource f.Icons}" FontSize="16" Foreground="{DynamicResource c.Accent}" VerticalAlignment="Center" Text="&#xE99A;" Margin="0,0,10,0"/>
+          <DockPanel VerticalAlignment="Center" Margin="10,0,6,0">
+            <TextBlock DockPanel.Dock="Left" FontFamily="{DynamicResource f.Icons}" FontSize="16" Foreground="{DynamicResource c.Accent}" VerticalAlignment="Center" Text="&#xE99A;" Margin="0,0,10,0"/>
             <StackPanel x:Name="ChatTitleBox">
               <TextBlock x:Name="ChatTitle" Text="Claude" FontSize="16" FontWeight="SemiBold" FontFamily="{DynamicResource f.Display}" TextTrimming="CharacterEllipsis" ToolTip="Double-click to rename this chat"/>
               <TextBlock x:Name="ChatStatus" FontSize="12" Foreground="{DynamicResource c.Sub}" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
-          </StackPanel>
+          </DockPanel>
         </DockPanel>
         <WrapPanel x:Name="ChatTabs" DockPanel.Dock="Top" Margin="14,0,14,6" Visibility="Collapsed"/>
         <Border x:Name="ChatFind" DockPanel.Dock="Top" Visibility="Collapsed" Margin="14,0,14,6" CornerRadius="8" Background="{DynamicResource c.Btn}" BorderBrush="{DynamicResource c.Accent}" BorderThickness="1" Padding="10,1,3,1">

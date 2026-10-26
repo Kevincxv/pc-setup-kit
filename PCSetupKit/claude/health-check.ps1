@@ -26,14 +26,22 @@ foreach ($b in $bsods) {
     $code = if ($b.Message -match 'bugcheck was: (0x[0-9a-fA-F]+)') { $Matches[1] } else { '?' }
     "WARNING: blue screen $code at $($b.TimeCreated.ToString('g'))"
 }
-foreach ($h in $hard) { "WARNING: unexpected shutdown/freeze at $($h.TimeCreated.ToString('g')) (no blue screen recorded)" }
+# the time it went off, not the start after it (event 41 is logged at that start; 6008 next to it has the off time - 10/23:
+# the report said 5:22 PM, the app's question 5:08 PM for the same freeze)
+foreach ($h in $hard) {
+    $hAt = $h.TimeCreated
+    $hOff = Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 6008; StartTime = $hAt.AddMinutes(-3) } | Where-Object { [Math]::Abs(($_.TimeCreated - $hAt).TotalMinutes) -lt 3 } | Select-Object -First 1
+    $hT = [datetime]::MinValue; $hMsg = "$($hOff.Message)" -replace "[$([char]0x200E)$([char]0x200F)]", ''   # (invisible left-to-right marks in the date)
+    if ($hMsg -match 'at (.+?) on (.+?) was' -and [datetime]::TryParse("$($Matches[2]) $($Matches[1])", [ref]$hT) -and $hT -le $hAt) { $hAt = $hT }
+    "WARNING: unexpected shutdown/freeze at $($hAt.ToString('g')) (no blue screen recorded)"
+}
 # a blue screen right after a driver update: the previous version goes back by itself (driver-guard.ps1)
 if ($bsods -and (Test-Path "$PSScriptRoot\driver-guard.ps1")) { & "$PSScriptRoot\driver-guard.ps1" -Crashes @($bsods | ForEach-Object TimeCreated) }
 $whea = (Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WHEA-Logger'; StartTime = $since }).Count
 if ($whea) { "WARNING: $whea hardware error(s) logged (WHEA) - possible RAM/CPU instability" }
 if (-not $bsods -and -not $hard -and -not $whea) { 'Crashes: none since last check' }
 # the stability record (power-log.json): every crash and power-off, the owner's "did you turn it off?" answers, and what
-# changed (driver, BIOS, RAM, Driver Verifier) - the app's Home question and Activity > Stability
+# changed (driver, BIOS, RAM, Driver Verifier) - the app's Home question and Health > Stability
 if (Test-Path "$PSScriptRoot\power-log.ps1") { & "$PSScriptRoot\power-log.ps1" -Update }
 # the memory test (ram-check.ps1): the deep test's result after the start-up it ran at, errors the nightly test found
 if (Test-Path "$PSScriptRoot\ram-check.ps1") { & "$PSScriptRoot\ram-check.ps1" -Check }
@@ -77,6 +85,8 @@ if ($ramTest -and $ramTest -gt (Get-Date).AddDays(-60)) {
 }
 # graphics driver resets (a freeze / black screen in a game, no blue screen) and old shader caches after a driver update
 if (Test-Path "$PSScriptRoot\gpu-watch.ps1") { & "$PSScriptRoot\gpu-watch.ps1" -Since $since }
+# the NVIDIA app's driver downloads: unstuck when a crash damaged their status (stuck at 100%), installed ones cleared
+if (Test-Path "$PSScriptRoot\nvidia-app-check.ps1") { & "$PSScriptRoot\nvidia-app-check.ps1" }
 
 # --- Health over time (start-up time, disk space, temperatures, SSD wear vs this PC's own normal) ---
 if (Test-Path "$PSScriptRoot\trends.ps1") { & "$PSScriptRoot\trends.ps1" }
@@ -266,6 +276,8 @@ if (Test-Path "$PSScriptRoot\game-settings.ps1") { & "$PSScriptRoot\game-setting
 if (Test-Path "$PSScriptRoot\game-tune.ps1") { & "$PSScriptRoot\game-tune.ps1" }
 # ping, jitter, packet loss and DNS speed over time (a slow router DNS is switched to a fast public one where safe)
 if (Test-Path "$PSScriptRoot\network-check.ps1") { & "$PSScriptRoot\network-check.ps1" }
+# what's on the drives - games, their sizes, leftovers of uninstalled ones (the app's Games > Storage; once a day)
+if (Test-Path "$PSScriptRoot\storage.ps1") { & "$PSScriptRoot\storage.ps1" }
 
 # --- Backups: impossible with one drive (a copy on the same disk dies with it); when a second/external drive shows up, offer it ---
 # files-backup.ps1: the one-click offer, then the backup itself whenever the chosen drive is there

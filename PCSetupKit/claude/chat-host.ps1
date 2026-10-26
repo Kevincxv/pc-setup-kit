@@ -3,26 +3,26 @@
 # mode. The app and this host talk through files in .claude\chat (the main chat) or .claude\chats\<id> (more chats
 # running side by side, 10/11 - the app's chat menu):
 #   inbox\*.json   the app drops {"text": ...} (or {"cmd": "stop" | "new" | "start" | "quit" | "open", "session", "fork"},
-#                  or {"cmd": "edit", "text": ...} - the last message, changed; or {"cmd": "mode"} - mode.txt changed);
+#                  or {"cmd": "edit", "text": ...} - the last message, changed; or {"cmd": "mode"} - mode.txt changed;
+#                  or {"cmd": "restart"} - signed in again);
 #                  taken oldest first and deleted
 #   events.jsonl   what happened, one JSON object per line: {t: user|delta|text|tool|status|error|session, text, at}
 #   state.json     {pid, session, busy, step, since, remote, at} - rewritten as it changes; the app's "working on ..."
 #                  line; remote = the Remote Control link (claude.ai/code and the phone app), like the terminal's
-# The main chat's conversation: the one a hidden Messiah session (the tray's session from login) has open - taken over
-# when it's idle, so a conversation a restart cut off continues right here - else the chat's last one (session.txt),
-# else a new one. Started without -Dir (the tray), it also starts the hosts of other chats that have messages waiting.
+# A chat's conversation: its last one (session.txt) when it was used in the last 12 hours, else a new one (Select-Session).
+# Started without -Dir (the tray), it also starts the hosts of other chats that have messages waiting.
 # One host per chat (mutex). It leaves when its Claude has been idle for a day, or when told to.
 # Claude starts right away (not at the first message) so Remote Control is on as soon as the chat is: what's typed
 # on the phone shows here too (--replay-user-messages: every message comes back, the app's own are told apart).
 # -Dir / -Exe / -Test: test overrides (-Test: a stand-in Claude, no tokens).
-param([string]$Dir, [string]$Exe = "$env:USERPROFILE\.local\bin\claude.exe", [string]$ExeArgs, [int]$IdleHours = 24, [switch]$Once)
+param([string]$Dir, [string]$Exe = "$env:USERPROFILE\.local\bin\claude.exe", [string]$ExeArgs, [int]$IdleHours = 24, [int]$FreshHours = 12, [switch]$Once)
 $ErrorActionPreference = 'SilentlyContinue'
 $cl = "$env:USERPROFILE\.claude"; $proj = "$cl\projects\C--WINDOWS-system32"
 $main = -not $Dir; if ($main) { $Dir = "$cl\chat" }
 # the tray's start: chats waiting for their host get one (each runs elevated like this one)
 if ($main -and -not $ExeArgs) {
     foreach ($d in @(Get-ChildItem "$cl\chats" -Directory -ErrorAction SilentlyContinue)) {
-        if (-not (Get-ChildItem "$($d.FullName)\inbox\*.json" -ErrorAction SilentlyContinue)) { continue }
+        if (-not (Get-ChildItem "$($d.FullName)\inbox\*.json" -ErrorAction SilentlyContinue) -and -not (Test-Path "$($d.FullName)\resume.json")) { continue }   # (waiting for a usage limit to reset: started too)
         $s = try { Get-Content "$($d.FullName)\state.json" -Raw | ConvertFrom-Json } catch { $null }
         if ($s -and $s.pid -and (Get-Process -Id $s.pid -ErrorAction SilentlyContinue)) { continue }
         Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Dir', "`"$($d.FullName)`""
@@ -52,22 +52,14 @@ function Get-Step($c) {
     "$verb$(if ($what) { ": $what" })"
 }
 
-# which conversation: a hidden Messiah session's (stopped first - two processes writing one conversation fork it - but
-# only when it isn't in the middle of something, and only once it has a transcript to continue), else the chat's own,
-# else a new one. (10/11: a login session that hadn't saved anything yet was "resumed" and every message failed.)
+# which conversation: the chat's own (session.txt) when it was used in the last $FreshHours hours, else a new one - the
+# one before stays in the app's Earlier conversations. (10/25, the owner: "the chat spawns random chats" - the main chat
+# used to take over whatever a hidden Messiah session had open, and kept a 4-day-old conversation as "the" chat.)
 function Select-Session {
-    if ($main) {
-        foreach ($s in @(Get-AdminSessions | Where-Object { $_.SessionId -and -not $_.Shown })) {
-            if (-not ($s.Transcript -and (Test-Path $s.Transcript))) { continue }   # nothing said yet: nothing to continue
-            if (Test-MidTask $s.Transcript) { continue }   # working: leave it, take it over next time
-            Get-CimInstance Win32_Process -Filter "ParentProcessId=$($s.LauncherPid)" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-            Stop-Process -Id $s.LauncherPid -Force
-            Add-Event 'status' 'Took over the conversation Messiah had open in the background.'
-            return $s.SessionId
-        }
-    }
     $id = "$(Get-Content $sessFile -ErrorAction SilentlyContinue)".Trim()
-    if ($id -and (Test-Path "$proj\$id.jsonl")) { return $id }
+    $f = if ($id) { Get-Item "$proj\$id.jsonl" -ErrorAction SilentlyContinue }
+    if ($f -and ((Get-Date) - $f.LastWriteTime).TotalHours -lt $FreshHours) { return $id }
+    if ($f) { Add-Event 'status' 'New conversation.' }   # (the app: a fresh start, the old one under Earlier conversations)
     $null
 }
 
@@ -80,6 +72,13 @@ function Get-Mode {
     $m = "$(Get-Content "$Dir\mode.txt" -ErrorAction SilentlyContinue)".Trim() -split '/'
     if ($m.Count -eq 2 -and $m[0] -in 'opus', 'sonnet', 'haiku', 'fable' -and $m[1] -in 'low', 'medium', 'high', 'xhigh', 'max') { $m } else { 'opus', 'medium' }
 }
+# how answers read in the app's chat panel (10/25, the owner: replies "just look like a long list of text") - added to
+# Claude's instructions for this chat only (the terminal and hidden runs are unchanged)
+$ChatStyle = 'You are answering in the chat panel of the Messiah app: a narrow side panel that shows Markdown. Make every reply easy to scan. ' +
+    'Start with the answer or the outcome in one or two short sentences. Then add only what the owner needs, as short bullets (one idea each) or a few short paragraphs. ' +
+    'Use a short heading only when a reply has several parts. Use bold sparingly, for the one thing to notice. Keep tables to 2 or 3 short columns. ' +
+    'Leave out long file paths, logs and repeated caveats unless asked. After doing work, say what changed and, separately, anything the owner has to do. ' +
+    'While you work, keep the in-between notes to one short line.'
 $script:proc = $null; $script:fork = $false; $script:resumeAt = $null; $script:modeWait = $false; $script:sent = New-Object Collections.Generic.List[string]
 function Start-Claude {
     $script:mode = Get-Mode; $script:st.mode = $script:mode -join '/'
@@ -87,7 +86,7 @@ function Start-Claude {
     $new = -not $id -or -not (Test-Path "$proj\$id.jsonl")   # an id with no transcript can't be resumed: start it fresh
     if (-not $id) { $id = [guid]::NewGuid().ToString() }
     $psi = New-Object Diagnostics.ProcessStartInfo $Exe
-    $psi.Arguments = if ($ExeArgs) { $ExeArgs } else { "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --replay-user-messages --dangerously-skip-permissions --model $($script:mode[0]) --effort $($script:mode[1]) --fallback-model sonnet $(if ($new) { "--session-id $id" } else { "--resume $id$(if ($script:resumeAt) { " --resume-session-at $script:resumeAt" })$(if ($script:fork) { ' --fork-session' })" })" }
+    $psi.Arguments = if ($ExeArgs) { $ExeArgs } else { "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --replay-user-messages --dangerously-skip-permissions --model $($script:mode[0]) --effort $($script:mode[1]) --fallback-model sonnet --append-system-prompt `"$ChatStyle`" $(if ($new) { "--session-id $id" } else { "--resume $id$(if ($script:resumeAt) { " --resume-session-at $script:resumeAt" })$(if ($script:fork) { ' --fork-session' })" })" }
     $script:fork = $false; $script:resumeAt = $null
     $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true   # (stderr not read: a full pipe would stall Claude)
     $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.WorkingDirectory = "$env:SystemRoot\System32"
@@ -111,6 +110,35 @@ function Send-Remote([bool]$reattach) {
     if ($reattach -and $old[0] -and $old[1] -eq $script:st.session) { $r.reattach_session_id = $old[0] }
     $script:rcId = "rc-$([guid]::NewGuid())"; $script:rcReattach = [bool]$r.reattach_session_id
     $script:in.Write((@{ type = 'control_request'; request_id = $script:rcId; request = $r } | ConvertTo-Json -Compress -Depth 4) + "`n")
+}
+# --- the usage limit (10/25, the owner: "when you run out of tokens, pick right back up when you have them"): Claude's
+# "You've hit your session limit - resets 12am (America/Los_Angeles)" ends a turn; the reset time is kept in resume.json
+# (a restart of this host or of the PC keeps it - the tray starts a host for a chat that has one) and a minute after
+# it, the conversation is told to continue where it left off. A message from the owner in between takes its place.
+$resumeFile = "$Dir\resume.json"
+$ContinueText = 'Continue where you left off - the usage limit has reset. (If you had not started on my last message yet, answer it now.)'
+function Get-LimitReset([string]$t, [datetime]$now) {
+    if ($t -notmatch '(?i)(hit|reached|exceeded|out of).{0,40}\blimit\b|usage limit|limit reached|rate limit') { return $null }
+    $m = [regex]::Match($t, '(?i)resets?\s+(?:at\s+)?(?:(?<mon>[A-Z][a-z]{2,8})\.?\s+(?<day>\d{1,2}),?\s+(?:at\s+)?)?(?<h>\d{1,2})(?::(?<mi>\d{2}))?\s*(?<ap>am|pm)')
+    if (-not $m.Success) { return $now.AddMinutes(30) }   # (no time said: try again in half an hour)
+    $h = [int]$m.Groups['h'].Value % 12; if ($m.Groups['ap'].Value -match '(?i)pm') { $h += 12 }
+    $mi = if ($m.Groups['mi'].Success) { [int]$m.Groups['mi'].Value } else { 0 }
+    if ($m.Groups['mon'].Success) {
+        $d = [datetime]::MinValue
+        if (-not [datetime]::TryParse("$($m.Groups['mon'].Value) $($m.Groups['day'].Value) $($now.Year)", [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$d)) { return $now.AddMinutes(30) }
+        $at = $d.Date.AddHours($h).AddMinutes($mi); if ($at -lt $now.AddDays(-1)) { $at = $at.AddYears(1) }
+    }
+    else { $at = $now.Date.AddHours($h).AddMinutes($mi); if ($at -le $now) { $at = $at.AddDays(1) } }
+    $at.AddMinutes(1)
+}
+function Set-Wait($until) {
+    if ($until) {
+        $script:st.waitUntil = $until.ToString('o'); [IO.File]::WriteAllText($resumeFile, (@{ until = $script:st.waitUntil } | ConvertTo-Json -Compress))
+        $day = if (($until.Date - (Get-Date).Date).TotalDays -gt 6) { " $($until.ToString('ddd MMM d'))" } elseif ($until.Date -ne (Get-Date).Date) { " $($until.ToString('ddd'))" } else { '' }
+        Add-Event 'status' "Usage limit reached - Claude continues here by itself at $($until.ToString('h:mm tt'))$day."
+    }
+    else { $script:st.waitUntil = $null; Remove-Item $resumeFile -Force }
+    Save-State
 }
 function Stop-Claude { if ($script:proc -and -not $script:proc.HasExited) { try { $script:in.Close() } catch {}; if (-not $script:proc.WaitForExit(3000)) { $script:proc.Kill() } }; $script:proc = $null; $script:st.remote = $null }
 function Send-Line([string]$json) {
@@ -166,6 +194,7 @@ function Read-Out([string]$l) {
             $script:st.busy = $false; $script:st.step = ''; $script:st.since = $null; Save-State
             if ($j.is_error -or $j.subtype -ne 'success') { Add-Event 'error' "$(if ($j.result) { $j.result } else { $j.subtype })" }
             Add-Event 'status' 'idle'
+            if ($j.is_error -or $j.subtype -ne 'success') { $until = Get-LimitReset "$($j.result)" (Get-Date); if ($until) { Set-Wait $until } }   # (the usage limit: continue after its reset)
         }
         'control_response' {
             if ($j.response.request_id -ne $script:rcId) { return }
@@ -195,6 +224,7 @@ function Switch-Mode {
     Add-Event 'status' "Now using $((Get-Culture).TextInfo.ToTitleCase($n[0])) at $($n[1]) effort."; Save-State
 }
 function Restart-Self { Stop-Claude; Save-State; $mutex.ReleaseMutex(); Start-Process powershell -WindowStyle Hidden -ArgumentList $script:selfArgs }
+$rj = try { Get-Content $resumeFile -Raw | ConvertFrom-Json } catch { $null }; if ($rj.until) { $script:st.waitUntil = "$($rj.until)" }   # (waiting for a usage limit to reset, from before)
 Save-State
 if (-not $Once) { Start-Claude }   # (Remote Control from the start)
 $lastUse = Get-Date; $started = Get-Date
@@ -233,7 +263,10 @@ while ($true) {
         # a new speed (mode.txt, written by the app): Claude starts again on it, same conversation - after its answer when busy
         if ($m.cmd -eq 'mode') { if ($script:st.busy) { $script:modeWait = $true } else { Switch-Mode }; continue }
         if ($m.cmd -eq 'start') { if (-not $script:proc -and -not $Once) { Start-Claude }; continue }
+        # signed in again (the app's Sign in again): Claude starts over on the same conversation, with the new sign-in
+        if ($m.cmd -eq 'restart') { if ($script:proc -and -not $script:st.busy) { Stop-Claude; if (-not $Once) { Start-Claude } }; continue }
         if ($m.cmd -eq 'quit') { Stop-Claude; Remove-Item $stateFile -Force; if (-not $main) { $mutex.ReleaseMutex(); Set-Location $env:TEMP; Remove-Item $Dir -Recurse -Force }; return }
+        if ("$($m.text)".Trim() -and $script:st.waitUntil) { Set-Wait $null }   # (the owner wrote: their message, not the automatic continue)
         if ("$($m.text)".Trim()) {
             if (-not $script:proc -or $script:proc.HasExited) { Start-Claude }   # (its "session" event first: the app shows a conversation from there)
             Add-Event 'user' $m.text
@@ -261,8 +294,17 @@ while ($true) {
     # conversation (session.txt), Remote Control on the same link (remote.txt). 10/12: a chat kept old code for a day.
     if (-not $Once -and -not $script:st.busy -and -not (Get-ChildItem "$Dir\inbox\*.json") -and (Test-SelfUpdated)) { Restart-Self; return }
     if ($script:modeWait -and -not $script:st.busy) { $script:modeWait = $false; Switch-Mode }
+    # the usage limit has reset: the conversation goes on where it stopped
+    $wu = [datetime]::MinValue
+    if ($script:st.waitUntil -and -not $script:st.busy -and [datetime]::TryParse("$($script:st.waitUntil)", [ref]$wu) -and (Get-Date) -ge $wu) {
+        Set-Wait $null; $lastUse = Get-Date
+        Add-Event 'status' 'The usage limit has reset - continuing where it left off.'
+        if (-not $script:proc -or $script:proc.HasExited) { Start-Claude }
+        Set-Busy 'Thinking'; $script:sent.Add($ContinueText)
+        Send-Line (@{ type = 'user'; message = @{ role = 'user'; content = $ContinueText } } | ConvertTo-Json -Compress -Depth 4)
+    }
     if ($Once -and -not $script:st.busy -and -not (Get-ChildItem "$Dir\inbox\*.json")) { Stop-Claude; return }
     if ($Once -and ((Get-Date) - $started).TotalSeconds -gt 60) { Add-Event 'error' 'Test run stopped after 60 s'; Stop-Claude; return }   # (tests: never hang)
-    if (-not $script:st.busy -and ((Get-Date) - $lastUse).TotalHours -ge $IdleHours) { Stop-Claude; Remove-Item $stateFile -Force; return }
+    if (-not $script:st.busy -and -not $script:st.waitUntil -and ((Get-Date) - $lastUse).TotalHours -ge $IdleHours) { Stop-Claude; Remove-Item $stateFile -Force; return }
     Start-Sleep -Milliseconds 150
 }

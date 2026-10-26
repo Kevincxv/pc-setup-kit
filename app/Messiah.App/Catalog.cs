@@ -4,7 +4,7 @@ using System.Linq;
 namespace Messiah
 {
     // every change the kit makes, by group: id, title, what it does (and what "off" means), the default for opt-in ones -
-    // the Settings > Windows switches and the Status tab's details (dashboard.ps1's Get-TweakCatalog)
+    // the Optimizations > Choose switches and the Status tab's details (dashboard.ps1's Get-TweakCatalog)
     static class TweakCatalog
     {
         public class Item { public string Id, Title, About, Default; }

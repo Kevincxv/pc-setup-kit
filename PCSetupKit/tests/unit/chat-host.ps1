@@ -22,6 +22,12 @@ public static class P { public static int Main() {
     if (!l.Contains("\"type\":\"user\"") || !m.Success) continue;
     var q = m.Groups[1].Value;
     if (q == "crash") return 3;
+    if (q.StartsWith("limit")) {   // the usage limit: the turn ends with Claude Code's message (a time, a date and time, or none)
+      var said = q == "limit" ? "You've hit your session limit \u00b7 resets 3am (America/Los_Angeles)" : q == "limitdate" ? "You've hit your weekly limit \u00b7 resets Nov 2, 9:30am" : "Claude usage limit reached.";
+      o.WriteLine("{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"" + q + "\"}}");
+      o.WriteLine("{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":true,\"result\":\"" + said + "\"}");
+      continue;
+    }
     o.WriteLine("{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"" + q + "\"}}");   // --replay-user-messages
     if (q == "phone") o.WriteLine("{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"typed on the phone\"}]}}");
     o.WriteLine("{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"content\":\"ok\"}]}}");
@@ -118,6 +124,26 @@ Check 'a new speed: Claude starts again on it, said' ((Get-Content "$D\state.jso
 Set-Content "$D\mode.txt" 'gpt/ultra'; Drop @{ text = 'again' } '022'; Run
 Check 'a speed that isn''t one: the default' ((Get-Content "$D\state.json" -Raw | ConvertFrom-Json).mode -eq 'opus/medium') ''
 Remove-Item "$D\mode.txt"
+
+Section 'the usage limit: Claude carries on by itself once it resets (10/25)'
+function Wait { try { [datetime](Get-Content "$D\resume.json" -Raw | ConvertFrom-Json).until } catch { $null } }
+Clear-Path "$D\events.jsonl"; Drop @{ text = 'limit' } '030'; Run
+$at = (Get-Date).Date.AddHours(3).AddMinutes(1); if ($at -le (Get-Date).AddMinutes(1)) { $at = $at.AddDays(1) }
+Check '"resets 3am": waits for the next 3 AM (a minute after), kept in resume.json, said in the chat and in state.json' ((Wait) -eq $at -and @(Events | Where-Object t -eq 'status').text -match '^Usage limit reached - Claude continues here by itself at 3:01 AM' -and (Get-Content "$D\state.json" -Raw | ConvertFrom-Json).waitUntil) "$(Wait) / $(@(Events | Where-Object t -eq 'status').text -join ' | ')"
+Drop @{ text = 'limitdate' } '031'; Run
+$nov = [datetime]"Nov 2 $((Get-Date).Year) 9:31am"; if ($nov -lt (Get-Date).AddDays(-1)) { $nov = $nov.AddYears(1) }
+Check '"resets Nov 2, 9:30am" (the weekly limit): that day and time' ((Wait) -eq $nov) "$(Wait)"
+Drop @{ text = 'limitnotime' } '032'; Run
+$w = Wait
+Check 'no time said: tried again in half an hour' ($w -and $w -gt (Get-Date).AddMinutes(28) -and $w -lt (Get-Date).AddMinutes(32)) "$w"
+Drop @{ text = 'my own message' } '033'; Run
+Check 'the owner writes meanwhile: their message goes, the automatic continue is dropped' (-not (Test-Path "$D\resume.json") -and @(Events | Where-Object t -eq 'text').text -contains 'You said: my own message') ''
+Clear-Path "$D\events.jsonl"
+[IO.File]::WriteAllText("$D\resume.json", (@{ until = (Get-Date).AddMinutes(-1).ToString('o') } | ConvertTo-Json -Compress)); Run
+$e = Events
+Check 'the reset has passed (even after a restart - read from resume.json): said, and the conversation continues where it left off' (@($e | Where-Object t -eq 'status').text -contains 'The usage limit has reset - continuing where it left off.' -and (@($e | Where-Object t -eq 'text').text -match '^You said: Continue where you left off') -and -not (Test-Path "$D\resume.json")) (($e | ForEach-Object { "$($_.t):$($_.text)" }) -join ' | ')
+Check '... the continue isn''t shown as the owner''s own message' (-not (@($e | Where-Object t -eq 'user').text -match '^Continue where')) ''
+Check 'other errors don''t wait for anything' (-not (Test-Path "$D\resume.json")) ''
 Section 'a new version of the chat host takes over by itself (when Claude isn''t working)'
 # (a copy of the host, running for real in the background - not -Once)
 $D2 = "$Work\chat2"; New-Item "$D2\inbox" -ItemType Directory -Force | Out-Null; $ch2 = "$Work\host-copy.ps1"; Copy-Item $ch $ch2

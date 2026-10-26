@@ -240,7 +240,7 @@ namespace Messiah
                         did.Any(x => x.StartsWith("WARNING")) ? "warn" : "info"));
                 }
                 var crashes = PowerEvents().Where(e => e.At > t).ToList();
-                foreach (var e in crashes.Take(2)) o.Add(new Line(e.Kind == "bsod" ? $"A blue screen {Kit.FormatWhen(e.At)}{(e.Code != "" ? $" ({e.Code})" : "")} - Activity > Stability has what was found" : $"The PC went off without shutting down {Kit.FormatWhen(e.At)}", "warn"));
+                foreach (var e in crashes.Take(2)) o.Add(new Line(e.Kind == "bsod" ? $"A blue screen {Kit.FormatWhen(e.At)}{(e.Code != "" ? $" ({e.Code})" : "")} - Health > Stability has what was found" : $"The PC went off without shutting down {Kit.FormatWhen(e.At)}", "warn"));
                 foreach (var ch in PowerChanges().Where(x => x.At > t).Take(3)) o.Add(new Line($"{ch.What}: {ch.From} -> {ch.To}"));
                 var notes = Notes().Where(n => n.When > t).ToList();
                 if (notes.Count > 0) o.Add(new Line($"{notes.Count} alert{Kit.S(notes.Count)} - the newest: {notes.Last().Text}", "dim"));
@@ -248,8 +248,8 @@ namespace Messiah
                 // a change's verdict that came in meanwhile (its 2nd session after it): better, worse, about the same
                 foreach (var g in History("perf-history.json").GroupBy(r => Json.S(r, "game")))
                     foreach (var v in Pages.Performance.Verdicts(g.Key, g.ToList()).Where(x => x.Decided != null && x.Decided > t))
-                        o.Add(new Line(v.Text + " - Activity > Performance", v.Level));
-                if (games.Count > 0) o.Add(new Line("Games measured: " + string.Join(", ", games.Select(g => $"{g.Key} {Math.Round(Json.N(g.Last(), "fps") ?? 0)} fps")) + " - Activity > Performance", "dim"));
+                        o.Add(new Line(v.Text + " - Games > Performance", v.Level));
+                if (games.Count > 0) o.Add(new Line("Games measured: " + string.Join(", ", games.Select(g => $"{g.Key} {Math.Round(Json.N(g.Last(), "fps") ?? 0)} fps")) + " - Games > Performance", "dim"));
             }
             catch (Exception e) { App.Log("since: " + e.Message); }
             return o;

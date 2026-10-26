@@ -25,7 +25,7 @@ namespace Messiah
         string chatDir = ChatData.Main; long chatPos; TextBlock live; string liveText = "";
         DockPanel lastUser; bool editing, sendBusy, renaming; string tabsKey, nowChat; int nowTick, fastN;
         readonly List<string> attach = new List<string>(); readonly Dictionary<string, string> lastSent = new Dictionary<string, string>();
-        double chatW = 440, chatZoom = 1.0;
+        double chatW = 440, chatZoom = 1.0; bool dragged;
         readonly DispatcherTimer fast = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000) };   // (the NowBar's dot; answers arrive through the file watch)
         const string AttachRx = "^Attached: (.+)$";
         string AttDir => Kit.P("chat-attachments");
@@ -41,7 +41,7 @@ namespace Messiah
             ChatRemote.Click += (s, e) => { if (ChatRemote.Tag is string u && u != "") Actions.Open(u); };
             ChatMenu.Click += (s, e) => ShowChatMenu(ChatMenuPanel.Visibility != Visibility.Visible);
             ChatSearch.TextChanged += (s, e) => { ChatSearchHint.Visibility = ChatSearch.Text != "" ? Visibility.Collapsed : Visibility.Visible; if (ChatMenuPanel.Visibility == Visibility.Visible) UpdateChatMenu(); };
-            ChatSplit.DragCompleted += (s, e) => { chatW = Math.Round(ChatCol.ActualWidth); Kit.SetOpt("chatwidth", chatW.ToString()); UpdateLayout2(); };
+            ChatSplit.DragCompleted += (s, e) => { chatW = Math.Round(ChatCol.ActualWidth); Kit.SetOpt("chatwidth", chatW.ToString()); dragged = true; UpdateLayout2(); };
             ChatClose.Click += (s, e) => ShowChat(false);
             ChatNew.Click += (s, e) => NewConversation();
             ChatSend.Click += (s, e) => { if (sendBusy) ChatData.Send(chatDir, new Dictionary<string, object> { ["cmd"] = "stop" }); else SendChat(ChatInput.Text); };
@@ -63,8 +63,12 @@ namespace Messiah
             ChatMode.Style = (Style)FindResource("Btn"); ChatMode.Margin = Ui.Th("4,0,0,0"); ChatMode.Padding = Ui.Th("9,6");
             ChatMode.Click += (s, e) =>
             {
-                var cm = new ContextMenu(); var cur = ChatData.Mode(chatDir).Value;
-                foreach (var m in ChatData.Modes) { var mi = new MenuItem { Header = $"{m.Name} - {m.About}", IsCheckable = true, IsChecked = m.Value == cur }; var v = m.Value; mi.Click += (x, y) => SetMode(v); cm.Items.Add(mi); }
+                var cm = new ContextMenu(); var (model, effort) = ChatData.Mode(chatDir);
+                MenuItem Head(string t) => new MenuItem { Header = t, IsEnabled = false, FontWeight = FontWeights.SemiBold };
+                cm.Items.Add(Head("Model"));
+                foreach (var m in ChatData.Models) { var mi = new MenuItem { Header = $"{m.Name} - {m.About}", IsCheckable = true, IsChecked = m.Value == model }; var v = m.Value; mi.Click += (x, y) => SetMode(v + "/" + ChatData.Mode(chatDir).Effort); cm.Items.Add(mi); }
+                cm.Items.Add(new Separator()); cm.Items.Add(Head("Effort"));
+                foreach (var m in ChatData.Efforts) { var mi = new MenuItem { Header = $"{m.Name} - {m.About}", IsCheckable = true, IsChecked = m.Value == effort }; var v = m.Value; mi.Click += (x, y) => SetMode(ChatData.Mode(chatDir).Model + "/" + v); cm.Items.Add(mi); }
                 cm.PlacementTarget = ChatMode; cm.Placement = PlacementMode.Bottom; cm.IsOpen = true;
             };
             UpdateModeBtn();
@@ -93,7 +97,7 @@ namespace Messiah
             if (on)
             {
                 // room for the page and the chat side by side, when the screen has it
-                if (WindowState == WindowState.Normal && ActualWidth < chatW + 600) { var a = WorkArea(); var nw = Math.Min(a.Width, chatW + 760); if (nw > ActualWidth) { Width = nw; if (Left + nw > a.Right) Left = Math.Max(a.Left, a.Right - nw); } }
+                if (WindowState == WindowState.Normal && ActualWidth < chatW + 600 && !Auditing) { var a = WorkArea(); var nw = Math.Min(a.Width, chatW + 760); if (nw > ActualWidth) { Width = nw; if (Left + nw > a.Right) Left = Math.Max(a.Left, a.Right - nw); } }
                 OpenHistory(null); if (ChatData.State(chatDir) == null) ChatData.Send(chatDir, new Dictionary<string, object> { ["cmd"] = "start" }); ChatInput.Focus();
             }
             else ShowChatMenu(false);
@@ -148,7 +152,7 @@ namespace Messiah
                         rtb.MaxWidth = Math.Max(40, Md.Width(w.Split('\n').Concat(shown)) + 16);
                         var b = new Border { CornerRadius = new CornerRadius(12), Padding = Ui.Th("10,6"), HorizontalAlignment = HorizontalAlignment.Right, Background = Theme.Tint(Br("Accent"), 0x40), Child = rtb };
                         // the last message can be edited (a pencil beside it on hover): sent again in its place
-                        var wrap = new DockPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = Ui.Th("48,10,0,6"), Background = Brushes.Transparent, Tag = text };
+                        var wrap = new DockPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = Ui.Th("48,18,0,8"), Background = Brushes.Transparent, Tag = text };
                         var eb = new Button { ToolTip = "Edit - Claude answers the new version instead", VerticalAlignment = VerticalAlignment.Center, Opacity = 0 };
                         IconBtn(eb, "E70F"); eb.Margin = Ui.Th("0,0,6,0"); eb.Padding = Ui.Th("6,4"); ((TextBlock)eb.Content).FontSize = 12;
                         eb.Click += (s, e) => { if (wrap == lastUser) StartEdit((string)wrap.Tag); };
@@ -159,7 +163,8 @@ namespace Messiah
                     }
                 case "text":
                     {
-                        var sp = new StackPanel { Margin = Ui.Th("0,6,0,6"), Background = Brushes.Transparent };
+                        // (a reading width: lines past ~90 characters are hard to follow - 10/25, on a wide chat)
+                        var sp = new StackPanel { Margin = Ui.Th("0,8,0,8"), Background = Brushes.Transparent, MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left };
                         sp.Children.Add(Md.Render(text));
                         var cp = Md.CopyBtn(text, "Copy this reply"); cp.HorizontalAlignment = HorizontalAlignment.Left; cp.Opacity = 0; cp.Margin = Ui.Th("0,2,0,0"); sp.Children.Add(cp);
                         sp.MouseEnter += (s, e) => cp.Opacity = 1; sp.MouseLeave += (s, e) => cp.Opacity = 0;
@@ -174,10 +179,53 @@ namespace Messiah
                         ((Steps)grp.Tag).List.Add(text); DrawSteps(grp);
                         break;
                     }
-                case "error": ChatList.Children.Add(Ui.LineEl("WARNING: " + text, "warn")); break;
+                case "error":
+                    ChatList.Children.Add(Ui.LineEl("WARNING: " + text, "warn"));
+                    if (AuthError(text)) { var b = Ui.Btn("E77B", "Sign in again", SignIn, small: true); b.Margin = Ui.Th("0,2,0,8"); b.HorizontalAlignment = HorizontalAlignment.Left; ChatList.Children.Add(b); }
+                    break;
                 case "status": if (text != "idle") { var x = Ui.Text(text, Br("Sub"), 12, null, "0,8,0,8"); x.HorizontalAlignment = HorizontalAlignment.Center; ChatList.Children.Add(x); } break;
             }
         }
+        // Claude Code signed out (its sign-in ran out): signing in again from the app - `claude auth login` runs hidden, the
+        // sign-in page it gives opens in the browser, and the chats start again on the same conversations once it's done.
+        // (10/25, the owner: "I just had to log back in which was a hassle".) No address within 20 s: a window for it.
+        internal static bool AuthError(string t) => Regex.IsMatch(t ?? "", @"(?i)/login\b|not logged in|oauth token|authentication_error|invalid api key|\b401\b|credentials? (have )?expired");
+        bool signingIn;
+        void SignIn()
+        {
+            if (signingIn) { Say("Signing in - finish it in the browser."); return; }
+            var exe = Path.Combine(Environment.GetEnvironmentVariable("USERPROFILE") ?? "", @".local\bin\claude.exe"); if (!File.Exists(exe)) exe = "claude.exe";
+            System.Diagnostics.Process p;
+            try
+            {
+                p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, "auth login --claudeai") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true });
+            }
+            catch (Exception ex) { Say("Couldn't start the sign-in: " + ex.Message); return; }
+            signingIn = true; Say("Opening the Claude sign-in page in your browser...");
+            var opened = false;
+            void Read(string l) { var m = Regex.Match(l ?? "", @"https://\S+"); if (m.Success && !opened) { opened = true; Dispatcher.BeginInvoke(new Action(() => Actions.Open(m.Value))); } }
+            p.OutputDataReceived += (s, e) => Read(e.Data); p.ErrorDataReceived += (s, e) => Read(e.Data); p.BeginOutputReadLine(); p.BeginErrorReadLine();
+            Task.Run(() =>
+            {
+                var done = p.WaitForExit(opened ? 600000 : 20000) || (opened && p.WaitForExit(600000));
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    signingIn = false;
+                    if (done && p.ExitCode == 0)
+                    {
+                        Say("Signed in - Claude is back.");
+                        foreach (var d in ChatData.Dirs()) if (ChatData.State(d) != null) ChatData.Send(d, new Dictionary<string, object> { ["cmd"] = "restart" });
+                    }
+                    else
+                    {
+                        try { if (!p.HasExited) p.Kill(); } catch { }
+                        if (!opened) Actions.Open("cmd.exe", $"/c title Sign in to Claude & \"{exe}\" auth login & pause");   // (the sign-in gave no address: it asks in a window)
+                        else Say("The sign-in didn't finish - click Sign in again to retry.");
+                    }
+                }));
+            });
+        }
+
         // suggestions on an empty chat (and the to-do walk-through)
         void ShowStart()
         {
@@ -284,12 +332,12 @@ namespace Messiah
                 var e = Kit.ParseJson(line); var t = Json.S(e, "t"); if (t == "") continue;
                 if (t == "delta")
                 {
-                    if (live == null) { live = Ui.Text("", Br("Text"), 14, null, "0,6,0,6"); liveText = ""; ChatList.Children.Add(live); }
+                    if (live == null) { live = Ui.Text("", Br("Text"), 14, null, "0,8,0,8"); live.MaxWidth = 760; live.HorizontalAlignment = HorizontalAlignment.Left; liveText = ""; ChatList.Children.Add(live); }
                     liveText += Json.S(e, "text"); live.Text = liveText; continue;
                 }
                 if (t == "text" && live != null) { ChatList.Children.Remove(live); live = null; }
                 if ((t == "text" || t == "error" || (t == "status" && Json.S(e, "text") == "idle")) && ChatWorking.Text == "Sending...") ChatWorking.Visibility = Visibility.Collapsed;   // (a reply faster than the busy flag)
-                if (t == "session") continue;
+                if (t == "session" || (t == "status" && Json.S(e, "text") == "New conversation.")) continue;   // (a fresh start: its suggestions stay)
                 if (ChatList.Children.Count > 0 && ChatList.Children[0] is TextBlock tb0 && tb0.Text.StartsWith("Ask anything")) ChatList.Children.Clear();
                 AddItem(t, Json.S(e, "text"));
             }
@@ -316,7 +364,8 @@ namespace Messiah
             NowBar.Visibility = n != null ? Visibility.Visible : Visibility.Collapsed;
             if (n != null) { NowText.Text = n.Value.Text; NowBar.Tag = n.Value.Kind; NowDot.Opacity = nowTick++ % 2 == 1 ? 0.35 : 1; }
             var st = ChatData.State(chatDir);
-            ChatStatus.Text = st == null ? "Starts when you send a message" : Json.B(st, "busy") ? "Working" : "Ready" + (Json.S(st, "remote") != "" ? " - on your phone too" : "");
+            var wait = Kit.Date(Json.Get(st, "waitUntil"));   // (the usage limit: chat-host.ps1 continues by itself after its reset - 10/25)
+            ChatStatus.Text = st == null ? "Starts when you send a message" : Json.B(st, "busy") ? "Working" : wait != null ? $"Waiting for the usage limit - continues by itself at {wait.Value:h:mm tt}{(wait.Value.Date != DateTime.Today ? " " + wait.Value.ToString("ddd") : "")}" : "Ready" + (Json.S(st, "remote") != "" ? " - on your phone too" : "");
             ChatRemote.Visibility = st != null && Json.S(st, "remote") != "" ? Visibility.Visible : Visibility.Collapsed; ChatRemote.Tag = Json.S(st, "remote");
             UpdateTabs();
             // the screen changed (resolution, another monitor): the window fits it again
@@ -347,7 +396,7 @@ namespace Messiah
         // --- tabs: the chats running here, under the title (only with more than one); rebuilt only when one changed
         void UpdateTabs()
         {
-            var dirs = ChatData.Dirs();
+            var dirs = TabDirs();
             var tabs = dirs.Select(d => { var s = ChatData.State(d); return (Dir: d, Title: ChatData.ChatTitle(d), Busy: s != null && Json.B(s, "busy"), Pin: ChatData.Pinned(d)); }).ToList();
             var key = chatDir + "|" + string.Join("|", tabs.Select(t => $"{t.Dir}>{t.Title}>{t.Busy}>{t.Pin}"));
             if (key == tabsKey || renaming) return; tabsKey = key;
@@ -365,12 +414,12 @@ namespace Messiah
                 var cm = new ContextMenu();
                 foreach (var (label, w) in new[] { ("Rename", "rename"), (t.Pin ? "Unpin" : "Pin (stays first, can't be closed by accident)", "pin"), ("Close", "close") })
                 {
-                    var mi = new MenuItem { Header = label }; if (w == "close" && (t.Pin || d == ChatData.Main)) mi.IsEnabled = false;
+                    var mi = new MenuItem { Header = label }; if (w == "close" && t.Pin) mi.IsEnabled = false;
                     mi.Click += (x, y) => { if (w == "rename") StartRename(d); else if (w == "pin") TogglePin(d); else CloseTab(d); }; cm.Items.Add(mi);
                 }
                 tab.ContextMenu = cm;
                 tab.MouseLeftButtonDown += (x, e) => { if (e.ClickCount == 2) { e.Handled = true; StartRename(d); } };
-                if (d != ChatData.Main && !t.Pin)
+                if (!t.Pin)
                 {
                     var xb = new Button { ToolTip = "Close this tab (the conversation stays in the list)", VerticalAlignment = VerticalAlignment.Center }; IconBtn(xb, "E711"); xb.Margin = Ui.Th("4,0,0,0"); xb.Padding = Ui.Th("4,2"); ((TextBlock)xb.Content).FontSize = 9;
                     xb.Click += (x, e) => { e.Handled = true; CloseTab(d); }; sp.Children.Add(xb);
@@ -393,18 +442,43 @@ namespace Messiah
             File.WriteAllText(Path.Combine(d, "name.txt"), "Messiah " + ChatData.Dirs().Count);   // (its name in Remote Control, on the phone)
             SwitchChat(d);
         }
-        // a new conversation opens in a new tab and the one open keeps going (this chat still empty: it's already new)
-        void NewConversation() { var cs = ChatData.State(chatDir); if (ChatData.Session(chatDir) != "" || (cs != null && Json.B(cs, "busy"))) NewTab(); else { ShowChatMenu(false); ShowStart(); ChatInput.Focus(); } }
+        // a new conversation starts in this tab (the one before stays under Earlier conversations); Claude working here: a
+        // new tab beside it. (10/25, the owner: "the chat spawns random chats" - every New used to open another tab.)
+        void NewConversation()
+        {
+            var cs = ChatData.State(chatDir);
+            if (cs != null && Json.B(cs, "busy")) { NewTab(); return; }
+            ShowChatMenu(false); if (!ChatData.Empty(chatDir)) ResetChat(chatDir); else ShowStart(); ChatInput.Focus();
+        }
+        // a chat starts over on a new, empty conversation (its own name goes with the old one, unless the tab is pinned)
+        void ResetChat(string d)
+        {
+            if (!ChatData.Pinned(d)) try { File.Delete(Path.Combine(d, "title.txt")); } catch { }
+            if (ChatData.State(d) != null) ChatData.Send(d, new Dictionary<string, object> { ["cmd"] = "new" });
+            else try { File.Delete(Path.Combine(d, "session.txt")); } catch { }
+            if (d == chatDir) { ChatList.Children.Clear(); live = null; lastUser = null; ShowStart(); ChatTitle.Text = HeaderTitle("New chat"); }
+            tabsKey = null; UpdateTabs();
+        }
+        // the first chat (.claude\chat) is never removed - closing it empties it and it leaves the tabs until it's used again
         void CloseTab(string d)
         {
             if (ChatData.Pinned(d)) { Say("This tab is pinned - right-click it > Unpin first."); return; }
             var s = ChatData.State(d);
             if (s != null && Json.B(s, "busy") && MessageBox.Show("Claude is still working in this chat. Stop it and close the chat?", "Close chat", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            if (d == ChatData.Main)
+            {
+                ResetChat(d);
+                var other = ChatData.Dirs().FirstOrDefault(x => x != d);
+                if (chatDir == d && other != null) SwitchChat(other); else if (ChatMenuPanel.Visibility == Visibility.Visible) UpdateChatMenu();
+                return;
+            }
             ChatData.Closing.Add(d);
             if (s != null) ChatData.Send(d, new Dictionary<string, object> { ["cmd"] = "quit" }); else try { Directory.Delete(d, true); } catch { }
-            if (chatDir == d) SwitchChat(ChatData.Main); else if (ChatMenuPanel.Visibility == Visibility.Visible) UpdateChatMenu();
+            if (chatDir == d) SwitchChat(ChatData.Dirs().FirstOrDefault(x => x != d && x != ChatData.Main) ?? ChatData.Main); else if (ChatMenuPanel.Visibility == Visibility.Visible) UpdateChatMenu();
             tabsKey = null; UpdateTabs();
         }
+        // the chats that get a tab: all but the first one while it's empty and not the one open
+        List<string> TabDirs() => ChatData.Dirs().Where(d => d != ChatData.Main || d == chatDir || !ChatData.Empty(d)).ToList();
         // pin: the tab stays first and has no close button; rename: a box in the tab (or the chat's title, with one chat) -
         // Enter keeps it, Esc goes back, empty = the conversation's own title again. Also its name in Remote Control.
         void TogglePin(string d)
@@ -456,13 +530,13 @@ namespace Messiah
             if (q == "")
             {
                 L.Children.Add(Ui.Section("Chats running here"));
-                foreach (var d in dirs)
+                foreach (var d in TabDirs())
                 {
                     var s = ChatData.State(d);
                     var sub = s != null && Json.B(s, "busy") ? "Working" + (Json.S(s, "step") != "" ? ": " + Json.S(s, "step") : "") : s != null ? "Ready" + (Json.S(s, "remote") != "" ? " - on your phone too" : "") : "Starts when you send a message";
-                    var dd = d; L.Children.Add(MenuRow(ChatData.ChatTitle(d), sub, () => SwitchChat(dd), d == chatDir, d != ChatData.Main ? () => CloseTab(dd) : (Action)null, s != null && Json.B(s, "busy") ? "E916" : "E8BD"));
+                    var dd = d; L.Children.Add(MenuRow(ChatData.ChatTitle(d), sub, () => SwitchChat(dd), d == chatDir, !ChatData.Pinned(d) && (d != ChatData.Main || !ChatData.Empty(d)) ? () => CloseTab(dd) : (Action)null, s != null && Json.B(s, "busy") ? "E916" : "E8BD"));
                 }
-                L.Children.Add(MenuRow("New chat beside these", "Another Claude, working at the same time (Ctrl+T)", NewTab, false, null, "E710"));
+                L.Children.Add(MenuRow("New chat beside these", "Another Claude, working at the same time", NewTab, false, null, "E710"));
                 if (ChatData.Session(chatDir) != "") L.Children.Add(MenuRow("Copy this conversation", "The whole chat as text, to paste anywhere", () => { CopyConversation(); ShowChatMenu(false); }, false, null, "E8C8"));
             }
             L.Children.Add(Ui.Section("Earlier conversations"));
@@ -479,16 +553,21 @@ namespace Messiah
                 if (q != "" && s.Title.IndexOf(q, StringComparison.OrdinalIgnoreCase) < 0) continue;
                 if (n++ >= 50) break;
                 var where = open.ContainsKey(s.Id) ? "open in a chat here" : s.InUse ? "open somewhere else now" : "";
-                var ss = s; L.Children.Add(MenuRow(s.Title, Kit.FormatWhen(s.When) + (where != "" ? "  -  " + where : ""), () => OpenEarlier(ss), false, null, "E81C"));
+                var ss = s; L.Children.Add(MenuRow(s.Title, Kit.FormatWhen(s.When) + (where != "" ? "  -  " + where : ""), () => OpenEarlier(ss), false, s.InUse && !open.ContainsKey(s.Id) ? (Action)null : () => DeleteEarlier(ss), "E81C", "Delete this conversation", "E74D"));
             }
             if (n == 0) L.Children.Add(Ui.Text(q != "" ? $"Nothing matches \"{q}\"." : "No earlier conversations yet.", Br("Sub"), 13, null, "10,4,0,0"));
         }
-        Border MenuRow(string title, string sub, Action go, bool current, Action close, string glyph)
+        Border MenuRow(string title, string sub, Action go, bool current, Action close, string glyph, string closeTip = "Close this chat (the conversation stays in the list below)", string closeGlyph = "E711")
         {
             var row = new Border { CornerRadius = new CornerRadius(8), Padding = Ui.Th("10,8"), Margin = Ui.Th("0,0,0,2"), Cursor = Cursors.Hand, Background = current ? Br("SegSel") : Brushes.Transparent };
             var dp = new DockPanel();
             var g = Ui.Glyph(glyph, 13, current ? Br("Accent") : Br("Sub")); g.Margin = Ui.Th("0,2,10,0"); g.VerticalAlignment = VerticalAlignment.Top; DockPanel.SetDock(g, Dock.Left); dp.Children.Add(g);
-            if (close != null) { var x = new Button { ToolTip = "Close this chat (the conversation stays in the list below)", VerticalAlignment = VerticalAlignment.Center }; IconBtn(x, "E711"); x.Padding = Ui.Th("6,4"); x.Click += (s, e) => { e.Handled = true; close(); }; DockPanel.SetDock(x, Dock.Right); dp.Children.Add(x); }
+            if (close != null)
+            {
+                var x = new Button { ToolTip = closeTip, VerticalAlignment = VerticalAlignment.Center }; IconBtn(x, closeGlyph); x.Padding = Ui.Th("6,4"); AutomationProperties.SetName(x, closeTip);
+                x.Click += (s, e) => { e.Handled = true; close(); }; DockPanel.SetDock(x, Dock.Right); dp.Children.Add(x);
+                if (closeGlyph != "E711") { x.Opacity = 0; row.MouseEnter += (s, e) => x.Opacity = 1; row.MouseLeave += (s, e) => x.Opacity = 0; x.GotKeyboardFocus += (s, e) => x.Opacity = 1; }   // (a delete button only on hover)
+            }
             var sp = new StackPanel();
             sp.Children.Add(new TextBlock { Text = title, FontSize = 13, Foreground = Br("Text"), TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = title });
             if (!string.IsNullOrEmpty(sub)) sp.Children.Add(new TextBlock { Text = sub, FontSize = 11.5, Foreground = Br("Sub"), TextTrimming = TextTrimming.CharacterEllipsis });
@@ -509,6 +588,21 @@ namespace Messiah
             if (s.InUse) Say("That conversation is open somewhere else too - this chat continues a copy of it, so the two don't clash.");
             ChatTitle.Text = HeaderTitle(s.Title); ChatInput.Focus();
         }
+        // an earlier conversation deleted for good (asked first): its transcript and its helpers' files. Open in a chat here:
+        // that chat starts over. Open somewhere else right now (a terminal, a hidden run): left alone - no button.
+        void DeleteEarlier(ChatData.Earlier s)
+        {
+            if (MessageBox.Show($"Delete \"{s.Title}\"?\n\nIt's removed from this PC for good - it can't be opened again.", "Delete conversation", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
+            foreach (var d in ChatData.Dirs()) if (ChatData.Session(d) == s.Id) { var st = ChatData.State(d); if (st != null && Json.B(st, "busy")) { Say("Claude is working in that conversation - stop it first."); return; } ResetChat(d); }
+            try
+            {
+                var f = Path.Combine(ChatData.ProjDir, s.Id + ".jsonl"); if (File.Exists(f)) File.Delete(f);
+                var sub = Path.Combine(ChatData.ProjDir, s.Id); if (Directory.Exists(sub)) Directory.Delete(sub, true);
+                Say("Deleted.");
+            }
+            catch (Exception ex) { Say("Couldn't delete it: " + ex.Message); }
+            earlier = null; UpdateChatMenu();
+        }
         void CopyConversation()
         {
             var items = ChatData.Transcript(ChatData.Session(chatDir), 2000).Where(i => i.T == "user" || i.T == "text").ToList();
@@ -516,19 +610,24 @@ namespace Messiah
             Md.Copy(string.Join("\n\n", items.Select(i => (i.T == "user" ? "You" : "Claude") + ":\n" + i.X.Trim())), $"Copied the conversation ({items.Count} messages).");
         }
 
-        // --- the speed, per tab (mode.txt, read by chat-host.ps1)
+        // --- the model and effort, per tab (mode.txt, read by chat-host.ps1): the button says the model, the effort under it
         void UpdateModeBtn()
         {
-            var m = ChatData.Mode(chatDir); var sp = new StackPanel { Orientation = Orientation.Horizontal };
-            sp.Children.Add(Ui.Glyph(m.Name == "Quick" ? "E945" : "E9D9", 13, Br("Text"))); sp.Children.Add(new TextBlock { Text = m.Name, FontSize = 12, Margin = Ui.Th("6,0,0,0"), VerticalAlignment = VerticalAlignment.Center });
-            ChatMode.Content = sp; ChatMode.ToolTip = $"Speed: {m.Name} ({m.About}). Click to change - for this tab."; AutomationProperties.SetName(ChatMode, "Speed: " + m.Name);
+            var (model, effort) = ChatData.Mode(chatDir); var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            sp.Children.Add(Ui.Glyph(model == "sonnet" || model == "haiku" ? "E945" : "E9D9", 13, Br("Text")));
+            sp.Children.Add(new TextBlock { Text = ChatData.ModelName(model), FontSize = 12, Margin = Ui.Th("6,0,0,0"), VerticalAlignment = VerticalAlignment.Center });
+            sp.Children.Add(new TextBlock { Text = ChatData.EffortName(effort).ToLower(), FontSize = 11, Foreground = Br("Sub"), Margin = Ui.Th("5,0,0,0"), VerticalAlignment = VerticalAlignment.Center });
+            sp.Children.Add(Ui.Glyph("E70D", 9, Br("Sub"))); ((FrameworkElement)sp.Children[3]).Margin = Ui.Th("6,1,0,0");
+            ChatMode.Content = sp; ChatMode.ToolTip = $"Model: {ChatData.ModelName(model)}, {ChatData.EffortName(effort).ToLower()} effort. Click to change - for this tab.";
+            AutomationProperties.SetName(ChatMode, $"Model: {ChatData.ModelName(model)}, {ChatData.EffortName(effort)} effort");
         }
         void SetMode(string v)
         {
             var f = Path.Combine(chatDir, "mode.txt");
-            if (v == "opus/medium") { if (File.Exists(f)) File.Delete(f); } else File.WriteAllText(f, v);
+            if (v == ChatData.DefaultMode) { if (File.Exists(f)) File.Delete(f); } else File.WriteAllText(f, v);
             UpdateModeBtn(); var st = ChatData.State(chatDir); if (st != null) ChatData.Send(chatDir, new Dictionary<string, object> { ["cmd"] = "mode" });
-            Say($"{ChatData.Mode(chatDir).Name} from now on in this tab{(st != null && Json.B(st, "busy") ? " - after the current answer" : "")}.");
+            var (model, effort) = ChatData.Mode(chatDir);
+            Say($"{ChatData.ModelName(model)} at {ChatData.EffortName(effort).ToLower()} effort from now on in this tab{(st != null && Json.B(st, "busy") ? " - after the current answer" : "")}.");
         }
         // --- text size (Ctrl+wheel, Ctrl+0)
         void SetZoom(double z) { chatZoom = Math.Round(Math.Min(1.6, Math.Max(0.8, z)), 2); ChatList.LayoutTransform = new ScaleTransform(chatZoom, chatZoom); AppLast.ChatZoom = chatZoom; AppLast.Save(); }
@@ -592,8 +691,8 @@ namespace Messiah
             var key = e.Key == Key.System ? e.SystemKey : e.Key;
             if (ctrl && key == Key.F && chatOn && ChatPanel.IsKeyboardFocusWithin) { ShowFind(true); e.Handled = true; }
             else if (ctrl && key == Key.T && ai) { e.Handled = true; if (!chatOn) ShowChat(true); NewConversation(); }
-            else if (ctrl && key == Key.W && chatOn) { e.Handled = true; if (chatDir == ChatData.Main) ShowChat(false); else CloseTab(chatDir); }
-            else if (ctrl && key == Key.Tab && chatOn) { e.Handled = true; var ds = ChatData.Dirs(); if (ds.Count > 1) { var i = ds.IndexOf(chatDir); SwitchChat(ds[((i + (shift ? -1 : 1)) + ds.Count) % ds.Count]); } }
+            else if (ctrl && key == Key.W && chatOn) { e.Handled = true; if (chatDir == ChatData.Main && TabDirs().Count < 2) ShowChat(false); else CloseTab(chatDir); }
+            else if (ctrl && key == Key.Tab && chatOn) { e.Handled = true; var ds = TabDirs(); if (ds.Count > 1) { var i = ds.IndexOf(chatDir); SwitchChat(ds[((i + (shift ? -1 : 1)) + ds.Count) % ds.Count]); } }
             else if (ctrl && (key == Key.D0 || key == Key.NumPad0) && chatOn) { e.Handled = true; SetZoom(1); Say("Chat text size: normal."); }
         }
         // --test: the chat's messages (selectable documents, links only to what exists, copy buttons, attachments), editing,
@@ -636,9 +735,16 @@ namespace Messiah
             if (sg.Count > 0) { ((Steps)sg[0].Tag).Open = true; DrawSteps(sg[0]); }
             o.Add($"CHAT STEPS: groups={groups} head=[{head}] open={(sg.Count > 0 ? ((Steps)sg[0].Tag).Items.Children.Count : 0)}"); ChatList.Children.Clear();
             var md = Path.Combine(Path.GetTempPath(), "app-mode-" + System.Diagnostics.Process.GetCurrentProcess().Id); Directory.CreateDirectory(md);
-            var m0 = ChatData.Mode(md).Name; File.WriteAllText(Path.Combine(md, "mode.txt"), "opus/high"); var m1 = ChatData.Mode(md).Name; File.WriteAllText(Path.Combine(md, "mode.txt"), "junk"); var m2 = ChatData.Mode(md).Name; Directory.Delete(md, true);
-            UpdateModeBtn(); o.Add($"CHAT MODE: default={m0} chosen={m1} junk={m2} button=[{(((ChatMode.Content as StackPanel)?.Children.OfType<TextBlock>().Skip(1).FirstOrDefault())?.Text)}]");
+            string M() { var (a, b) = ChatData.Mode(md); return a + "/" + b; }
+            var m0 = M(); File.WriteAllText(Path.Combine(md, "mode.txt"), "sonnet/high"); var m1 = M(); File.WriteAllText(Path.Combine(md, "mode.txt"), "junk"); var m2 = M(); Directory.Delete(md, true);
+            UpdateModeBtn(); o.Add($"CHAT MODE: default={m0} chosen={m1} junk={m2} button=[{string.Join(" ", ((ChatMode.Content as StackPanel)?.Children.OfType<TextBlock>().Skip(1).Take(2).Select(t => t.Text)) ?? new string[0])}]");
             ChatList.Children.Clear();
+            // [words](address) links and | tables |; the sign-in running out is told apart from other errors
+            var mdoc = Md.Render("See [the page](https://example.com/p) now.\n| Game | FPS |\n|---|---|\n| COD | 187 |\nAfter.").Document;
+            var mlinks = mdoc.Blocks.OfType<Paragraph>().SelectMany(p => p.Inlines.OfType<Hyperlink>()).Select(h => new TextRange(h.ContentStart, h.ContentEnd).Text + ">" + ToolTip(h));
+            var tbl = mdoc.Blocks.OfType<Table>().FirstOrDefault();
+            o.Add($"CHAT MD: links=[{string.Join(",", mlinks)}] table={(tbl == null ? "none" : tbl.RowGroups[0].Rows.Count + "x" + tbl.Columns.Count)} blocks={mdoc.Blocks.Count}");
+            o.Add($"CHAT AUTH: login={AuthError("Invalid API key · Please run /login")} expired={AuthError("OAuth token has expired. Please obtain a new token.")} other={AuthError("Claude stopped unexpectedly (exit code 1)")}");
             // a tab's own name and pin (a scratch folder, not a real chat)
             var td = Path.Combine(Path.GetTempPath(), "app-tab-" + System.Diagnostics.Process.GetCurrentProcess().Id); Directory.CreateDirectory(td);
             SaveName(td, "  My   build chat  "); var t1 = ChatData.ChatTitle(td); var rc = Kit.FirstLine(Path.Combine(td, "name.txt")).Trim();

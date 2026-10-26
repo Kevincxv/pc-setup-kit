@@ -13,7 +13,7 @@ namespace Messiah
         public Dictionary<string, object> WhatsNew; public DateTime? Paused; public List<Data.PowerEvent> Power; public List<Data.Change> Changes;
         public List<Line> Ram; public Dictionary<string, object> PerfLast, HealthLast;
         public List<Dictionary<string, object>> Health, Perf, Net; public List<(string When, string Text)> Timeline; public List<(DateTime When, string Text)> Notes; public Dictionary<string, object> Chat; public string KitVersion;
-        public List<Line> Since; public DateTime? SinceAt; public Data.Gpu Gpu; public Data.Bios Bios; public System.IO.FileInfo LastBackup; public Dictionary<string, object> GameSaves, Tune, GpuState, RamState; public List<Data.RamCheck> RamChecks; public Data.Session LastSession; public Dictionary<string, object> Fans; public List<Dictionary<string, object>> Bench; public bool BenchRunning; public string PrevVersion; public DateTime? KitSince;
+        public List<Line> Since; public DateTime? SinceAt; public Data.Gpu Gpu; public Data.Bios Bios; public System.IO.FileInfo LastBackup; public Dictionary<string, object> GameSaves, Tune, GpuState, RamState; public List<Data.RamCheck> RamChecks; public Data.Session LastSession; public Dictionary<string, object> Fans; public List<Dictionary<string, object>> Bench; public bool BenchRunning; public Dictionary<string, object> Storage, StorageStatus; public string PrevVersion; public DateTime? KitSince;
         public string Sig;
 
         public Section Sec(string title) => Secs.FirstOrDefault(s => s.Title.StartsWith(title));
@@ -38,11 +38,12 @@ namespace Messiah
             s.PrevVersion = Kit.FirstLine(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"PCSetupKit\previous\version.txt"));
             s.Gpu = Data.GraphicsDriver(); s.Bios = Data.BiosInfo(); s.LastBackup = Data.LastSettingsBackup(); s.GameSaves = Kit.ReadJson(Kit.P("game-saves.json"));
             s.RamChecks = Data.RamChecks(); s.LastSession = Data.LastSession(s.Perf); s.Fans = Kit.ReadJson(Kit.P("fan-state.json")); s.Bench = Data.History("benchmarks.json"); s.BenchRunning = System.IO.File.Exists(Kit.P("bench-running.txt")) && System.IO.File.GetLastWriteTime(Kit.P("bench-running.txt")) > DateTime.Now.AddMinutes(-10); s.RamState = Kit.ReadJson(Kit.P("ram-check.json"));   // (Stability: the memory test)
-            s.Tune = Kit.ReadJson(Kit.P("game-tune.json")); s.GpuState = Kit.ReadJson(Kit.P("gpu-state.json"));   // (Performance: the settings being tried, a driver on test)
+            s.Tune = Kit.ReadJson(Kit.P("game-tune.json")); s.GpuState = Kit.ReadJson(Kit.P("gpu-state.json"));
+            s.Storage = Kit.ReadJson(Kit.P("storage.json")); s.StorageStatus = Kit.ReadJson(Kit.P("storage-status.json"));   // (Games > Storage)   // (Performance: the settings being tried, a driver on test)
             var sb = new StringBuilder();
             foreach (var sec in s.Secs) { sb.Append(sec.Title).Append('\n'); foreach (var l in sec.Lines) sb.Append(l.Level).Append('|').Append(l.Text).Append('\n'); }
             foreach (var r in s.Sm.Rows) sb.Append(r.Level).Append(r.State).Append(r.Detail).Append('\n');
-            foreach (var f in new[] { "health-history.json", "notifications.log", "maint-history", "kit-options.txt", "tweak-status.json", "guard-state.json", "diag-state.json", "whats-new.json", "power-log.json", "ram-test.log", "perf-history.json", "game-saves.json", "gpu-hold.txt", "game-tune.json", "gpu-state.json", "ram-check.json", "game-sessions.log", "fan-state.json", "benchmarks.json", "bench-running.txt" })
+            foreach (var f in new[] { "health-history.json", "notifications.log", "maint-history", "kit-options.txt", "tweak-status.json", "guard-state.json", "diag-state.json", "whats-new.json", "power-log.json", "ram-test.log", "perf-history.json", "game-saves.json", "gpu-hold.txt", "game-tune.json", "gpu-state.json", "ram-check.json", "game-sessions.log", "fan-state.json", "benchmarks.json", "bench-running.txt", "storage.json", "storage-status.json" })
                 sb.Append(Kit.Stamp(Kit.P(f))?.Ticks).Append(',');
             foreach (var l in s.Since) sb.Append(l.Text).Append('\n');
             sb.Append('\n').Append(s.Playing).Append('\n').Append(Json.B(s.Chat, "busy")).Append(Json.S(s.Chat, "step"));

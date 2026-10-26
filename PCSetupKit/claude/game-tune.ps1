@@ -11,7 +11,7 @@
 #   Integrity - the minutes would not compare), a driver reset during the test, a month without enough play. The
 #   owner changing the setting in the game ends that test with their value - it is their choice.
 # - Not while a new graphics driver is on trial (gpu-watch.ps1): that test needs the settings to stay as they were.
-# - Each result is said once and kept in game-tune.json (the app's Activity > Performance shows the test and results).
+# - Each result is said once and kept in game-tune.json (the app's Games > Performance shows the test and results).
 # game-settings.ps1 keeps the owner's settings: a value tried or kept here is written to its kept values too.
 # kit-options.txt gametune=off (the app's Settings) stops it - a test under way is ended with the owner's value back.
 # -Files / -State / -Perf / -GameSettings / -GpuState / -Running / -Conditions / -Cores / -Now / -Options: tests.
@@ -166,7 +166,7 @@ elseif (-not $trial) {
         $alt = & $x.alt $cur; if (-not $alt) { continue }
         $active = [pscustomobject][ordered]@{ id = $x.id; game = $game; label = $x.label; key = $x.key; file = $file; a = $cur; b = $alt; arm = 'a'; started = $Now.ToString('o'); armSince = $Now.ToString('o'); env = $Conditions }
         $changed = $true
-        "$name tuning: trying $($x.label) both ways in your next matches - $(& $x.say $cur) (as now) against $(& $x.say $alt); the faster one is kept (Activity > Performance)"
+        "$name tuning: trying $($x.label) both ways in your next matches - $(& $x.say $cur) (as now) against $(& $x.say $alt); the faster one is kept (Games > Performance)"
         break
     }
 }

@@ -16,13 +16,13 @@ namespace Messiah.Pages
         public static List<UIElement> Build(Snapshot s)
         {
             var o = new List<UIElement>();
-            var hero = new StackPanel { Orientation = Orientation.Horizontal };
+            var hero = new DockPanel();   // (10/25 audit: a row let the words run off a narrow window - docked, they wrap)
             var badge = new Border { Width = 56, Height = 56, CornerRadius = new CornerRadius(28), Margin = Ui.Th("0,0,18,0"), VerticalAlignment = VerticalAlignment.Center, Background = Theme.Gradient() };
             var bg = Ui.Glyph("E73E", 26, Theme.B["OnAccent"]); bg.HorizontalAlignment = HorizontalAlignment.Center; badge.Child = bg;
             var txt = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             txt.Children.Add(Ui.Text("This PC is ready", Theme.B["Text"], 22, FontWeights.SemiBold, "0"));
             txt.Children.Add(Ui.Text("Windows is updated, tuned for games and set up to look after itself - nothing else to do.", Theme.B["Sub"], 13, null, "0,2,0,0"));
-            hero.Children.Add(badge); hero.Children.Add(txt);
+            DockPanel.SetDock(badge, Dock.Left); hero.Children.Add(badge); hero.Children.Add(txt);
             var btns = new List<UIElement> { Ui.Btn("E73E", "Got it", () => Shell.W.Welcomed(), accent: true) };
             // Chrome installed, Edge still the browser: Windows' own Chrome page, one "Set default" click (no program may switch it)
             var https = (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice", "ProgId", "") ?? "").ToString();

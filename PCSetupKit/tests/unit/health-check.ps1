@@ -91,6 +91,16 @@ Check 'the dump is analyzed once (MEMORY.DMP of the same crash skipped)' (@(Get-
 $o = HC
 Check 'no read/write error line without disk errors' (-not ($o -match 'read/write error')) ($o -join ' / ')
 Check 'the next check does not report the same crashes again' (($o -contains 'Crashes: none since last check') -and -not ($o -match 'crash dump')) ($o -join ' / ')
+Healthy
+$off = $now.AddMinutes(-25); $lrm = [char]0x200E
+$M.Events = @((Ev 41 10 '' 'Microsoft-Windows-Kernel-Power' 0), (Ev 6008 10 "The previous system shutdown at $($off.ToLongTimeString()) on $lrm$($off.ToShortDateString()) was unexpected." 'EventLog'))
+Clear-Path "$d\health-check.last"
+$o = HC
+Check 'a freeze is reported at the time the PC went off (6008), not the start after it' ([bool]($o -contains "WARNING: unexpected shutdown/freeze at $($off.ToString('g')) (no blue screen recorded)")) ($o -join ' / ')
+$M.Events = @((Ev 41 10 '' 'Microsoft-Windows-Kernel-Power' 0))
+Clear-Path "$d\health-check.last"
+$o = HC
+Check 'a freeze without its 6008 event: the start time' ([bool]($o -contains "WARNING: unexpected shutdown/freeze at $($now.AddMinutes(-10).ToString('g')) (no blue screen recorded)")) ($o -join ' / ')
 
 Section 'a check that never reached a report'
 # the last check started 10 min ago (its window began 2 h ago) but the PC crashed before the report was written (3 h old)

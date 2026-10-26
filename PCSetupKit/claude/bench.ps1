@@ -2,7 +2,7 @@
 # BIOS help?" gets an answer in about a minute and a half instead of a few matches. Windows' own WinSAT parts: the
 # processor (all cores and one core), the memory's bandwidth, the SSD's reading speed - each run kept in benchmarks.json
 # (the 9/26 baseline is the first) with what it depends on (RAM speed, BIOS, graphics driver, Windows), and compared with
-# the run before and the first one. The graphics card isn't in it: the games measure it (Activity > Performance).
+# the run before and the first one. The graphics card isn't in it: the games measure it (Games > Performance).
 # Started from the app (through the tray - WinSAT needs admin rights); never while a game runs.
 # -Test (hashtable: Cpu, CpuOne, Mem, Disk, Ram, Game) / -History / -Running / -Now: tests (WinSAT isn't run).
 param([hashtable]$Test, [string]$History = "$PSScriptRoot\benchmarks.json", [string]$Running = "$PSScriptRoot\bench-running.txt", [datetime]$Now = (Get-Date))

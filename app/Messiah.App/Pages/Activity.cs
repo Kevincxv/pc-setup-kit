@@ -34,8 +34,34 @@ namespace Messiah.Pages
             }
             var pairs = sched.Lines.Select(l => { var m = Regex.Match(l.Text, @"^([^:]+):\s+(.*)$"); return m.Success ? (m.Groups[1].Value, m.Groups[2].Value, l.Level) : ("", l.Text, l.Level); });
             o.Add(Ui.Card("Scheduled checks", "E787", new object[] { Ui.Rows(pairs), new Line("Everything here runs by itself. Checks wait while a game is running, and anything that needs a restart finishes the next time you turn the PC off.", "dim") }));
-            var rows = s.Timeline.Count > 0 ? s.Timeline.Select(t => (t.When, t.Text, "info")) : new[] { ("", "Nothing changed yet - the checks found everything in order.", "dim") };
-            o.Add(Ui.Card("What maintenance did", "E90F", new object[] { Ui.Rows(rows) }));
+            // (10/25, the owner: "a long list of text" - app updates on one day make one line, and the newest 8 show; the rest
+            // are a click away)
+            var rows = Grouped(s.Timeline).Select(t => (t.When, t.Text, "info")).ToList();
+            if (rows.Count == 0) rows.Add(("", "Nothing changed yet - the checks found everything in order.", "dim"));
+            var did = new List<object> { Ui.Rows(rows.Take(8)) };
+            if (rows.Count > 8)
+            {
+                var rest = Ui.Rows(rows.Skip(8)); rest.Visibility = Visibility.Collapsed; did.Add(rest);
+                Button more = null; more = Ui.Btn("E70D", $"Show all {rows.Count}", () => { var open = rest.Visibility != Visibility.Visible; rest.Visibility = open ? Visibility.Visible : Visibility.Collapsed; ((TextBlock)((StackPanel)more.Content).Children[1]).Text = open ? "Show fewer" : $"Show all {rows.Count}"; }, small: true);
+                more.HorizontalAlignment = HorizontalAlignment.Left; more.Margin = Ui.Th("0,8,0,0"); did.Add(more);
+            }
+            o.Add(Ui.Card("What maintenance did", "E90F", did));
+            return o;
+        }
+
+        // the same day's "Updated app: X" lines as one: "Updated 5 apps: 7zip, AutoHotkey, ..." (winget ids made readable)
+        internal static List<(string When, string Text)> Grouped(List<(string When, string Text)> tl)
+        {
+            var o = new List<(string When, string Text)>();
+            string Name(string id) { var p = id.Trim().Split('.'); return string.Join(" ", p.Where((x, i) => i == 0 || !x.Equals(p[0], StringComparison.OrdinalIgnoreCase))); }
+            const string U = "Updated app: ";
+            for (int i = 0; i < tl.Count; i++)
+            {
+                int j = i; while (tl[i].Text.StartsWith(U) && j + 1 < tl.Count && tl[j + 1].When == tl[i].When && tl[j + 1].Text.StartsWith(U)) j++;   // (next to each other, the same check)
+                if (j == i) { o.Add(tl[i]); continue; }
+                var names = tl.Skip(i).Take(j - i + 1).Select(x => Name(x.Text.Substring(U.Length))).Distinct().ToList();
+                o.Add((tl[i].When, $"Updated {names.Count} apps: {string.Join(", ", names)}")); i = j;
+            }
             return o;
         }
 
@@ -63,7 +89,7 @@ namespace Messiah.Pages
             var lastC = evs.Where(IsCrash).OrderBy(e => e.At).LastOrDefault();
             var d90 = DateTime.Now.AddDays(-90);
             int Off(Func<Data.PowerEvent, bool> f) => evs.Count(e => e.Kind == "off" && e.At > d90 && f(e));
-            var tiles = new UniformGrid { Columns = 3, Margin = Ui.Th("0,0,-12,2") };
+            var tiles = Ui.Pairs(new UniformGrid { Columns = 3, Margin = Ui.Th("0,0,-12,2") });
             foreach (var (label, big, sub) in new[] {
                 ("Days since the last crash", lastC != null ? Math.Round((DateTime.Now - lastC.At).TotalDays).ToString() : "-", lastC != null ? $"{(lastC.Kind == "bsod" ? "Blue screen " + lastC.Code : lastC.Answer == "froze" ? "Went off by itself" : "Went off - not answered yet")}, {Kit.FormatWhen(lastC.At)}" : "None recorded"),
                 ("Blue screens, 90 days", evs.Count(e => e.Kind == "bsod" && e.At > d90).ToString(), "Each with a crash dump"),
@@ -133,8 +159,17 @@ namespace Messiah.Pages
             // the same, as a list (the table view: every event in words, newest first)
             var rows = evs.Select(e => (e.At, e.Kind == "bsod" ? "Blue screen " + e.Code : "Went off without a blue screen - " + Ans(e.Answer), IsCrash(e) ? "info" : "dim"))
                 .Concat(chs.Select(c => (c.At, $"{c.What}: {c.From} → {c.To}{(c.Approx ? " (date approximate)" : "")}", "dim")))
-                .OrderByDescending(r => r.Item1).Take(40).Select(r => (r.Item1.ToString("ddd MMM d yyyy, h:mm tt"), r.Item2, r.Item3));
-            o.Add(Ui.Card("What happened", "E81C", new object[] { Ui.Rows(rows) }));
+                .OrderByDescending(r => r.Item1).Take(40).Select(r => (At: r.Item1, Label: Kit.FormatWhen(r.Item1), Text: r.Item2, Level: r.Item3)).ToList();
+            // (10/25, "a long list of text": the newest 10 of the chart's 120 days; the rest - older ones too - a click away)
+            var recent = rows.Where(r => r.At > t0).Take(10).ToList(); var rest = rows.Skip(recent.Count).ToList();
+            var wl = new List<object> { Ui.Rows(recent.Count > 0 ? recent.Select(r => (r.Label, r.Text, r.Level)) : new[] { ("", "Nothing in the last 120 days.", "ok") }) };
+            if (rest.Count > 0)
+            {
+                var more = Ui.Rows(rest.Select(r => (r.Label, r.Text, r.Level))); more.Visibility = Visibility.Collapsed; wl.Add(more);
+                Button mb = null; mb = Ui.Btn("E70D", $"Show {rest.Count} more", () => { var open = more.Visibility != Visibility.Visible; more.Visibility = open ? Visibility.Visible : Visibility.Collapsed; ((TextBlock)((StackPanel)mb.Content).Children[1]).Text = open ? "Show fewer" : $"Show {rest.Count} more"; }, small: true);
+                mb.HorizontalAlignment = HorizontalAlignment.Left; mb.Margin = Ui.Th("0,8,0,0"); wl.Add(mb);
+            }
+            o.Add(Ui.Card("What happened", "E81C", wl));
             o.Add(Foot("From Windows' own log (back to when it starts) - recorded at every login. Hover over a mark for details."));
             return o;
         }
@@ -152,34 +187,15 @@ namespace Messiah.Pages
             }
             IEnumerable<(DateTime D, double V)> Gp(IEnumerable<Dictionary<string, object>> rows, string field) =>
                 (rows ?? Enumerable.Empty<Dictionary<string, object>>()).Where(r => Json.N(r, field) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, field).Value));
-            // games (game-perf.ps1, while playing): the most played game's frame rate, and the card's heat under load
-            var byGame = s.Perf.GroupBy(r => Json.S(r, "game")).ToList();
-            // (the game played most this month, then the latest played - 10/22: an old game won a tie)
-            var top = byGame.OrderByDescending(g => g.Count(r => Kit.Date(Json.Get(r, "date")) >= DateTime.Now.AddDays(-30))).ThenByDescending(g => Kit.Date(Json.Get(g.Last(), "date"))).FirstOrDefault();
-            var grid = new UniformGrid { Columns = 2, Margin = Ui.Th("0,0,-14,0") };
-            // the most played game's sessions: each one read on hover, what changed marked, a click opens it on Performance
-            Border GameChart(string what, string field)
-            {
-                var rows = top?.ToList() ?? new List<Dictionary<string, object>>();
-                return Charts.Chart(what + (top != null ? " - " + Data.GameName(top.Key) : ""), " fps", Performance.Points(rows, field, s.Tune), 0, 20, Performance.Marks(rows, s.Tune),
-                    p => { Performance.Pick[top.Key] = p.Key; Shell.ShowPage("Activity", "Performance"); });
-            }
-            foreach (var ch in new[] {
-                Chart("Start-up time", " s", Pt("boot", true), 1, 10), Chart("Free space on C:", " GB", Pt("freeGB"), 0, 20),
-                Chart("Graphics card at idle", " °C", Pt("gpuIdle"), 0, 10), Chart("SSD temperature", " °C", Pt("ssdTemp"), 0, 10),
-                GameChart("Frame rate", "fps"), GameChart("1% low frame rate", "low1"),
-                Charts.Chart("Graphics card while gaming", " °C", Performance.Points(s.Perf, "gpuTemp", s.Tune, true), 0, 10), Chart("Internet ping", " ms", Gp(s.Net, "ping"), 0, 10) })
-            { ch.Margin = Ui.Th("0,0,14,14"); grid.Children.Add(ch); }
+            // the PC's own vitals over time - the games are on Games > Performance (10/25: their charts were in both places)
+            var grid = Ui.Pairs(new UniformGrid { Columns = 2, Margin = Ui.Th("0,0,-14,0") });
+            var charts = new List<Border> { Chart("Start-up time", " s", Pt("boot", true), 1, 10), Chart("Free space on C:", " GB", Pt("freeGB"), 0, 20),
+                Chart("Graphics card at idle", " °C", Pt("gpuIdle"), 0, 10), Chart("SSD temperature", " °C", Pt("ssdTemp"), 0, 10) };
+            if (Pt("cpuIdle").Any()) charts.Add(Chart("Processor at idle", " °C", Pt("cpuIdle"), 0, 10));
+            charts.Add(Chart("Internet ping at idle", " ms", Gp(s.Net, "ping"), 0, 10));
+            foreach (var ch in charts) { ch.Margin = Ui.Th("0,0,14,14"); grid.Children.Add(ch); }
             o.Add(grid);
-            // each game: its latest sample next to its usual (the median of its samples)
-            var games = byGame.OrderByDescending(g => Kit.Date(Json.Get(g.Last(), "date"))).Select(g =>
-            {
-                var l = g.Last(); var u = Median(g.Select(r => Json.N(r, "low1") ?? 0).ToList()); var gt = Json.N(l, "gpuTemp");
-                return (Kit.Date(Json.Get(l, "date")).Value.ToString("MMM d"), $"{Data.GameName(g.Key)}: {Math.Round(Json.N(l, "fps") ?? 0)} fps, 1% low {Math.Round(Json.N(l, "low1") ?? 0)} fps (usual {Math.Round(u ?? 0)}){(gt != null ? $", card {gt} °C" : "")} - {g.Count()} sample(s)", "info");
-            }).ToList();
-            if (games.Count == 0) games.Add(("", "Nothing recorded yet - a minute of your game is measured every 25 minutes while you play (menus and lobbies don't count).", "dim"));
-            o.Add(Ui.Card("Games", "E7FC", new object[] { Ui.Rows(games) }));
-            o.Add(Foot("Recorded at every check (at each login and once a day); games while you play. Idle temperatures are taken only while the graphics card is idle, so a game never skews them."));
+            o.Add(Foot("Recorded at every check (at each login and once a day). Idle temperatures are taken only while the PC is idle, so a game never skews them. Your games: Games > Performance."));
             return o;
         }
         static double? Median(List<double> v) { if (v.Count == 0) return null; var s = v.OrderBy(x => x).ToList(); int m = s.Count / 2; return s.Count % 2 == 1 ? s[m] : (s[m - 1] + s[m]) / 2; }

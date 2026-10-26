@@ -137,12 +137,25 @@ namespace Messiah.Chat
             catch { }
             return o;
         }
-        // the chat's speed (mode.txt "model/effort", read by chat-host.ps1)
-        public static readonly (string Name, string Value, string About)[] Modes = {
-            ("Quick", "sonnet/low", "Sonnet, low effort - fast answers, easy on your plan's usage"),
-            ("Standard", "opus/medium", "Opus, medium effort - the default"),
-            ("Deep", "opus/high", "Opus, high effort - hard problems like crash hunts"),
-            ("Deepest", "opus/max", "Opus, maximum effort - slowest, uses the most") };
-        public static (string Name, string Value, string About) Mode(string d) { var m = Kit.FirstLine(Path.Combine(d, "mode.txt")); return Modes.FirstOrDefault(x => x.Value == m) is var f && f.Name != null ? f : Modes[1]; }
+        // the chat's model and effort (mode.txt "model/effort", read by chat-host.ps1; 10/25, the owner: "no easy way to
+        // select a model" - the button names the model, its menu picks model and effort apart)
+        public static readonly (string Name, string Value, string About)[] Models = {
+            ("Fable", "fable", "the most capable - if your plan has it"),
+            ("Opus", "opus", "smart and thorough - the default"),
+            ("Sonnet", "sonnet", "fast, easy on your plan's usage"),
+            ("Haiku", "haiku", "fastest, for quick questions") };
+        public static readonly (string Name, string Value, string About)[] Efforts = {
+            ("Low", "low", "quick answers"), ("Medium", "medium", "the default"), ("High", "high", "hard problems like crash hunts"),
+            ("Extra high", "xhigh", "harder still"), ("Max", "max", "slowest, uses the most") };
+        public const string DefaultMode = "opus/medium";
+        public static (string Model, string Effort) Mode(string d)
+        {
+            var m = Kit.FirstLine(Path.Combine(d, "mode.txt")).Trim().Split('/');
+            return m.Length == 2 && Models.Any(x => x.Value == m[0]) && Efforts.Any(x => x.Value == m[1]) ? (m[0], m[1]) : ("opus", "medium");
+        }
+        public static string ModelName(string v) => Models.FirstOrDefault(x => x.Value == v).Name ?? v;
+        public static string EffortName(string v) => Efforts.FirstOrDefault(x => x.Value == v).Name ?? v;
+        // a conversation with nothing said yet (Claude Code writes the transcript at the first message)
+        public static bool Empty(string d) { var id = Session(d); return id == "" || !File.Exists(Path.Combine(ProjDir, id + ".jsonl")); }
     }
 }

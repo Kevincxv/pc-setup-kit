@@ -49,7 +49,7 @@ namespace Messiah.Pages
             // what happened while the window was closed (since the owner last looked) - nothing: no card
             if (s.Since != null && s.Since.Count > 0 && s.SinceAt != null) o.Add(Ui.Card("Since you last looked", "E81C", s.Since.Cast<object>().Concat(new object[] { new Line($"{Kit.FormatWhen(s.SinceAt.Value)} - the details are under Activity.", "dim") }).ToArray()));
             // playing right now: everything heavy waits - said, so a quiet Messiah isn't a broken one
-            if (s.Playing != "") o.Add(Ui.Card("Playing " + s.Playing, "E7FC", new object[] { new Line("Updates, checks and cleanup wait until you're done - nothing runs that could slow the game or take over the screen. They catch up by themselves afterwards.") }));
+            if (s.Playing != "") o.Add(Ui.Card("Playing " + Data.GameName(s.Playing), "E7FC", new object[] { new Line("Updates, checks and cleanup wait until you're done - nothing runs that could slow the game or take over the screen. They catch up by themselves afterwards.") }));
             // what's new after an update: until "Got it", three weeks at most
             if (s.WhatsNew != null)
             {
@@ -98,9 +98,10 @@ namespace Messiah.Pages
             var p = s.PerfLast; var h = s.HealthLast; var free = Json.N(h, "freeGB");
             tiles.Children.Add(Ui.Tile("EA18", "Guarded", guardVal, guardSub, guardOld ? "warn" : "info", "Status"));
             tiles.Children.Add(Ui.Tile("E7FC", "Last game", p != null ? $"{Math.Round(Json.N(p, "fps") ?? 0)} fps" : "Nothing yet", p != null ? $"{Data.GameName(Json.S(p, "game"))}, 1% low {Math.Round(Json.N(p, "low1") ?? 0)} fps" : "Measured while you play", "info", "Activity/Trends"));
-            tiles.Children.Add(Ui.Tile("EDA2", "Free space on C:", free != null ? $"{Math.Round(free.Value)} GB" : "-", "Cleaned up every week", free != null && free < 30 ? "warn" : "info", "Activity/Trends"));
+            tiles.Children.Add(Ui.Tile("EDA2", "Free space on C:", free != null ? $"{Math.Round(free.Value)} GB" : "-", "Cleaned up every week", free != null && free < 30 ? "warn" : "info", "Activity/Storage"));
             tiles.Children.Add(Ui.Tile("E787", "Next", next != null ? next.Groups[1].Value : "At login", next != null ? Kit.FormatLine(next.Groups[2].Value) : "And every 4 hours", "info", "Activity/Checks"));
             o.Add(tiles);
+            var wk = Week.Card(s); if (wk != null) o.Add(wk);   // (10/25: the week at a glance - games, crashes, what the checks did)
             if (wait.Lines.Any(l => !l.Text.StartsWith("Nothing"))) o.Add(Ui.Card(wait.Title, "E777", wait.Lines.Cast<object>()));
             if (s.Ai)
             {

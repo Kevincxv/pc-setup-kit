@@ -84,5 +84,5 @@ if (-not (Installed)) {
     if (-not $T) { 'installed' | Set-Content $State }
 }
 $r = New-Reader; $now = if ($r) { & $r }
-if ($now) { "CPU temperature: now measured ($now C) - with the PawnIO driver and LibreHardwareMonitor (Activity > Performance: Heat and wear)" }
+if ($now) { "CPU temperature: now measured ($now C) - with the PawnIO driver and LibreHardwareMonitor (Games > Performance: Heat and wear)" }
 else { 'CPU temperature: installed, but the processor gave no reading yet - checked again next time' }

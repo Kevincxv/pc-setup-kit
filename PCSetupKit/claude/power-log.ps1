@@ -1,4 +1,4 @@
-# The PC's stability record (power-log.json), for the app's Home question and Activity > Stability, the RAM stick test
+# The PC's stability record (power-log.json), for the app's Home question and Health > Stability, the RAM stick test
 # and /maintain:
 #   events   every blue screen and every time the PC went off without one (Windows' log: Kernel-Power 41 at the start
 #            after it - bugcheck 0 = no blue screen; the time it went off from event 6008), each with the owner's answer

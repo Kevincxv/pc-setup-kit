@@ -6,7 +6,7 @@
 if (-not $AppExe) { Skip 'app' 'not built here (tools\app\build.ps1)'; Finish }
 function Run-App([string]$Home_, [hashtable]$Env = @{}, [string[]]$ArgList = @()) { Invoke-App $Home_ $ArgList $Env }
 function Errs($r) { ((@($r.Out -split "`r?`n" | Where-Object { $_ -match 'PAGE ERROR' }) + @($r.Err.Trim()) | Where-Object { $_ }) -join ' | ') }
-$pages = 'Welcome', 'Home', 'Status', 'Activity/Checks', 'Activity/Stability', 'Activity/Trends', 'Activity/Performance', 'Activity/Alerts', 'Settings/General', 'Settings/Windows', 'Settings/Tools'
+$pages = 'Welcome', 'Home', 'Status', 'Activity/Checks', 'Activity/Stability', 'Activity/Trends', 'Activity/Performance', 'Activity/Storage', 'Activity/Alerts', 'Settings/General', 'Settings/Windows', 'Settings/Tools'
 
 Section 'a new install (nothing written yet)'
 $H = "$Work\new"; New-Item "$H\.claude", "$H\Documents" -ItemType Directory -Force | Out-Null
@@ -16,11 +16,12 @@ Check 'Restart into an update keeps what the copy is (--live, --tray), not its p
 $miss = @($pages | Where-Object { $r.Out -notmatch "(?m)^PAGE: $([regex]::Escape($_)) " })
 Check 'every page is built' (-not $miss) "missing: $($miss -join ', ')"
 Check 'no page fails' (-not (Errs $r)) (Errs $r)
-Check 'tabs: Home, Status, Activity, Settings' ($r.Out -match '(?m)^NAV: Home \| Status \| Activity \| Settings\s*$') ''
+Check 'tabs: Home, Games, Health, Optimizations, Settings (10/25: five, each with one job)' ($r.Out -match '(?m)^NAV: Home \| Games \| Health \| Optimizations \| Settings\s*$') ''
 Check 'Home: all good, no report yet' ($r.Out -match 'All good - nothing needs you' -and $r.Out -match 'No report yet') ''
 Check 'every button, switch, link and field has a name a screen reader can say (the window''s own parts and every page)' ($r.Out -notmatch '(?m)^A11Y:') (($r.Out -split "?
 " | Where-Object { $_ -match '^A11Y:' }) -join ' | ')
-Check 'the chat: replies, links, attachments, edit, find and speed work' ($r.Out -match 'CHAT: reply=RichTextBox' -and $r.Out -match 'CHAT FIND: found=3' -and $r.Out -match 'CHAT EDIT: .*editing=True' -and $r.Out -match 'CHAT MODE: default=Standard chosen=Deep' -and $r.Out -match 'CHAT FIND: .*marked=3 leftover=0') ''
+Check 'the chat: replies, links, attachments, edit, find and the model picker work' ($r.Out -match 'CHAT: reply=RichTextBox' -and $r.Out -match 'CHAT FIND: found=3' -and $r.Out -match 'CHAT EDIT: .*editing=True' -and $r.Out -match 'CHAT MODE: default=opus/medium chosen=sonnet/high junk=opus/medium button=\[Opus medium\]' -and $r.Out -match 'CHAT FIND: .*marked=3 leftover=0') ''
+Check 'the chat: [words](address) links and tables show as such; a sign-in that ran out is recognized' ($r.Out -match 'CHAT MD: links=\[the page>Open https://example.com/p\] table=2x2 blocks=3' -and $r.Out -match 'CHAT AUTH: login=True expired=True other=False') (($r.Out -split "`n" | Where-Object { $_ -match 'CHAT (MD|AUTH)' }) -join ' / ')
 Check 'files dropped from Explorer onto the window with admin rights (the older drop way Windows lets through): attached, the chat opened for them' ($r.Out -match 'CHAT DROP: read=2 attached=2 chat=Visible') ''
 Check 'Claude''s steps in a row fold into one line ("3 steps - ...") that opens to list them; a reply starts a new fold' ($r.Out -match 'CHAT STEPS: groups=2 head=\[3 steps - Running health-check\.ps1\] open=3') ''
 Check 'chat tabs: a name of its own (also on the phone), back to the title when cleared; a pinned tab can''t be closed' ($r.Out -match 'CHAT TAB: named=\[My build chat\] remote=\[My build chat\] cleared=\[New chat\] pinned=True closeRefused=True unpinned=True') ''
@@ -48,12 +49,12 @@ Check 'the help report: status, what needs the owner, the last check - no PC or 
 $r = Run-App $H @{ PCKIT_DIAG_TEST = (((1..18) | ForEach-Object { "d$_.sys" }) -join ' ') + '|' }
 Check 'a crash-hunting mode left on (Driver Verifier): amber, since when, with its off button' ($r.Out -match 'Driver Verifier \(18 drivers\) on / On for \d+ days \(since Oct 4\)' -and $r.Out -match '\[Turn off Driver Verifier\]') ''
 $r = Run-App $H @{} @('--page', 'Welcome')
-Check 'after a new install: the Welcome tab first' ($r.Out -match '(?m)^NAV: Welcome \| Home \| Status \| Activity \| Settings\s*$') ''
+Check 'after a new install: the Welcome tab first' ($r.Out -match '(?m)^NAV: Welcome \| Home \| Games \| Health \| Optimizations \| Settings\s*$') ''
 'claude=on' | Set-Content "$C\kit-options.txt"
 $r = Run-App $H
 Check 'with Claude: the Claude card with Open chat' ($r.Code -eq 0 -and $r.Out -match 'CARD: Claude' -and $r.Out -match 'Open chat' -and -not (Errs $r)) (Errs $r)
 
-Section 'Activity > Performance: each game''s last minute second by second, and what an update did to it'
+Section 'Games > Performance: each game''s last minute second by second, and what an update did to it'
 $H = "$Work\perf"; $C = "$H\.claude"; New-Item $C, "$H\Documents" -ItemType Directory -Force | Out-Null
 'claude=off' | Set-Content "$C\kit-options.txt"
 $now = Get-Date; $rows = @(foreach ($i in 0..5) { [ordered]@{ date = $now.AddDays(-12 + $i * 2).ToString('o'); game = 'TestGame'; fps = 58 + $i; low1 = 47 + $i; frames = 3500; stutters = 2; driver = $(if ($i -lt 3) { '1.0' } else { '2.0' }); build = '26200.1'; ram = $(if ($i -lt 3) { '4800 MT/s' } else { '6000 MT/s' }) } })
@@ -66,7 +67,7 @@ Check 'a driver update: the sessions before and after, side by side, with a plai
 $H2 = "$Work\perf0"; New-Item "$H2\.claude", "$H2\Documents" -ItemType Directory -Force | Out-Null
 Check 'EXPO turned on (RAM 4800 -> 6000): its own verdict' ($r.Out -match 'TestGame - RAM speed 4800 MT/s -> 6000 MT/s: better') ''
 Check 'nothing measured yet: says how it gets measured' ((Run-App $H2).Out -match 'CARD: Nothing measured yet') ''
-Section 'Activity > Performance: a setting tried both ways, a driver on test, heat and wear (10/21)'
+Section 'Games > Performance: a setting tried both ways, a driver on test, heat and wear (10/21)'
 $H = "$Work\tune"; $C = "$H\.claude"; New-Item $C, "$H\Documents" -ItemType Directory -Force | Out-Null
 'claude=off' | Set-Content "$C\kit-options.txt"; $now = Get-Date
 $rows = @(foreach ($i in 0..5) { [ordered]@{ date = $now.AddHours(-12 + $i).ToString('o'); game = 'cod'; fps = 200; low1 = 150; frames = 12000; stutters = 2; driver = '2.0'; gpuTemp = 70 + $i; gpuFan = 55; gpuPower = 290; cpuLimit = 100; cpuPerf = 112; tune = $(if ($i -lt 3) { 'vram:a' } else { 'vram:b' }) } })
@@ -121,7 +122,7 @@ Check '... a blue screen, a driver change' ($r.Out -match 'A blue screen [^\r\n]
 Check 'never closed before (no time recorded): no card' ((Run-App $H).Out -notmatch 'Since you last looked') ''
 Section 'break it: every state file garbage, in a profile path with spaces and non-English letters'
 $H = "$Work\Jörg Müller ÄÖÜ ñ"; $C = "$H\.claude"; New-Item $C, "$H\Documents", "$C\maint-history", "$C\chats\20260101-000000" -ItemType Directory -Force | Out-Null
-$states = 'actions-state.json', 'guard-state.json', 'benchmarks.json', 'display-state.json', 'files-backup-state.json', 'gaming-state.json', 'gpu-state.json', 'game-tune.json', 'ram-check.json', 'fan-state.json', 'benchmarks.json',
+$states = 'actions-state.json', 'guard-state.json', 'storage.json', 'storage-status.json', 'benchmarks.json', 'display-state.json', 'files-backup-state.json', 'gaming-state.json', 'gpu-state.json', 'game-tune.json', 'ram-check.json', 'fan-state.json', 'benchmarks.json',
     'health-history.json', 'junk-state.json', 'maint-state.json', 'net-history.json', 'perf-history.json', 'restart-ledger.json', 'self-test.json',
     'todo-scripted.json', 'update-state.json', 'vendor-state.json', 'kit-options.txt', 'maint-report.txt', 'maint-todo.txt', 'notifications.log',
     'tray-news.txt', 'tray-notified.ini', 'gpu-hold.txt', 'admin-sessions.txt', 'app-window.txt', 'tray-hwnd.txt', 'restart-night.log',
@@ -167,7 +168,7 @@ else {
         $btn.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke(); $p1.WaitForExit(10000) | Out-Null; Start-Sleep 2
         $p2 = Get-CimInstance Win32_Process -Filter "Name='MessiahApp.exe'" | Where-Object { $_.ExecutablePath -eq "$U\MessiahApp.exe" -and $_.ProcessId -ne $p1.Id } | Select-Object -First 1
         $w2 = if ($p2) { UWin $p2.ProcessId }
-        Check 'Restart: the old copy ends, the new one opens on the same page (Activity > Trends)' ($p1.HasExited -and $p2 -and $p2.CommandLine -match "--after $($p1.Id)" -and (UFind $w2 'How this PC has been doing over time.')) "ended=$($p1.HasExited) new=$($p2.CommandLine)"
+        Check 'Restart: the old copy ends, the new one opens on the same page (Health > Trends)' ($p1.HasExited -and $p2 -and $p2.CommandLine -match "--after $($p1.Id)" -and (UFind $w2 'How this PC has been doing over time.')) "ended=$($p1.HasExited) new=$($p2.CommandLine)"
         if ($p2) { Stop-Process -Id $p2.ProcessId -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -194,7 +195,7 @@ Check 'a point read: its date, its value, what else was going on (not its own va
 Check 'what changed is marked, and said at the first session after it' ($r.Out -match '\| marks: Graphics driver 2\.0; trying GPU upload heaps on; trying GPU upload heaps off \|' -and $r.Out -match '(?m)^CHARTTEST hover after the driver: .+\(changed: Graphics driver 2\.0\)') ''
 Check '... the setting being tried, by its value (said once)' ($r.Out -match '(?m)^CHARTTEST hover tested: .+trying GPU upload heaps off\s*$') ''
 Check 'a session clicked: opened under the charts, its minute second by second, a way back to the latest' ($r.Out -match '(?m)^CHARTTEST clicked: Session opened: 143 fps average.+ / That minute \(.+\), second by second / Back to the latest session') ''
-Check 'Trends: the most played game''s charts open a session on Performance' ($r.Out -match 'CHART: Frame rate - Call of Duty \|.*click opens a session') ''
+Check 'Health > Trends: the PC''s own vitals only - the games'' charts are on Games > Performance (10/25: they were in both places)' ($r.Out -match 'CHART: Internet ping at idle \|' -and $r.Out -notmatch 'CHART: Frame rate - Call of Duty') ''
 Check 'the tray''s quick panel: status, temperatures, Game Mode, the main actions' ($r.Out -match '(?m)^QUICK: .*Processor .*\| Game Mode \|.*\[Open Messiah\] \| \[Run maintenance\] \| \[Pause 2 h\]') ''
 Check 'Settings: the switch for watching the fans' ($r.Out -match 'Watch the fans') ''
 Section 'the switch-over: the tray, the Start menu, installs and updates run it'
@@ -203,4 +204,37 @@ Check 'the tray opens it (--live, --page) and starts it hidden (--background)' (
 Check '... and nothing runs the PowerShell app any more (removed 10/21; the text status.ps1 when the exe is missing)' ($trayText -notmatch 'dashboard\.ps1' -and $trayText -match 'status\.ps1') ''
 Check 'the Start menu entry runs it' ((Get-Content "$Src\tray-app.ps1" -Raw) -match '\$appTarget = (Get-LongPath )?"\$ClaudeDir\\app\\MessiahApp\.exe"; \$appArgs = ''--live''') ''
 Check 'setup and updates install it (a running copy moved aside)' ((Get-Content "$Kit\setup.ps1" -Raw) -match 'claude\\app\\MessiahApp\.exe' -and (Get-Content "$Src\kit-update.ps1" -Raw) -match 'Install-App "\$k\\claude\\app"') ''
+
+Section 'this week on Home, the connection while playing, the storage page (10/25)'
+$H = "$Work\week"; $C = "$H\.claude"; New-Item "$C\maint-history", "$H\Documents" -ItemType Directory -Force | Out-Null
+'claude=off' | Set-Content "$C\kit-options.txt"; $now = Get-Date
+$rows = @(foreach ($i in 1..4) { [ordered]@{ date = $now.AddDays(-10 - $i).ToString('o'); game = 'cod'; fps = 200; low1 = 150; stutters = 1 } }) +
+    @([ordered]@{ date = $now.AddDays(-2).ToString('o'); game = 'cod'; fps = 180; low1 = 140; stutters = 1; gpuTemp = 76; netPing = 12; netJitter = 2; netLoss = 0; netSpikes = 0; gwPing = 1; gwLoss = 0; wifi = $true },
+      [ordered]@{ date = $now.AddHours(-3).ToString('o'); game = 'cod'; fps = 181; low1 = 139; stutters = 1; gpuTemp = 78; netPing = 14; netJitter = 6; netLoss = 5; netSpikes = 4; gwPing = 1; gwLoss = 0; wifi = $true })
+ConvertTo-Json -InputObject $rows | Set-Content "$C\perf-history.json"
+$net = @(foreach ($i in 1..4) { [ordered]@{ date = $now.AddDays(-$i).ToString('o'); ping = 9; jitter = 1; loss = 0; gwPing = 1; gwLoss = 0; wifi = $true; dnsServer = '1.1.1.1'; dns = 11; dnsBest = 21 } })
+ConvertTo-Json -InputObject $net | Set-Content "$C\net-history.json"
+"$($now.AddHours(-5).ToString('s')) | $($now.AddHours(-3).ToString('s')) | cod" | Set-Content "$C\game-sessions.log"
+"Checked $($now.AddDays(-1).ToString('g')) in 40s", 'Updated app: Vendor.Tool', 'Updated app: Other.App', 'NVIDIA: installed 621.01', 'Monthly cleanup done, freed 2.5 GB' | Set-Content "$C\maint-history\report-$($now.AddDays(-1).ToString('yyyyMMdd'))-090000.txt"
+@{ date = $now.ToString('o'); drives = @(@{ letter = 'C'; sizeGB = 1000; freeGB = 50; ssd = $true; system = $true }, @{ letter = 'D'; sizeGB = 2000; freeGB = 1500; ssd = $false; system = $false })
+   games = @(@{ name = 'Call of Duty'; id = '1938090'; store = 'Steam'; path = 'C:\Steam\steamapps\common\COD'; drive = 'C'; sizeGB = 62; movable = $true }, @{ name = 'NBA 2K23'; id = 'path:C:\Games\NBA 2K23'; store = 'Folder'; path = 'C:\Games\NBA 2K23'; drive = 'C'; sizeGB = 132; movable = $false })
+   leftovers = @(@{ kind = 'shadercache'; name = 'Shader cache of an uninstalled game (999)'; path = 'C:\Steam\steamapps\shadercache\999'; sizeGB = 1.5; safe = $true }, @{ kind = 'folder'; name = 'OldGame - no installed game uses this folder'; path = 'C:\Steam\steamapps\common\OldGame'; sizeGB = 3; safe = $false })
+   duplicates = @(@{ name = 'NBA 2K23'; places = @('Steam: C:\x (100 GB)', 'Folder: C:\Games\NBA 2K23 (132 GB)'); sizeGB = 100 }) } | ConvertTo-Json -Depth 5 | Set-Content "$C\storage.json"
+$r = Run-App $H
+Check 'the pages build' (-not (Errs $r)) (Errs $r)
+Check 'Home, this week: the game (time played, frame rate against the 3 weeks before), crashes, what the checks did, the connection, the heat' ($r.Out -match 'CARD: This week\s+Call of Duty: 2 h played, 181 fps \(-10% vs usual\), 1% low 140\s+Crashes: None\s+Maintenance: 2 app updates, 1 driver, 2\.5 GB cleaned up\s+Connection: ping 14 ms while playing, lag in 1 of 2 measured minutes') (($r.Out -split "`n" | Select-String -Pattern 'This week' -Context 0, 6) -join ' / ')
+Check 'a session: its connection, and network or PC (the PC ran fine: the connection)' ($r.Out -match 'Connection while playing: ping 14 ms \(9 at idle\), 5% of packets lost, 4 lag spikes \(past the router - the modem or the provider\)\. The PC ran fine - if this match felt laggy, it was the connection, not the PC\.') ''
+Check 'Performance, Connection: in-game vs idle, the bad minutes, what would help (Wi-Fi, loss past the router), the DNS' ($r.Out -match 'CARD: Connection\s+While you play: ping 14 ms \(9 at idle\), 1 of 2 measured minutes with lag' -and $r.Out -match 'You play on Wi-Fi - a network cable' -and $r.Out -match 'Packets are lost past the router' -and $r.Out -match 'DNS, 1\.1\.1\.1\): 11 ms, the fastest public one 21 ms') ''
+Check 'Storage: the drives, the games (a Steam game can move to the drive with room), the leftovers, installed twice' ($r.Out -match 'CARD: Drives[\s\S]{0,80}C: +- +SSD, Windows' -and $r.Out -match 'BUTTONS: Move to D:' -and $r.Out -match '1 leftover of uninstalled games - 1\.5 GB' -and $r.Out -match 'Clean them up' -and $r.Out -match 'OldGame - no installed game uses this folder - 3\.0 GB' -and $r.Out -match 'CARD: Installed twice\s+NBA 2K23') ''
+
+Section 'the layout audit (--audit): every page, the smallest window to a 2560 px screen, chat closed and open, dark and light (10/25)'
+# (CLIP: words or a button cut off; OVERLAP: buttons on top of each other; OUTSIDE: past the window's edge. The pages
+# with the most in them: the data home of the Performance tests and a new install.)
+foreach ($hm in @("$Work\tune", "$Work\new")) {
+    foreach ($th in 'dark', 'light') {
+        $r = Run-App $hm @{ PCKIT_THEME = $th } @('--audit', "`"$Work\audit-$th`"", '--noshots')
+        $f = @($r.Out -split "`r?`n" | Where-Object { $_ -match '^AUDIT (?!DONE)' })
+        Check "$(Split-Path $hm -Leaf), $($th): nothing cut off, overlapping or past the edge" ($r.Out -match 'AUDIT DONE' -and -not $f) ((@($f | Select-Object -First 8) + @($r.Err.Trim()) | Where-Object { $_ }) -join ' | ')
+    }
+}
 Finish

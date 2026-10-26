@@ -6,8 +6,8 @@ if (-not (Test-Path $fw)) { Skip 'fan-watch' 'not installed here'; Finish }
 $now = Get-Date; $sf = "$Work\fan-state.json"; $opt = "$Work\opts.txt"; '' | Set-Content $opt
 function Fan($hw, $name, $rpm, $duty) { @{ Hw = $hw; Name = $name; Rpm = $rpm; Duty = $duty } }
 $board = @((Fan 'board' 'CPU Fan' 1200 40), (Fan 'board' 'Pump Fan' 850 40), (Fan 'board' 'System Fan #1' 0 0))
-function Watch-Fans([object[]]$gpu, [int]$use = 2, [double]$temp = 30, [object[]]$b = $board, [datetime]$at = $now) {
-    $global:acts = @(); @(& $fw -Test @{ Readings = @($b) + @($gpu); GpuUse = $use; GpuTemp = $temp } -Do { $global:acts += $args[0] } -State $sf -Options $opt -Now $at)
+function Watch-Fans([object[]]$gpu, [int]$use = 2, [double]$temp = 30, [object[]]$b = $board, [datetime]$at = $now, [string[]]$apps = @('MSI Afterburner')) {
+    $global:acts = @(); @(& $fw -Test @{ Readings = @($b) + @($gpu); GpuUse = $use; GpuTemp = $temp; FanApps = $apps } -Do { $global:acts += $args[0] } -State $sf -Options $opt -Now $at)
 }
 $stuck = @((Fan 'gpu' 'GPU Fan 1' 2530 70), (Fan 'gpu' 'GPU Fan 2' 2530 70)); $auto = @((Fan 'gpu' 'GPU Fan 1' 0 0), (Fan 'gpu' 'GPU Fan 2' 0 0))
 
@@ -21,9 +21,13 @@ Check 'high while gaming: the card''s own business, nothing done' (-not $acts -a
 $o = Watch-Fans $stuck -at $now.AddDays(1)
 Check 'stuck again: put back again, quietly' ($acts -contains 'gpu fans automatic' -and -not $o) "$o"
 $o = Watch-Fans $stuck -at $now.AddDays(2)
-Check '... a third time in a week: names the likely cause (another fan program), once' ($acts -contains 'gpu fans automatic' -and "$o" -match '^Reminder: something keeps setting the graphics card''s fans to 70% at idle') "$o"
+Check '... a third time in a week: names the running fan program, once' ($acts -contains 'gpu fans automatic' -and "$o" -match '^Reminder: something keeps setting the graphics card''s fans to 70% at idle .* MSI Afterburner is running') "$o"
 $o = Watch-Fans $stuck -at $now.AddDays(3)
 Check '... and not again' (-not $o) "$o"
+Clear-Path $sf
+[void](Watch-Fans $stuck -apps @())
+$o = @(foreach ($d in 1..3) { Watch-Fans $stuck -at $now.AddDays($d) -apps @() })
+Check 'no fan program running (10/23: the card itself after boot/games): put back every time, no reminder the owner can''t act on' ($acts -contains 'gpu fans automatic' -and -not $o) "$o"
 
 Section 'the CPU fan and the pump'
 Clear-Path $sf

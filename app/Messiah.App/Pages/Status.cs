@@ -52,8 +52,8 @@ namespace Messiah.Pages
 
             // filters (All / Needs a look / Put back / Off, with counts) and a search box: rows are hidden in place, no redraw
             var cnt = new Dictionary<string, int> { ["all"] = sm.Rows.Count, ["warn"] = sm.Rows.Count(r => r.Level == "warn"), ["back"] = sm.Rows.Count(r => (r.State ?? "").StartsWith("Put back")), ["off"] = sm.Rows.Count(r => r.Level == "dim") };
-            var fbar = new DockPanel { Margin = Ui.Th("0,0,0,14"), LastChildFill = false };
-            var seg = new Border { Background = B("Seg"), CornerRadius = new CornerRadius(8), Padding = new Thickness(3), VerticalAlignment = VerticalAlignment.Center };
+            var fbar = new WrapPanel { Margin = Ui.Th("0,0,0,8") };   // (10/25 audit: a narrow window cut the search box off - it goes under the filters)
+            var seg = new Border { Background = B("Seg"), CornerRadius = new CornerRadius(8), Padding = new Thickness(3), VerticalAlignment = VerticalAlignment.Center, Margin = Ui.Th("0,0,12,6") };
             var pills = new StackPanel { Orientation = Orientation.Horizontal };
             foreach (var (id, label) in new[] { ("all", "All"), ("warn", "Needs a look"), ("back", "Put back"), ("off", "Off") })
             {
@@ -61,8 +61,8 @@ namespace Messiah.Pages
                 AutomationProperties.SetName(rb, $"Show: {label}, {cnt[id]}");
                 rb.Checked += (x, e) => { Filter = id; Apply(); }; pills.Children.Add(rb);
             }
-            seg.Child = pills; DockPanel.SetDock(seg, Dock.Left); fbar.Children.Add(seg);
-            var sbx = new Border { Background = B("Seg"), CornerRadius = new CornerRadius(8), Padding = Ui.Th("10,0"), Width = 240, VerticalAlignment = VerticalAlignment.Center, Margin = Ui.Th("12,0,0,0") };
+            seg.Child = pills; fbar.Children.Add(seg);
+            var sbx = new Border { Background = B("Seg"), CornerRadius = new CornerRadius(8), Padding = Ui.Th("10,0"), Width = 240, VerticalAlignment = VerticalAlignment.Center, Margin = Ui.Th("0,0,0,6") };
             var sg = new Grid();
             var shint = Ui.Text("Search optimizations...", B("Sub"), 13, null, "0,6,0,6"); shint.IsHitTestVisible = false;
             var stb = new TextBox { Text = Search, FontSize = 13, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Foreground = B("Text"), CaretBrush = B("Text"), Padding = Ui.Th("0,6,0,6"), VerticalContentAlignment = VerticalAlignment.Center };
@@ -70,7 +70,7 @@ namespace Messiah.Pages
             shint.Visibility = Search != "" ? Visibility.Collapsed : Visibility.Visible;
             stb.TextChanged += (x, e) => { Search = stb.Text; shint.Visibility = stb.Text != "" ? Visibility.Collapsed : Visibility.Visible; Apply(); };
             stb.PreviewKeyDown += (x, e) => { if (e.Key == Key.Escape && stb.Text != "") { stb.Text = ""; e.Handled = true; } };
-            sg.Children.Add(shint); sg.Children.Add(stb); sbx.Child = sg; DockPanel.SetDock(sbx, Dock.Right); fbar.Children.Add(sbx);
+            sg.Children.Add(shint); sg.Children.Add(stb); sbx.Child = sg; fbar.Children.Add(sbx);
             o.Add(new Border { Tag = "filters", Child = fbar });
 
             rows.Clear(); cards.Clear();

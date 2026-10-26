@@ -27,17 +27,27 @@ namespace Messiah
 
     public partial class MainWindow : Window
     {
-        // --- pages: three tabs, two of them with sub-pages (the pills on the right of the page title)
-        static readonly Dictionary<string, string[]> SubPages = new Dictionary<string, string[]> { ["Activity"] = new[] { "Checks", "Stability", "Trends", "Performance", "Alerts" }, ["Settings"] = new[] { "General", "Windows", "Tools" } };
+        // --- pages: five tabs, each with one job, and their pages (the pills beside the page title). 10/25, the owner: "flows
+        // really good and follows best practice" - Fluent's top navigation is for 5 or fewer sections; Activity had six unrelated
+        // pages and the game charts were in two places. The pages keep their own names (keys): an old link - "Activity/
+        // Performance", "Status", a notification's, the tray's, app-last.txt - opens the page in its new place.
+        internal static readonly (string Tab, string Glyph, (string Label, string Key)[] Pages)[] Tabs = {
+            ("Home", "E80F", new[] { ("Home", "Home") }),
+            ("Games", "E7FC", new[] { ("Performance", "Activity/Performance"), ("Storage", "Activity/Storage") }),
+            ("Health", "E95E", new[] { ("Stability", "Activity/Stability"), ("Trends", "Activity/Trends"), ("Checks", "Activity/Checks"), ("Alerts", "Activity/Alerts") }),
+            ("Optimizations", "EA18", new[] { ("In place", "Status"), ("Choose", "Settings/Windows") }),
+            ("Settings", "E713", new[] { ("General", "Settings/General"), ("Tools", "Settings/Tools") }) };
+        static readonly (string Tab, string Glyph, (string Label, string Key)[] Pages) WelcomeTab = ("Welcome", "E8E1", new[] { ("Welcome", "Welcome") });
+        (string Tab, string Glyph, (string Label, string Key)[] Pages)[] AllTabs => (WelcomeShown ? new[] { WelcomeTab } : new (string, string, (string, string)[])[0]).Concat(Tabs).ToArray();
         static readonly Dictionary<string, string> Subs = new Dictionary<string, string> {
             ["Welcome"] = "Your PC is set up. Here is what happened and what happens from now on.",
             ["Status"] = "Every optimization Messiah keeps in place on this PC - and whether it still is.",
             ["Activity/Checks"] = "What the maintenance found, what it did, and when it runs next.", ["Activity/Trends"] = "How this PC has been doing over time.",
-            ["Activity/Stability"] = "Every blue screen and power-off, and what changed around them.", ["Activity/Performance"] = "How your games run - each minute measured while you play, and what updates did to them.", ["Activity/Alerts"] = "What Messiah had to say - kept here instead of popping up.",
+            ["Activity/Stability"] = "Every blue screen and power-off, and what changed around them.", ["Activity/Performance"] = "How your games run - each minute measured while you play, and what updates did to them.", ["Activity/Alerts"] = "What Messiah had to say - kept here instead of popping up.", ["Activity/Storage"] = "Your drives, the games on them and what uninstalled games left behind.",
             ["Settings/General"] = "Everything Messiah does is yours to switch on or off.", ["Settings/Windows"] = "Each change Messiah makes in Windows - keep it or not.",
             ["Settings/Tools"] = "Updates, repairs, drivers, the BIOS and the install USB." };
-        static readonly Dictionary<string, string> OldPages = new Dictionary<string, string> { ["Overview"] = "Home", ["Sessions"] = "Home", ["Maintenance"] = "Activity/Checks", ["Schedule"] = "Activity/Checks", ["History"] = "Activity/Trends", ["Notifications"] = "Activity/Alerts" };
-        readonly Dictionary<string, string> sub = new Dictionary<string, string> { ["Activity"] = "Checks", ["Settings"] = "General" };
+        static readonly Dictionary<string, string> OldPages = new Dictionary<string, string> { ["Overview"] = "Home", ["Sessions"] = "Home", ["Maintenance"] = "Activity/Checks", ["Schedule"] = "Activity/Checks", ["History"] = "Activity/Trends", ["Notifications"] = "Activity/Alerts", ["Activity"] = "Activity/Checks" };
+        readonly Dictionary<string, string> sub = Tabs.ToDictionary(t => t.Tab, t => t.Pages[0].Key);   // each tab's page now (its key)
         readonly Dictionary<string, (RadioButton Button, TextBlock Count)> nav = new Dictionary<string, (RadioButton, TextBlock)>();
         string onPage = "Home";
         Snapshot snap; string shownSig; int loading;
@@ -103,7 +113,14 @@ namespace Messiah
             if (pl.Length >= 5 && double.TryParse(pl[0], out var l) && double.TryParse(pl[1], out var t) && double.TryParse(pl[2], out var w) && double.TryParse(pl[3], out var hh)
                 && SystemParameters.VirtualScreenLeft <= l + 80 && l + 80 <= SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth && w >= MinWidth && hh >= MinHeight)
             { Left = l; Top = t; Width = w; Height = hh; if (pl[4] == "max") WindowState = WindowState.Maximized; }
-            else { var a = SystemParameters.WorkArea; Width = Math.Min(1040, a.Width); Height = Math.Min(780, a.Height); Left = a.Left + (a.Width - Width) / 2; Top = a.Top + (a.Height - Height) / 2; }
+            else
+            {
+                var a = SystemParameters.WorkArea;
+                // (tests: a window a test opens goes on a second monitor when there is one - never over the owner's game on the
+                // main one; 10/25, the owner: work on the app happens on the Dell)
+                if (Kit.InTests) { var sec = System.Windows.Forms.Screen.AllScreens.FirstOrDefault(x => !x.Primary); if (sec != null) { var wa = sec.WorkingArea; a = new Rect(wa.Left, wa.Top, wa.Width, wa.Height); } }
+                Width = Math.Min(1040, a.Width); Height = Math.Min(780, a.Height); Left = a.Left + (a.Width - Width) / 2; Top = a.Top + (a.Height - Height) / 2;
+            }
         }
         void SavePlace()
         {
@@ -122,9 +139,10 @@ namespace Messiah
             }
             catch { return SystemParameters.WorkArea; }
         }
+        internal bool Auditing;   // (--audit: the window sits off the screen, at the sizes asked for)
         void FitToScreen()
         {
-            if (WindowState != WindowState.Normal) return;
+            if (WindowState != WindowState.Normal || Auditing) return;
             var a = WorkArea();
             if (Width > a.Width) Width = Math.Max(MinWidth, a.Width);
             if (Height > a.Height) Height = Math.Max(MinHeight, a.Height);
@@ -164,9 +182,9 @@ namespace Messiah
         internal void BuildNav()
         {
             NavList.Children.Clear(); nav.Clear();
-            var pages = (WelcomeShown ? new[] { ("Welcome", "E8E1") } : new (string, string)[0]).Concat(new (string, string)[] { ("Home", "E80F"), ("Status", "EA18"), ("Activity", "E81C"), ("Settings", "E713") }).ToArray();
-            foreach (var (p, g) in pages)
+            foreach (var (p, g, pp) in AllTabs)
             {
+                if (!sub.ContainsKey(p)) sub[p] = pp[0].Key;
                 var rb = new RadioButton { GroupName = "nav", Tag = p, ToolTip = p, Style = (Style)FindResource("Tab") }; AutomationProperties.SetName(rb, p);
                 var row = new StackPanel { Orientation = Orientation.Horizontal };
                 var gl = Ui.Glyph(g, 14); gl.Margin = Ui.Th("0,0,8,0"); row.Children.Add(gl);
@@ -178,27 +196,38 @@ namespace Messiah
                 rb.Checked += (s, e) => { onPage = p; Say(""); UpdateSub(); Scroll.ScrollToTop(); Draw(true); };
                 NavList.Children.Add(rb);
             }
+            UpdateLayout2();   // (new tabs have their words: a narrow window takes them off again - 10/25 audit, after the welcome page)
         }
+        // a page by its key ("Activity/Performance", "Status"), by tab and page ("Games", "Storage"), or a tab ("Health"): the
+        // tab it's in, opened on it
         public void ShowPage(string p, string s = null)
         {
-            if (OldPages.TryGetValue(p, out var np)) { var x = np.Split('/'); p = x[0]; if (x.Length > 1) s = x[1]; }
-            if (s != null) sub[p] = s;
-            if (!nav.ContainsKey(p)) return;
-            if (nav[p].Button.IsChecked == true) { onPage = p; UpdateSub(); Draw(true); } else nav[p].Button.IsChecked = true;
+            var key = s != null ? p + "/" + s : p;
+            if (OldPages.TryGetValue(key, out var np) || (s == null && OldPages.TryGetValue(p, out np))) key = np;
+            string tab = null, page = null;
+            foreach (var t in AllTabs)
+            {
+                var hit = t.Pages.FirstOrDefault(x => x.Key == key || (t.Tab == p && x.Label == s));
+                if (hit.Key != null) { tab = t.Tab; page = hit.Key; break; }
+                if (t.Tab == p && s == null) { tab = t.Tab; break; }   // (a tab: the page it was on)
+            }
+            if (tab == null || !nav.ContainsKey(tab)) return;
+            if (page != null) sub[tab] = page;
+            if (nav[tab].Button.IsChecked == true) { onPage = tab; UpdateSub(); Draw(true); } else nav[tab].Button.IsChecked = true;
         }
         void UpdateSub()
         {
             SubNav.Children.Clear();
-            SubPages.TryGetValue(onPage, out var list);
-            SubBox.Visibility = list != null ? Visibility.Visible : Visibility.Collapsed;
-            foreach (var s in list ?? new string[0])
+            var pages = AllTabs.FirstOrDefault(t => t.Tab == onPage).Pages ?? new (string, string)[0];
+            SubBox.Visibility = pages.Length > 1 ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var (label, key) in pages.Length > 1 ? pages : new (string, string)[0])
             {
-                var rb = new RadioButton { GroupName = "sub", Tag = s, Content = s, IsChecked = s == sub[onPage], Style = (Style)FindResource("Pill") };
-                rb.Checked += (x, e) => { sub[onPage] = s; Say(""); Scroll.ScrollToTop(); Draw(true); };
+                var rb = new RadioButton { GroupName = "sub", Tag = key, Content = label, IsChecked = key == sub[onPage], Style = (Style)FindResource("Pill") };
+                rb.Checked += (x, e) => { sub[onPage] = key; Say(""); Scroll.ScrollToTop(); Draw(true); };
                 SubNav.Children.Add(rb);
             }
         }
-        string PageKey => SubPages.ContainsKey(onPage) ? onPage + "/" + sub[onPage] : onPage;
+        string PageKey => sub.TryGetValue(onPage, out var k) ? k : onPage;
 
         // --- the data: read in the background, drawn when it arrives (and again only when something changed)
         public void Refresh(bool force)
@@ -222,7 +251,9 @@ namespace Messiah
             if (snap == null) { Refresh(true); return; }
             var todo = snap.Sec("Needs you").Lines.Count(l => l.Level == "warn");
             AiPill.Visibility = snap.Ai ? Visibility.Visible : Visibility.Collapsed; if (!snap.Ai && ChatPanel.Visibility == Visibility.Visible) ShowChat(false);
-            nav["Home"].Count.Text = todo > 0 ? todo.ToString() : ""; ((Border)nav["Home"].Count.Parent).Visibility = todo > 0 ? Visibility.Visible : Visibility.Collapsed;
+            var badge = (Border)nav["Home"].Count.Parent; var badgeWas = badge.Visibility;
+            nav["Home"].Count.Text = todo > 0 ? todo.ToString() : ""; badge.Visibility = todo > 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (badge.Visibility != badgeWas) UpdateLayout2();   // (the badge makes the tabs wider: the top bar fits again - 10/25 audit)
             shownSig = snap.Sig + PageKey;
             if (AppLast.Page != PageKey) { AppLast.Page = PageKey; AppLast.Save(); }   // (where to open next time)
             PageTitle.Text = onPage == "Welcome" ? "Welcome to Messiah" : onPage; Subs.TryGetValue(PageKey, out var st); PageSub.Text = st ?? "";
@@ -286,6 +317,7 @@ namespace Messiah
                 case "Activity/Trends": return Pages.Activity.Trends(s);
                 case "Activity/Performance": return Pages.Performance.Build(s);
                 case "Activity/Alerts": return Pages.Activity.Alerts(s);
+                case "Activity/Storage": return Pages.Storage.Build(s);
                 case "Settings/General": return Pages.Settings.General(s);
                 case "Settings/Windows": return Pages.Settings.Windows(s);
                 case "Settings/Tools": return Pages.Settings.Tools(s);
@@ -312,6 +344,35 @@ namespace Messiah
             var g = Pages.Home.TileGrid; if (g == null || Scroll.ActualWidth <= 0) return;
             g.Columns = Math.Max(1, Math.Min(Math.Max(1, Math.Min(5, g.Children.Count)), (int)Math.Floor(Math.Min(Body.MaxWidth, Scroll.ActualWidth - 2 * Body.Margin.Left) / 200)));
         }
+        // the top bar fits its width by itself (10/25: fixed widths broke with each new tab - 800 px slid Settings under Search):
+        // everything with its words first; then, while it doesn't fit, the words go - the buttons' on the right, the app's
+        // name, the tabs' (their icons stay, the names in their tooltips). The tabs sit centered on the window when there's
+        // room for that, else between the logo and the buttons.
+        void FitTopBar(double avail)
+        {
+            void Words(bool side, bool name, bool tabs, bool logo = true)
+            {
+                Logo.Visibility = logo ? Visibility.Visible : Visibility.Collapsed;
+                if (AiPill.Content is StackPanel ap && ap.Children.Count > 1) ap.Children[1].Visibility = side ? Visibility.Visible : Visibility.Collapsed;
+                if (sBtn?.Content is StackPanel sp && sp.Children.Count > 1) { sp.Children[1].Visibility = side ? Visibility.Visible : Visibility.Collapsed; sBtn.Padding = side ? Ui.Th("12,6") : Ui.Th("9,6"); }
+                AppName.Visibility = name ? Visibility.Visible : Visibility.Collapsed;
+                foreach (var n in nav.Values) { var row = (StackPanel)n.Button.Content; row.Children[1].Visibility = tabs ? Visibility.Visible : Visibility.Collapsed; ((FrameworkElement)row.Children[0]).Margin = tabs ? Ui.Th("0,0,8,0") : new Thickness(0); }
+            }
+            double W(UIElement e) { e.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); return e.DesiredSize.Width; }   // (after TopBar.UpdateLayout - else the sizes from before a word went)
+            var parts = TopBar.Children.Cast<UIElement>().ToList();
+            UIElement left = parts.FirstOrDefault(c => Grid.GetColumn(c) == 0), mid = parts.FirstOrDefault(c => Grid.GetColumn(c) == 1), right = parts.FirstOrDefault(c => Grid.GetColumn(c) == 2);
+            double Need(bool centered) { double l = left != null ? W(left) : 0, r = right != null ? W(right) : 0, c = mid != null ? W(mid) : 0; return centered ? c + 2 * Math.Max(l, r) + 32 : l + c + r + 32; }
+            bool centered = true;
+            foreach (var (side, name, tabs, logo) in new[] { (true, true, true, true), (false, true, true, true), (false, false, true, true), (false, false, false, true), (false, false, false, false) })
+            {
+                Words(side, name, tabs, logo); TopBar.UpdateLayout();
+                if (Need(true) <= avail) { centered = true; break; }
+                if (Need(false) <= avail) { centered = false; break; }
+                centered = false;
+            }
+            var star = new GridLength(1, GridUnitType.Star);
+            TopBar.ColumnDefinitions[0].Width = centered ? star : GridLength.Auto; TopBar.ColumnDefinitions[2].Width = centered ? star : GridLength.Auto; TopBar.ColumnDefinitions[1].Width = centered ? GridLength.Auto : star;
+        }
         void UpdateLayout2()
         {
             var w = ActualWidth; if (w <= 0) return;
@@ -321,15 +382,17 @@ namespace Messiah
             else if (chat)
             {
                 MainCol.Width = star; MainCol.MinWidth = 360; ChatCol.MinWidth = 320; ChatCol.MaxWidth = Math.Max(320, w - 380);
-                if (!ChatCol.Width.IsAbsolute || ChatCol.Width.Value < 1) ChatCol.Width = new GridLength(Math.Min(chatW, ChatCol.MaxWidth));
+                // the chat as wide as it was made (dragged), but the page keeps about half of a smaller window (10/25: a chat
+                // dragged wide on the 2560 px screen left the page a 370 px strip in a half-screen window); a drag just made: as dragged
+                var room = dragged ? ChatCol.MaxWidth : Math.Max(320, w - Math.Max(380, Math.Min(900, w * 0.45))); dragged = false;
+                ChatCol.Width = new GridLength(Math.Min(chatW, room));
                 ChatSplit.Visibility = Visibility.Visible; mainW = w - ChatCol.Width.Value;
             }
             else { MainCol.Width = star; MainCol.MinWidth = 0; ChatCol.MinWidth = 0; ChatCol.Width = new GridLength(0); ChatSplit.Visibility = Visibility.Collapsed; mainW = w; }
             var m = mainW < 640 ? 12 : 24;
             TopBar.Margin = new Thickness(m, 14, m, 4); Body.Margin = new Thickness(m, 14, m, 28); NowBar.Margin = new Thickness(m, 8, m, 0);
-            AppName.Visibility = mainW < 780 ? Visibility.Collapsed : Visibility.Visible;
-            if (AiPill.Content is StackPanel ap && ap.Children.Count > 1) ap.Children[1].Visibility = mainW < 620 ? Visibility.Collapsed : Visibility.Visible;
-            foreach (var n in nav.Values) { var row = (StackPanel)n.Button.Content; row.Children[1].Visibility = mainW < 560 ? Visibility.Collapsed : Visibility.Visible; ((FrameworkElement)row.Children[0]).Margin = mainW < 560 ? new Thickness(0) : Ui.Th("0,0,8,0"); }
+            var chrome = Content is FrameworkElement ce && ce.ActualWidth > 0 ? Math.Max(0, ActualWidth - ce.ActualWidth) : 16;   // (the window's own frame)
+            FitTopBar(mainW - 2 * m - (full || !chat ? chrome : 0));
             var narrow = mainW < 660;   // the page's own tabs go under its title
             DockPanel.SetDock(SubBox, narrow ? Dock.Bottom : Dock.Right);
             SubBox.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch; SubBox.Margin = narrow ? Ui.Th("0,12,0,0") : Ui.Th("16,0,0,0");

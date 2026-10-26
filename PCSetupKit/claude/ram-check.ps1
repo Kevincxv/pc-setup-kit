@@ -33,7 +33,7 @@ if ($ArmBoot) {
     $ok = (Bcd '/set {memdiag} testmix extended') -and (Bcd '/set {memdiag} passcount 1') -and (Bcd '/bootsequence {memdiag}')
     if (-not $ok) { 'The deep memory test could not be set up (bcdedit refused) - nothing was changed for the next start-up'; return }
     $st.bootArmed = $Now.ToString('o'); Save
-    'The deep memory test runs at the next start-up: it tests all of the memory before Windows loads - it can take a few hours, so start it at night: restart the PC yourself (Start > Power > Restart) and leave it. Windows loads by itself after it, and Messiah shows the result (Activity > Stability)'
+    'The deep memory test runs at the next start-up: it tests all of the memory before Windows loads - it can take a few hours, so start it at night: restart the PC yourself (Start > Power > Restart) and leave it. Windows loads by itself after it, and Messiah shows the result (Health > Stability)'
     return
 }
 if ($CancelBoot) {
@@ -57,15 +57,15 @@ if ($Check) {
             $st.bootArmed = $null; Save
             if ($line) {
                 "$($Now.ToString('yyyy-MM-dd HH:mm')) | boottest | $Setup | Windows' extended memory test at start-up: $line" | Add-Content $Log -Encoding UTF8
-                if ($line -eq 'errors found') { "WARNING: Windows' deep memory test found errors with $Setup - the memory is faulty: test one stick at a time to find which (Activity > Stability shows the steps)" }
+                if ($line -eq 'errors found') { "WARNING: Windows' deep memory test found errors with $Setup - the memory is faulty: test one stick at a time to find which (Health > Stability shows the steps)" }
                 else { "Deep memory test at start-up: no errors with $Setup" }
             }
-            elseif ($ev | Where-Object { $_.Id -eq 1103 }) { 'Deep memory test: it was cancelled at start-up - start it again from Activity > Stability when it suits you' }
-            else { "Deep memory test: it didn't finish (the PC was turned off during it, or it didn't start) - start it again from Activity > Stability when it suits you" }
+            elseif ($ev | Where-Object { $_.Id -eq 1103 }) { 'Deep memory test: it was cancelled at start-up - start it again from Health > Stability when it suits you' }
+            else { "Deep memory test: it didn't finish (the PC was turned off during it, or it didn't start) - start it again from Health > Stability when it suits you" }
         }
     }
     if ($st.unsaid) {
-        "WARNING: the memory test found $($st.unsaid) - the memory is faulty: test one stick at a time to find which (Activity > Stability shows the steps)"
+        "WARNING: the memory test found $($st.unsaid) - the memory is faulty: test one stick at a time to find which (Health > Stability shows the steps)"
         $st.unsaid = $null; Save
     }
     return

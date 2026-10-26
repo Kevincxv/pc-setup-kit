@@ -95,4 +95,21 @@ Check 'mostly in the menu (under 20 s of play left): not a sample' (@(Hist).Coun
 Clear-Path "$Work\game-settings.json"
 [void](Invoke-Sample (New-Capture2 30 30) -at $now.AddHours(3) -Force)
 Check 'a game without known menu caps: every second counts (nothing guessed)' (@(Hist)[-1].frames -eq 5550) "$(@(Hist)[-1].frames)"
+
+Section 'the card barely drawing (10/25: tabbed out at 40 fps, 3% busy, read as a slow match)'
+$f = "$Work\capture-idle.csv"; $rows = New-Object Collections.Generic.List[string]; $rows.Add('Application,ProcessID,PresentMode,MsBetweenPresents,MsCPUBusy,MsGPUBusy,MsUntilDisplayed')
+for ($i = 0; $i -lt 2400; $i++) { $rows.Add('TestGame.exe,100,Composed: Flip,25.0,2.0,1.0,5.0') }; $rows | Set-Content $f
+$n = @(Hist).Count; [void](Invoke-Sample $f -at $now.AddHours(4) -Force)
+Check 'the card busy under a quarter of each frame: not a sample (nothing recorded)' (@(Hist).Count -eq $n) "$(@(Hist)[-1].fps) fps, $(@(Hist)[-1].gpuBusy)%"
+
+Section 'the connection while playing (10/25): pings through the minute, next to the frame rate'
+$pings = @(20) * 100 + @(90, 95)   # 102 answers: steady 20 ms with two spikes
+[void](& $gp -TestCsv $cap -TestGame 'TestGame' -TestGpu @('70, 98, Not Active, Not Active, Not Active') -History $hf -Now $now.AddHours(5) -Force -Tune "$Work\game-tune.json" -GameSettings "$Work\game-settings.json" `
+        -TestNet @{ net = $pings; netLost = 3; gw = @(1) * 60; gwLost = 0; wifi = $false })
+$s = @(Hist)[-1]
+Check 'the internet: median ping, jitter, loss % and lag spikes' ($s.netPing -eq 20 -and $s.netLoss -eq 2.9 -and $s.netSpikes -eq 2 -and $s.netJitter -gt 0) "ping $($s.netPing) loss $($s.netLoss) spikes $($s.netSpikes) jitter $($s.netJitter)"
+Check 'the router (the home network) and wired or Wi-Fi' ($s.gwPing -eq 1 -and $s.gwLoss -eq 0 -and $s.wifi -eq $false) "gw $($s.gwPing)/$($s.gwLoss) wifi $($s.wifi)"
+[void](& $gp -TestCsv $cap -TestGame 'TestGame' -TestGpu @('70, 98, Not Active, Not Active, Not Active') -History $hf -Now $now.AddHours(6) -Force -Tune "$Work\game-tune.json" -GameSettings "$Work\game-settings.json" -TestNet @{ net = @(20, 21); netLost = 0 })
+$s = @(Hist)[-1]
+Check 'too few pings (offline, a firewall): nothing said about the connection' ($s.frames -eq 900 -and [datetime]$s.date -gt $now.AddHours(5.5) -and $null -eq $s.netPing -and $null -eq $s.netLoss) "$($s.netPing)"
 Finish

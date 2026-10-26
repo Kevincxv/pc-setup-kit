@@ -119,7 +119,7 @@ namespace Messiah
                 if (m.Preview) { r.Level = "warn"; r.State = "Changed - put back at the next check"; r.Detail = what; return; }
                 r.Level = "ok"; r.State = "Put back " + Kit.FormatWhen(m.At.Value, shortForm: true); r.Detail = "Something had changed it: " + what + (m.Cause != null ? " - after " + m.Cause : ""); return;
             }
-            r.Level = "ok"; r.State = same > 0 ? $"In place ({same})" : "In place"; r.Detail = notes.Count > 0 ? string.Join("; ", notes) : null;
+            r.Level = "ok"; r.State = "In place"; r.Detail = notes.Count > 0 ? string.Join("; ", notes) : null;   // (10/25: was "In place (11)" - the count of settings is in the row's details)
         }
 
         // a row's details: what it does, what it checks, the last check, its history (the last 3 changes, each with "keep

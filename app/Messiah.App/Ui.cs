@@ -25,8 +25,28 @@ namespace Messiah
     {
         static SolidColorBrush B(string k) => Theme.B[k];
 
-        public static TextBlock Text(string t, Brush brush = null, double size = 14, FontWeight? weight = null, string margin = "0,1,0,1") =>
-            new TextBlock { Text = t ?? "", TextWrapping = TextWrapping.Wrap, Foreground = brush ?? B("Text"), FontSize = size, FontWeight = weight ?? FontWeights.Normal, Margin = Th(margin) };
+        // (body text gets 1.45 lines of room - 10/25, the owner: text "hard to read ... a long list of text"; headings keep their own)
+        public static TextBlock Text(string t, Brush brush = null, double size = 14, FontWeight? weight = null, string margin = "0,1,0,1")
+        {
+            var tb = new TextBlock { Text = t ?? "", TextWrapping = TextWrapping.Wrap, Foreground = brush ?? B("Text"), FontSize = size, FontWeight = weight ?? FontWeights.Normal, Margin = Th(margin) };
+            if (size <= 14) { tb.LineHeight = Math.Round(size * 1.45); tb.LineStackingStrategy = LineStackingStrategy.BlockLineHeight; }
+            return tb;
+        }
+        public const double Measure = 760;   // the longest a line of words gets (~95 characters; Fluent asks 50-60 for long reading - 10/25)
+        // a row as wide as the card up to the reading width, from the left (a MaxWidth alone centers it - 10/25)
+        public static Grid Measured(UIElement e)
+        {
+            var g = new Grid(); g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MaxWidth = Measure }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.0001, GridUnitType.Star) });
+            g.Children.Add(e); return g;
+        }   // the longest a line of words gets (~110 characters) - a 2560 px card no longer makes 300-character lines
+        // charts or tiles side by side, one under the other when each would get less than ~300 px (10/25 audit: at 480 px
+        // the chart titles were cut and the 7 days / 30 days buttons sat on the big number)
+        public static UniformGrid Pairs(UniformGrid g)
+        {
+            var most = g.Columns;
+            g.SizeChanged += (s, e) => { var n = Math.Max(1, Math.Min(most, (int)(e.NewSize.Width / 300))); if (g.Columns != n) g.Columns = n; };
+            return g;
+        }
         public static TextBlock Glyph(string hex, double size = 16, Brush brush = null) =>
             new TextBlock { Text = ((char)Convert.ToInt32(hex, 16)).ToString(), FontFamily = Theme.Icons, FontSize = size, Foreground = brush ?? B("Text"), VerticalAlignment = VerticalAlignment.Center, Tag = "icon" };
         public static Thickness Th(string s) { var p = s.Split(',').Select(x => double.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray(); return p.Length == 1 ? new Thickness(p[0]) : p.Length == 2 ? new Thickness(p[0], p[1], p[0], p[1]) : new Thickness(p[0], p[1], p[2], p[3]); }
@@ -41,13 +61,22 @@ namespace Messiah
             else if (Regex.IsMatch(text, @"^Reminder:\s*")) { glyph = "E946"; gb = B("Accent"); text = Regex.Replace(text, @"^Reminder:\s*", ""); }
             else if (level == "ok") { glyph = "E73E"; gb = B("Ok"); }
             if (text.Length > 0) text = char.ToUpper(text[0]) + text.Substring(1);
-            var tb = Text(text, level == "dim" ? B("Sub") : B("Text"), level == "dim" ? 12 : 14, null, "0");
+            var tb = Text(text, level == "dim" ? B("Sub") : B("Text"), level == "dim" ? 12.5 : 14, null, "0"); tb.MaxWidth = Measure; tb.HorizontalAlignment = HorizontalAlignment.Left;
+            // a long explanation (a grey line) shows its first two lines; a click shows it all (10/25: walls of small text)
+            if (level == "dim" && text.Length > 200) Fold(tb);
             if (glyph == null) { tb.Margin = Th("0,3,0,3"); return tb; }
             var row = new DockPanel { Margin = Th("0,4,0,4") };
             var g = Glyph(glyph, 14, gb); g.VerticalAlignment = VerticalAlignment.Top; g.Margin = Th("0,2,10,0"); DockPanel.SetDock(g, Dock.Left);
             row.Children.Add(g); row.Children.Add(tb); return row;
         }
 
+        // long words folded to two lines ending in "..."; a click opens them all, another folds them again (the words stay whole
+        // underneath - copying, search and the tests read all of them)
+        public static void Fold(TextBlock tb)
+        {
+            tb.TextTrimming = TextTrimming.WordEllipsis; tb.MaxHeight = tb.LineHeight * 2; tb.Cursor = Cursors.Hand; tb.ToolTip = "Click to read all of it";
+            tb.MouseLeftButtonUp += (s, e) => { var open = !double.IsInfinity(tb.MaxHeight); tb.MaxHeight = open ? double.PositiveInfinity : tb.LineHeight * 2; tb.ToolTip = open ? "Click to show less" : "Click to read all of it"; };
+        }
         public static Button Btn(string glyph, string text, Action click, bool accent = false, bool small = false)
         {
             var sp = new StackPanel { Orientation = Orientation.Horizontal };
@@ -138,7 +167,7 @@ namespace Messiah
             s.Style = (Style)Application.Current.FindResource("Switch"); DockPanel.SetDock(s, Dock.Right);
             AutomationProperties.SetName(s, title); AutomationProperties.SetHelpText(s, sub);
             s.Click += (x, e) => { try { click?.Invoke(s); } catch (Exception ex) { Shell.Say("Couldn't do that: " + ex.Message); } };
-            var l = new StackPanel();
+            var l = new StackPanel { MaxWidth = Measure, HorizontalAlignment = HorizontalAlignment.Left };
             l.Children.Add(Text(title, B("Text"), 14, null, "0"));
             // one line of what it does; the rest (the details, what "off" means) behind "More" - 10/22 audit: three-line
             // descriptions under every switch were a wall of text (PowerToys' settings cards show one line and expand)
@@ -171,7 +200,8 @@ namespace Messiah
             {
                 g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 var a = Text(p.Label, B("Sub"), 13, null, "0,5,24,5"); Grid.SetRow(a, i);
-                var b = Text(Kit.FormatLine(p.Value), Theme.Level(p.Level), 14, null, "0,5,0,5"); Grid.SetRow(b, i); Grid.SetColumn(b, 1);
+                var b = Text(Kit.FormatLine(p.Value), Theme.Level(p.Level), 14, null, "0,5,0,5"); Grid.SetRow(b, i); Grid.SetColumn(b, 1); b.MaxWidth = Measure; b.HorizontalAlignment = HorizontalAlignment.Left;
+                if ((p.Value ?? "").Length > 160) Fold(b);   // (a long one - 63 update packages - two lines, a click for the rest)
                 g.Children.Add(a); g.Children.Add(b); i++;
             }
             g.Tag = "rows"; return g;

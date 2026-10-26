@@ -23,15 +23,15 @@ namespace Messiah
         {
             var ix = new List<Hit_>();
             void Add(string t, string sub, string g, Action go) => ix.Add(new Hit_ { Title = t, Sub = sub, Glyph = g, Go = go });
-            foreach (var (pg, t, g) in new[] { ("Home", "Home", "E80F"), ("Status", "Status", "EA18"), ("Activity/Checks", "Checks - what the maintenance did", "E81C"), ("Activity/Trends", "Trends - charts over time", "E9D9"),
-                ("Activity/Alerts", "Alerts", "EA8F"), ("Settings/General", "Settings - general", "E713"), ("Settings/Windows", "Settings - what Messiah changes in Windows", "E713"), ("Settings/Tools", "Tools - updates, repair, drivers, BIOS, install USB", "E90F") })
-            { var p = pg.Split('/'); Add(t, "Page", g, () => ShowPage(p[0], p.Length > 1 ? p[1] : null)); }
+            // every page, under its tab ("Games > Storage" - and what it's for, said by its subtitle)
+            foreach (var (tab, g, pages) in Tabs) foreach (var (label, key) in pages) { var k = key; Subs.TryGetValue(key, out var what); Add(pages.Length > 1 ? $"{tab} > {label}" : tab, "Page" + (what != null ? " - " + what : ""), g, () => ShowPage(k)); }
             if (snap != null) foreach (var r in snap.Sm.Rows) { var title = r.Title; Add(r.Title, "Status - " + r.State, "EA18", () => { Pages.Status.Filter = "all"; Pages.Status.Search = title; ShowPage("Status"); Draw(true); }); }
-            foreach (var (grp, items) in TweakCatalog.Groups) foreach (var i in items) Add(i.Title, "Settings > Windows - " + grp, "E713", () => ShowPage("Settings", "Windows"));
+            foreach (var (grp, items) in TweakCatalog.Groups) foreach (var i in items) Add(i.Title, "Optimizations > Choose - " + grp, "E713", () => ShowPage("Settings", "Windows"));
             foreach (var t in new[] { "AI assistant (Claude)", "Open Messiah when I log in", "Show alerts in the corner", "Restart at night to finish updates", "Microsoft Defender skips my game folders",
                 "NVIDIA driver settings for games", "Undo a graphics driver that crashes", "Settings backup - back up now or restore", "Show technical names in Status details" }) Add(t, "Settings > General", "E713", () => ShowPage("Settings", "General"));
             foreach (var t in new[] { "Repair Messiah", "Undo the last update", "Go back to the previous graphics driver", "Motherboard and BIOS", "Make an install USB", "Uninstall Messiah", "Take the tour again" }) Add(t, "Settings > Tools", "E90F", () => ShowPage("Settings", "Tools"));
             Add("Run maintenance now", "Action", "E768", Actions.RunMaint);
+            Add("Clean up leftovers of uninstalled games", "Action - shader caches, mods, unfinished downloads", "E74D", () => { ShowPage("Activity", "Storage"); Actions.Storage(new Dictionary<string, object> { ["cmd"] = "clean" }, "Removing the leftovers - a few seconds."); });
             Add("Check every optimization now", "Action", "E72C", () => { ShowPage("Status"); Actions.CheckNow(); });
             Add("Copy a report for help", "Action - a summary to paste to whoever helps you", "E8C8", Actions.CopyReport);
             Add("Preview what Messiah would change", "Action", "E7B3", Actions.PreviewTweaks);
@@ -67,7 +67,7 @@ namespace Messiah
             sBtn = Ui.Btn("E721", "Search", () => ShowSearch(true)); sBtn.ToolTip = "Search everything (Ctrl+K)"; sBtn.Margin = Ui.Th("0,0,8,0"); sBtn.Padding = Ui.Th("12,6"); AutomationProperties.SetName(sBtn, "Search everything");
             TopBar.Children.Remove(AiPill);
             var tr = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(tr, 2); tr.Children.Add(sBtn); tr.Children.Add(AiPill); TopBar.Children.Add(tr);
+            Grid.SetColumn(tr, 2); tr.Children.Add(sBtn); tr.Children.Add(AiPill); TopBar.Children.Add(tr); UpdateLayout2();   // (the top bar fits again with Search in it)
             // the tour's card at the bottom
             tourOver = new Border { Visibility = Visibility.Collapsed, VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 620, Margin = Ui.Th("24,0,24,24"), Padding = Ui.Th("20,16"), CornerRadius = new CornerRadius(12), Background = Theme.B["Toast"], BorderBrush = Theme.B["Accent"], BorderThickness = new Thickness(1),
                 Effect = new DropShadowEffect { BlurRadius = 30, ShadowDepth = 6, Opacity = 0.4, Color = Colors.Black } };
@@ -115,11 +115,11 @@ namespace Messiah
         // --- the tour: once, after setup's Welcome (or Settings > Tools > Take the tour) - a card at the bottom walks through
         // the tabs, each opened behind it
         static readonly (string Page, string Sub, string Title, string Text)[] TourSteps = {
-            ("Home", null, "Home - your PC at a glance", "The ring says whether anything needs you; the tiles under it open the details. Most days it just says all good."),
-            ("Status", null, "Status - every optimization, kept in place", "Green means in place. Click any row for what it does and its history; a row that needs a look has its fix-it button. Filters and search are on top."),
-            ("Activity", "Checks", "Activity - what Messiah did", "What each check found and fixed, charts of how the PC is doing over time, and alerts - Messiah never pops up, it writes here."),
-            ("Settings", "Windows", "Settings - yours to choose", "Every change Messiah makes in Windows has its own switch. Tools has repairs, drivers, the BIOS and the install USB."),
-            ("Status", null, "Search everything", "Press Ctrl+K anywhere (or the Search button top right) to jump to any page, setting or optimization.") };
+            ("Home", null, "Home - your PC at a glance", "The ring says whether anything needs you; your week and the main facts are under it. Most days it just says all good."),
+            ("Games", null, "Games - how they run", "Each game's frame rate, your connection while you play, and your drives with the games on them."),
+            ("Health", null, "Health - crashes and checks", "Blue screens and the memory test, how the PC does over time, what each check did, and alerts - Messiah never pops up, it writes here."),
+            ("Optimizations", null, "Optimizations - kept in place", "Green means in place; click a row for what it does. Choose has a switch for every change Messiah makes in Windows."),
+            ("Settings", null, "Settings - and search", "What Messiah does is yours to switch off; Tools has repairs and the install USB. Ctrl+K searches everything, from any page.") };
         public void ShowTour(int i)
         {
             if (i < 0 || i >= TourSteps.Length) { tourOver.Visibility = Visibility.Collapsed; Kit.SetOpt("tour", "done"); return; }

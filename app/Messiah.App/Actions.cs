@@ -12,7 +12,7 @@ namespace Messiah
     static class Actions
     {
         static readonly uint TrayMsg = Native.RegisterWindowMessage("PCSetupKitAppCommand");
-        public enum Cmd { NewSession = 1, ShowSessions = 2, HideSessions = 3, RunMaint = 4, Optimize = 5, WatchLive = 6, ApplyTweaks = 7, Repair = 8, Rollback = 9, AiOn = 10, AiOff = 11, GpuRollback = 12, ChatHost = 13, RamBootArm = 14, RamBootCancel = 15, Bench = 16 }
+        public enum Cmd { NewSession = 1, ShowSessions = 2, HideSessions = 3, RunMaint = 4, Optimize = 5, WatchLive = 6, ApplyTweaks = 7, Repair = 8, Rollback = 9, AiOn = 10, AiOff = 11, GpuRollback = 12, ChatHost = 13, RamBootArm = 14, RamBootCancel = 15, Bench = 16, Storage = 17 }
         public static bool SendTray(Cmd n)
         {
             if (!long.TryParse(Kit.FirstLine(Kit.P("tray-hwnd.txt")), out var hl)) return false;
@@ -42,6 +42,19 @@ namespace Messiah
             if (Data.Playing() != "") { Shell.Say("Close the game first - it would skew the results."); return; }
             if (!SendTray(Cmd.Bench)) Ps("bench.ps1", admin: true, hidden: true);
             Shell.Say("The benchmark is running - about a minute and a half. Leave the PC alone meanwhile; the result shows here.");
+        }
+
+        // --- storage (storage.ps1 -Request, through the tray - it moves and deletes game files, so with admin rights): what's
+        // asked goes in storage-request.json; storage-status.json says how it's going (Games > Storage shows it)
+        public static void Storage(Dictionary<string, object> req, string said)
+        {
+            if (Data.Playing() != "") { Shell.Say("Close the game first."); return; }
+            var st = Kit.ReadJson(Kit.P("storage-status.json"));
+            if (Json.S(st, "state") == "working" && (DateTime.Now - (Kit.Date(Json.Get(st, "at")) ?? DateTime.MinValue)).TotalMinutes < 5) { Shell.Say("Still busy with the last one - it shows here when it's done."); return; }
+            try { System.IO.File.WriteAllText(Kit.P("storage-request.json"), Kit.ToJson(req)); } catch (Exception e) { Shell.Say("Couldn't ask for it: " + e.Message); return; }
+            try { System.IO.File.WriteAllText(Kit.P("storage-status.json"), Kit.ToJson(new Dictionary<string, object> { ["state"] = "working", ["text"] = said, ["at"] = DateTime.Now.ToString("o") })); } catch { }
+            if (!SendTray(Cmd.Storage)) Ps("storage.ps1", extra: "-Request", admin: true, hidden: true);
+            Shell.Say(said);
         }
 
         // --- your setup in a file (10/22 - winutil's and Winhance's presets/config files): Messiah's switches and your
@@ -152,7 +165,7 @@ namespace Messiah
         public static void GameSavesNow() { Ps("game-saves.ps1", extra: "-Run", hidden: true); Shell.Say("Backing up your game saves in the background - \"Last backup\" here updates when it's done (under a minute)."); }
         public static void GameSavesOpen() { var d = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Game Saves (Messiah)"); if (Directory.Exists(d)) Open("explorer.exe", $"\"{d}\""); else Shell.Say("No backup yet - click Back up now."); }
         public static void GameSavesRestore() { var r = Data.RunPs("game-saves.ps1", "-Restore"); Shell.Say(r != "" ? r : "Ludusavi opens - choose Restore, pick the game, and it puts the saves back."); }
-        // a switch in Settings > Windows: saved, and applied now through the tray when it runs
+        // a switch in Optimizations > Choose: saved, and applied now through the tray when it runs
         public static void SetTweak(string id, bool on)
         {
             Kit.SetOpt("tweak." + id, on ? "on" : "off");

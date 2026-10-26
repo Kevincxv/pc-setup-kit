@@ -9,7 +9,7 @@ foreach ($f in 'status.ps1', 'status-lib.ps1', 'session-lib.ps1', 'ai-enabled.ps
     if (Test-Path "$Src\$f") { Copy-Item "$Src\$f" $C }
 }
 $states = 'actions-state.json', 'guard-state.json', 'benchmarks.json', 'display-state.json', 'files-backup-state.json', 'gaming-state.json', 'gpu-state.json',
-    'health-history.json', 'junk-state.json', 'maint-state.json', 'net-history.json', 'perf-history.json', 'restart-ledger.json', 'self-test.json',
+    'storage.json', 'storage-status.json', 'health-history.json', 'junk-state.json', 'maint-state.json', 'net-history.json', 'perf-history.json', 'restart-ledger.json', 'self-test.json',
     'todo-scripted.json', 'update-state.json', 'vendor-state.json', 'kit-options.txt', 'maint-report.txt', 'maint-todo.txt', 'notifications.log',
     'tray-news.txt', 'tray-notified.ini', 'gpu-hold.txt', 'admin-sessions.txt', 'app-window.txt', 'tray-hwnd.txt', 'restart-night.log'
 $big = 'x' * 3MB

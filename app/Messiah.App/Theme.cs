@@ -20,6 +20,7 @@ namespace Messiah
         public static void Load()
         {
             try { Light = (int)(Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme", 0) ?? 0) == 1; } catch { Light = false; }
+            var force = System.Environment.GetEnvironmentVariable("PCKIT_THEME"); if (force == "light" || force == "dark") Light = force == "light";   // (--audit: both)
             C = Light ? new Dictionary<string, string> {
                 ["Bg"] = "#F3F3F3", ["Card"] = "#CCFFFFFF", ["CardHover"] = "#F2FFFFFF", ["Border"] = "#12000000", ["Text"] = "#E4000000", ["Sub"] = "#9E000000", ["Accent"] = "#5B57E8",
                 ["Ok"] = "#0F7B0F", ["Warn"] = "#9D5D00", ["Btn"] = "#CCFFFFFF", ["BtnHover"] = "#F5FFFFFF", ["Seg"] = "#0C000000", ["SegSel"] = "#FFFFFFFF", ["NavHover"] = "#08000000",

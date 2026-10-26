@@ -56,6 +56,7 @@ namespace Messiah.Tray
             {
                 Every(0.5, Watch); After(3, () => AutoStart(false)); Every(300, SessionCheck); Every(900, RefreshSession);
                 Every(3, ChatDone); Every(600, LiveTest); Every(600, RamCheck);
+                After(20, ResumeChats);   // (10/25: a chat waiting for a usage limit to reset carries on after a restart too)
             }
         }
         public void Stop() { EndBoost(); foreach (var t in timers) t.Stop(); try { icon.Visible = false; icon.Dispose(); } catch { } try { Native.UnregisterHotKey(src.Handle, HotkeyId); } catch { } }
@@ -120,7 +121,7 @@ namespace Messiah.Tray
             [Actions.Cmd.AiOn] = ("plain", "ai-toggle.ps1", "-On"),   // installs Claude Code, then its sign-in
             [Actions.Cmd.AiOff] = ("hidden", "ai-toggle.ps1", "-Off"), [Actions.Cmd.GpuRollback] = ("window", "gpu-rollback.ps1", ""),
             [Actions.Cmd.ChatHost] = ("hidden", "chat-host.ps1", ""),   // the app's chat with Claude (with admin rights, no window)
-            [Actions.Cmd.RamBootArm] = ("hidden", "ram-check.ps1", "-ArmBoot"), [Actions.Cmd.RamBootCancel] = ("hidden", "ram-check.ps1", "-CancelBoot"), [Actions.Cmd.Bench] = ("hidden", "bench.ps1", ""),
+            [Actions.Cmd.RamBootArm] = ("hidden", "ram-check.ps1", "-ArmBoot"), [Actions.Cmd.RamBootCancel] = ("hidden", "ram-check.ps1", "-CancelBoot"), [Actions.Cmd.Bench] = ("hidden", "bench.ps1", ""), [Actions.Cmd.Storage] = ("hidden", "storage.ps1", "-Request"),   // (storage-request.json: move a game, clean, a folder to the Recycle Bin)
         };
         void Command(int n)
         {
@@ -151,6 +152,13 @@ namespace Messiah.Tray
         static void Window(string script, string args) => Run("powershell.exe", $"-NoExit -NoProfile -ExecutionPolicy Bypass -File \"{Kit.P(script)}\" {args}");
         void Safe(Action a) { try { a(); } catch (Exception e) { TrayLogic.Error(e.Message + " " + e.StackTrace?.Split('\n').FirstOrDefault()?.Trim()); } }
         void Every(double seconds, Action a) { var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(seconds) }; t.Tick += (s, e) => Safe(a); t.Start(); timers.Add(t); }
+        // a chat that hit the usage limit (its resume.json): its host started, so it continues when the limit resets -
+        // chat-host.ps1 without -Dir starts the main chat and the other chats that are waiting
+        void ResumeChats()
+        {
+            var dirs = new[] { Kit.P("chat") }.Concat(Directory.Exists(Kit.P("chats")) ? Directory.GetDirectories(Kit.P("chats")) : new string[0]);
+            if (dirs.Any(d => File.Exists(Path.Combine(d, "resume.json")))) Ps("chat-host.ps1", "");
+        }
         void After(double seconds, Action a) { var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(seconds) }; t.Tick += (s, e) => { t.Stop(); timers.Remove(t); Safe(a); }; t.Start(); timers.Add(t); }
 
         void Tip() => SetTip(TrayLogic.Tip(ai));
@@ -176,7 +184,7 @@ namespace Messiah.Tray
         }
         void RunMaint(bool quiet)
         {
-            if (ai && TrayLogic.MaintRunning()) { if (!quiet) Notes.Show($"Hidden maintenance is already running.\nOpen {TrayLogic.Name} > Activity > Watch live to follow it.", "-", 8); return; }
+            if (ai && TrayLogic.MaintRunning()) { if (!quiet) Notes.Show($"Hidden maintenance is already running.\nOpen {TrayLogic.Name} > Health > Checks > Watch live to follow it.", "-", 8); return; }
             Hidden(Path.Combine(Environment.SystemDirectory, "conhost.exe"), $"--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{Kit.P("claude-bg-maint.ps1")}\" -Force -Unattended -Now");
             if (!quiet) Notes.Show($"Maintenance started in the background.\nThe result shows in {TrayLogic.Name} (click this).", "page=Activity/Checks", 8);
         }

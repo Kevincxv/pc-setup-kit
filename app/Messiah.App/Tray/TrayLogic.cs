@@ -42,7 +42,7 @@ namespace Messiah.Tray
         {
             int n = Todo().Count;
             var tip = n > 0 ? $"{Name} - {n} maintenance item{(n == 1 ? " needs" : "s need")} you" : Name;
-            if (ai && MaintRunning()) tip += $"\nHidden maintenance running (open {Name} > Activity > Watch live)";
+            if (ai && MaintRunning()) tip += $"\nHidden maintenance running (open {Name} > Health > Checks > Watch live)";
             return tip;
         }
 
@@ -74,7 +74,7 @@ namespace Messiah.Tray
             }
             return null;
         }
-        // The owner's rule (10/10): Messiah never pops up by itself - an alert goes to the app (Activity > Alerts) and the
+        // The owner's rule (10/10): Messiah never pops up by itself - an alert goes to the app (Health > Alerts) and the
         // tooltip, quietly; "Show alerts in the corner" (kit-options.txt cornernotes=on) shows it too. True: show it.
         public static bool Alert(string text) { LogNote(text); return Kit.Opt("cornernotes", "off") == "on"; }
 

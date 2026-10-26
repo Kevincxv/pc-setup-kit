@@ -10,7 +10,7 @@ using Sh = System.Windows.Shapes;
 
 namespace Messiah.Pages
 {
-    // Activity > Performance (10/21): how the games run - each game's last minute second by second (its frame rate, and its
+    // Games > Performance (10/21): how the games run - each game's last minute second by second (its frame rate, and its
     // slowest frame each second: the hitches you feel), its frame rate over the sessions, and what a graphics driver or
     // Windows update did to it (the sessions before and after, side by side). From game-perf.ps1's samples (perf-history.json:
     // a minute every 25 minutes while a game is played - not its menus).
@@ -21,7 +21,7 @@ namespace Messiah.Pages
 
         public static List<UIElement> Build(Snapshot s)
         {
-            var o = new List<UIElement>();
+            var o = new List<UIElement>(); Connection.Idle = Connection.IdleOf(s.Net);
             var games = s.Perf.Where(r => Json.S(r, "game") != "" && Kit.Date(Json.Get(r, "date")) != null).GroupBy(r => Json.S(r, "game"))
                 .OrderByDescending(g => Kit.Date(Json.Get(g.Last(), "date"))).ToList();
             if (games.Count == 0)
@@ -38,6 +38,7 @@ namespace Messiah.Pages
             if (older.Count > 0)
                 o.Add(Ui.Card(recent.Count > 0 ? "Earlier games" : "Games - not played this month", "E7FC", new object[] { Ui.Rows(older.Select(g => { var l = g.Last(); return (Data.GameName(g.Key), $"{Math.Round(Json.N(l, "fps") ?? 0)} fps average, 1% low {Math.Round(Json.N(l, "low1") ?? 0)} fps - last played {Kit.FormatWhen(Kit.Date(Json.Get(l, "date")).Value, dateOnly: true)}", "dim"); })) }));
             if (games.Count > 0) o.Add(Updates(games));
+            var net = Connection.Card(s); if (net != null) o.Add(net);
             o.Add(Heat(s));
             o.Add(Benchmark(s));
             if (games.Count > 0) o.Add(Activity.Foot("Measured with Intel's PresentMon for one minute while the game runs. 1% low: only 1 frame in 100 is slower - what you feel as smoothness. A hitch: a frame over 50 ms."));
@@ -167,7 +168,7 @@ namespace Messiah.Pages
                 rows.Add(("SSD", string.Join(", ", parts), mx >= 80 ? "warn" : "info"));
             }
             var lines = new List<object> { Ui.Rows(rows) };
-            var grid = new UniformGrid { Columns = 2, Margin = Ui.Th("0,8,-14,0") };
+            var grid = Ui.Pairs(new UniformGrid { Columns = 2, Margin = Ui.Th("0,8,-14,0") });
             var gt = s.Perf.Where(r => Json.N(r, "gpuTemp") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "gpuTemp").Value)).ToList();
             if (gt.Count >= 2) grid.Children.Add(Pad(Charts.Chart("Graphics card while gaming", " °C", Points(s.Perf, "gpuTemp", s.Tune, true), 0, 10)));
             var it = s.Health.Where(r => Json.N(r, "gpuIdle") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "gpuIdle").Value)).ToList();
@@ -218,6 +219,7 @@ namespace Messiah.Pages
             if (Json.N(r, "gpuTemp") is double gt) p.Add($"card {gt} °C");
             if (Json.N(r, "cpuTemp") is double ct) p.Add($"processor {ct} °C");
             if (Json.S(r, "ram") is string ram && ram != "") p.Add("RAM " + ram);
+            if (Json.N(r, "netPing") is double np && field != "netPing") p.Add($"ping {np:0} ms{((Json.N(r, "netLoss") ?? 0) > 0 ? $", {Json.N(r, "netLoss")}% lost" : "")}");
             if (TuneWords(Json.S(r, "tune"), tune) is string tw) p.Add(tw);
             return string.Join(", ", p);
         }
@@ -263,13 +265,13 @@ namespace Messiah.Pages
             }
             var lines = new List<object>();
             var marks = Marks(rows, tune);
-            var grid = new UniformGrid { Columns = 2, Margin = Ui.Th("0,8,-14,0") };
+            var grid = Ui.Pairs(new UniformGrid { Columns = 2, Margin = Ui.Th("0,8,-14,0") });
             if (rows.Count >= 2)
             {
                 grid.Children.Add(Pad(Charts.Chart("Frame rate, each session", " fps", Points(rows, "fps", tune), 0, 20, marks, p => Open(p.Key), sel)));
                 grid.Children.Add(Pad(Charts.Chart("1% low, each session", " fps", Points(rows, "low1", tune), 0, 20, marks, p => Open(p.Key), sel)));
                 lines.Add(grid);
-                lines.Add(new Line("Point at a session to read it; click it to open it below. A dashed mark: something changed there (a driver, Windows, the RAM speed, your settings, a setting being tried).", "dim"));
+                lines.Add(new Line("A dashed mark: something changed there (a driver, Windows, the RAM speed, your settings).", "dim"));
             }
             lines.Add(detail);
             Open(sel.Key);
@@ -323,9 +325,10 @@ namespace Messiah.Pages
             if (dpc != null) lines.Add(new Line(dpc >= 15 ? $"Drivers took up to {dpc}% of a core while you played - enough to cause stutters the frame rate hides (audio, network or USB drivers are the usual ones)" : $"Drivers took up to {dpc}% of a core while you played - fine", dpc >= 15 ? "warn" : "dim"));
             var per = Json.L(last, "perSec").Select(Num).ToList(); var worst = Json.L(last, "worstMs").Select(Num).ToList();
             var lim = Limit(last, per); if (lim != null) lines.Add(lim);
+            var net = Connection.Session(last, sessions > 2 && (fps < usual * 0.9 || st >= 10)); if (net != null) lines.Add(net);
             if (per.Count >= 2)
             {
-                var grid = new UniformGrid { Columns = 2, Margin = Ui.Th("0,8,-14,0") };
+                var grid = Ui.Pairs(new UniformGrid { Columns = 2, Margin = Ui.Th("0,8,-14,0") });
                 grid.Children.Add(Pad(Curve(latest ? "The last minute, second by second" : $"That minute ({when:MMM d, h:mm tt}), second by second", " fps", per, false)));
                 if (worst.Count >= 2) grid.Children.Add(Pad(Curve("Its slowest frame each second", " ms", worst, true)));
                 lines.Add(grid);

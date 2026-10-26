@@ -9,7 +9,8 @@
 # -TestCsv / -TestGame / -TestGpu: tests (a recorded capture, a game name, nvidia-smi rows) - nothing is captured.
 param([int]$Seconds = 60, [string]$History = "$PSScriptRoot\perf-history.json", [datetime]$Now = (Get-Date),
     [string]$TestCsv, [string]$TestGame, [string[]]$TestGpu, [double[]]$TestDpc, [string[]]$TestCpu, [double[]]$TestCpuTemp, [switch]$Force,   # -TestDpc: the busiest core's driver time (%) per reading; -TestCpu: "limit,performance" readings
-    [string]$Tune = "$PSScriptRoot\game-tune.json", [string]$GameSettings = "$PSScriptRoot\game-settings.json")
+    [string]$Tune = "$PSScriptRoot\game-tune.json", [string]$GameSettings = "$PSScriptRoot\game-settings.json",
+    [hashtable]$TestNet)   # -TestNet: the minute's pings @{ net = ms[]; netLost; gw = ms[]; gwLost; wifi } - nothing is pinged
 $ErrorActionPreference = 'SilentlyContinue'
 $mx = New-Object Threading.Mutex($false, "Global\PCSetupKitGamePerf$(if ($TestCsv) { "-test-$PID" })")
 if (-not $mx.WaitOne(0)) { return }   # a sample is already running (tests never wait for a real one)
@@ -74,6 +75,23 @@ if (-not $csv) {
         } catch { }
         if (-not (Test-Path $pm)) { return }   # offline: next time
     }
+    # the connection while the game plays (10/25): the router and the internet (1.1.1.1) pinged every half second through
+    # the minute, in the background - lag that builds up while the game uses the line shows as a higher ping than at idle
+    # (net-history.json, network-check.ps1). Pings only - no data (the owner's rule).
+    $route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Sort-Object { $_.RouteMetric + $_.InterfaceMetric } | Select-Object -First 1
+    if ($route) {
+        $netPs = [powershell]::Create().AddScript({
+                param($gw, $sec)
+                $p = New-Object Net.NetworkInformation.Ping; $o = @{ gw = New-Object Collections.Generic.List[double]; net = New-Object Collections.Generic.List[double]; gwLost = 0; netLost = 0 }
+                $end = (Get-Date).AddSeconds($sec)
+                while ((Get-Date) -lt $end) {
+                    foreach ($t in @(, @('gw', $gw)) + @(, @('net', '1.1.1.1'))) { try { $r = $p.Send($t[1], 1000); if ($r.Status -eq 'Success') { $o[$t[0]].Add([double]$r.RoundtripTime) } else { $o["$($t[0])Lost"]++ } } catch { $o["$($t[0])Lost"]++ } }
+                    Start-Sleep -Milliseconds 500
+                }
+                $o
+            }).AddArgument($route.NextHop).AddArgument($Seconds)
+        $netAsync = $netPs.BeginInvoke(); $netWifi = [bool]((Get-NetAdapter -InterfaceIndex $route.InterfaceIndex).NdisPhysicalMedium -eq 9)
+    }
     $csv = Join-Path $env:TEMP "pckit-perf-$PID.csv"
     $p = Start-Process $pm -ArgumentList '--process_name', "$game.exe", '--timed', $Seconds, '--terminate_after_timed', '--no_console_stats',
         '--session_name', 'PCSetupKitPerf', '--stop_existing_session', '--output_file', "`"$csv`"" -WindowStyle Hidden -PassThru
@@ -86,6 +104,7 @@ if (-not $csv) {
         Start-Sleep 5
     }
     if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+    if ($netPs) { try { $nr = $netPs.EndInvoke($netAsync); if ($nr.Count) { $TestNet = $nr[0]; $TestNet.wifi = $netWifi } } catch { }; $netPs.Dispose() }
 }
 else { $gpu = @(Read-Gpu); $ssd = @(Read-SsdTemp); $dpc = @($TestDpc); $cpu = @($TestCpu); $ct = @($TestCpuTemp) }
 
@@ -95,14 +114,23 @@ $rowsF = @(Import-Csv $csv | Where-Object { $_.Application -like "$game*" -and (
 if (-not $TestCsv) { [IO.File]::Delete($csv) }
 # the seconds spent in the game's menu or tabbed out (10/22): a game that caps those (Call of Duty: 60 in menus, 30 out
 # of focus - its own settings, kept by game-settings.ps1) runs flat at that cap there - those seconds are left out, so
-# a minute half in the menu doesn't read as a slow minute (and doesn't decide a game-tune test)
+# a minute half in the menu doesn't read as a slow minute (and doesn't decide a game-tune test). A menu that's loading
+# runs a little under its cap (10/23: 113-118 at a 120 cap), so up to 8 under and 2 over the cap counts as the menu.
 $gsj = try { Get-Content $GameSettings -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
-$caps = @(foreach ($p in $gsj.PSObject.Properties) { foreach ($k in 'MaxFpsInMenu@0', 'MaxFpsOutOfFocus@0') { $c = Num $p.Value.values.$k; if ($c -ge 10) { $c } } }) | Sort-Object -Unique
+$caps = @(foreach ($p in $gsj.PSObject.Properties) { foreach ($k in 'MaxFpsInMenu@0', 'MaxFpsOutOfFocus@0') { $c = Num $p.Value.values.$k; if ($c -ge 10) { $c } } })
+# ... and the game's own file as it is now (10/23: a game update set the menu cap to 120 while the kept copy still said 60,
+# so every minute in the menu read as a 120 fps match minute)
+if (-not $TestCsv) {
+    foreach ($f in Get-ChildItem "$env:LOCALAPPDATA\Activision\Call of Duty\players\s.1.0.cod*.txt" -ErrorAction SilentlyContinue) {
+        foreach ($l in [IO.File]::ReadLines($f.FullName)) { if ($l -match '^(MaxFpsInMenu|MaxFpsOutOfFocus)@0;\d+;\d+ = (\d+)') { $c = [double]$Matches[2]; if ($c -ge 10) { $caps += $c } } }
+    }
+}
+$caps = @($caps | Sort-Object -Unique)
 if ($caps -and $rowsF.Count) {
     $keep = New-Object Collections.ArrayList; $sec = New-Object Collections.ArrayList; $acc = 0.0
     foreach ($r in $rowsF) {
         [void]$sec.Add($r); $acc += Num $r.MsBetweenPresents
-        if ($acc -ge 1000) { $f = $sec.Count * 1000 / $acc; if (-not ($caps | Where-Object { [Math]::Abs($f - $_) -le 2 })) { [void]$keep.AddRange($sec) }; $sec.Clear(); $acc = 0.0 }
+        if ($acc -ge 1000) { $f = $sec.Count * 1000 / $acc; if (-not ($caps | Where-Object { $f -ge $_ - 8 -and $f -le $_ + 2 })) { [void]$keep.AddRange($sec) }; $sec.Clear(); $acc = 0.0 }
     }
     if ($sec.Count) { [void]$keep.AddRange($sec) }
     if ($keep.Count -lt $rowsF.Count -and ($keep | ForEach-Object { Num $_.MsBetweenPresents } | Measure-Object -Sum).Sum -lt 20000) { return }   # under 20 s of actual play left
@@ -114,6 +142,24 @@ $sorted = @($ms | Sort-Object)
 $avgFps = 1000 / (($ms | Measure-Object -Average).Average)
 $p99 = $sorted[[int][Math]::Min($sorted.Count - 1, [Math]::Ceiling($sorted.Count * 0.99) - 1)]
 $e = [ordered]@{ date = $Now.ToString('o'); game = $game; fps = [Math]::Round($avgFps, 1); low1 = [Math]::Round(1000 / $p99, 1); frames = $ms.Count }
+# the connection through the minute (the pings above): the internet's median ping, jitter (the average change between two
+# pings), loss % and spikes (pings 50+ ms over the median - a lag spike you feel); the router's ping and loss (the home
+# network: the cable or Wi-Fi); wifi. The app compares them with the ping at idle and says network or PC.
+if ($TestNet) {
+    foreach ($k in 'net', 'gw') {
+        $v = @($TestNet[$k] | Where-Object { $null -ne $_ } | ForEach-Object { [double]$_ }); $lost = [int]$TestNet["$($k)Lost"]
+        if ($v.Count + $lost -lt 10) { continue }   # (too few pings to say anything)
+        $s = @($v | Sort-Object); $m = if ($s.Count) { $s[[int]($s.Count / 2)] }
+        $pre = if ($k -eq 'net') { 'net' } else { 'gw' }
+        $e["$($pre)Loss"] = [Math]::Round(100 * $lost / ($v.Count + $lost), 1)
+        if ($s.Count -ge 2) {
+            $e["$($pre)Ping"] = [Math]::Round($m, 0)
+            $e["$($pre)Jitter"] = [Math]::Round((@(for ($i = 1; $i -lt $v.Count; $i++) { [Math]::Abs($v[$i] - $v[$i - 1]) }) | Measure-Object -Average).Average, 1)
+            if ($k -eq 'net') { $e.netSpikes = @($v | Where-Object { $_ -ge $m + 50 }).Count }
+        }
+    }
+    if ($null -ne $TestNet.wifi) { $e.wifi = [bool]$TestNet.wifi }
+}
 # stutters: frames over 2.5x the typical frame time and slower than 20 fps - the hitches you feel
 $med = $sorted[[int]($sorted.Count / 2)]
 $e.stutters = @($ms | Where-Object { $_ -gt [Math]::Max($med * 2.5, 50) }).Count
@@ -130,6 +176,7 @@ function Med($v) { $s = @($v | Where-Object { $null -ne $_ } | Sort-Object); if 
 if ($rowsF.Count -and $rowsF[0].PSObject.Properties['MsGPUBusy']) {
     $gb = Med ($rowsF | ForEach-Object { $b = Num $_.MsGPUBusy; $f = Num $_.MsBetweenPresents; if ($null -ne $b -and $f -gt 0) { [Math]::Min(100, $b / $f * 100) } })
     if ($null -ne $gb) { $e.gpuBusy = [int][Math]::Round($gb) }
+    if ($null -ne $gb -and $gb -lt 25) { return }   # (the card barely drawing the frames: tabbed out or a menu at its cap - 10/25: a 43 fps "minute" at 3% read as a slow match)
     $lat = Med ($rowsF | ForEach-Object { $c = Num $_.MsCPUBusy; $d = Num $_.MsUntilDisplayed; if ($null -ne $c -and $null -ne $d -and $d -gt 0) { $c + $d } })
     if ($null -ne $lat) { $e.latency = [Math]::Round($lat, 1) }
 }

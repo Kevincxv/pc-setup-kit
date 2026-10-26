@@ -2,12 +2,14 @@
 # them). Run by health-check.ps1:
 # - The graphics card's fans stuck high while it is idle and cool (10/22: 70% - 2,500 RPM at 28 C, a manual setting left
 #   behind; in automatic they stop): put back to automatic - the card's own curve, which still speeds them up as it
-#   warms. Said once; if something keeps setting them again, that is said instead (another fan program).
+#   warms. Said once; if something keeps setting them again and a fan program is running, that program is named. With
+#   none running (10/23: 70% again after each boot and COD session, no fan app on the PC) it is just put back quietly -
+#   there is nothing for the owner to change.
 # - The CPU fan or the water-cooling pump stopped (0 RPM while the board drives it): a WARNING - the processor has no
 #   cooling. Said again only once it ran and stopped again.
 # - Each check's speeds go to fan-state.json (the app's Heat and wear card shows them).
 # Never writes a fan curve to the motherboard: the BIOS's own curves stay in charge of the case and CPU fans.
-# kit-options.txt fancheck=off (the app's Settings) stops it. -Test (Readings: @{ Hw; Name; Rpm; Duty }, GpuUse, GpuTemp)
+# kit-options.txt fancheck=off (the app's Settings) stops it. -Test (Readings: @{ Hw; Name; Rpm; Duty }, GpuUse, GpuTemp, FanApps)
 # with -Do (gets the actions) / -State / -Options / -Now: tests.
 param([hashtable]$Test, [scriptblock]$Do, [string]$State = "$PSScriptRoot\fan-state.json", [string]$Options = "$PSScriptRoot\kit-options.txt",
     [datetime]$Now = (Get-Date), [string]$Tools = "$PSScriptRoot\tools\lhm")
@@ -49,7 +51,12 @@ if ($stuck) {
     $recent = @(@($st.gpuResets) | Where-Object { $_ -and [datetime]$_ -gt $Now.AddDays(-7) })
     $st.gpuResets = @($recent) + $Now.ToString('o')
     if (-not $st.gpuReset) { $out += "Fans: the graphics card's fans were stuck at $was% ($rpm RPM) while it was idle at $([int]$gpuTemp) C - put back to automatic (the card's own curve: quiet when cool, faster as it warms)" }
-    elseif ($recent.Count -ge 2 -and $st.gpuReset -ne 'again') { $out += "Reminder: something keeps setting the graphics card's fans to $was% at idle (put back to automatic $($recent.Count + 1) times this week) - a fan program (MSI Afterburner, the card maker's app, an RGB tool) may hold a fixed speed; set it to automatic there"; $st.gpuReset = 'again' }
+    elseif ($recent.Count -ge 2 -and $st.gpuReset -ne 'again') {
+        $apps = if ($T) { @($T.FanApps) } else {
+            @(Get-Process | Where-Object { $_.Name -match '^(MSIAfterburner|FanControl|ArmouryCrate|ArmourySocketServer|GPUTweak|iCUE|SignalRgb|OpenRGB|PrecisionX.*|EVGA ?Precision.*|ThunderMaster|AORUS.*|NZXT CAM|ArgusMonitor|FireStorm|TurboMaster|SpeedFan|MSI\.CentralServer)$' } |
+                    ForEach-Object { if ($_.Description) { $_.Description } else { $_.Name } } | Select-Object -Unique) }
+        if ($apps) { $out += "Reminder: something keeps setting the graphics card's fans to $was% at idle (put back to automatic $($recent.Count + 1) times this week) - $($apps -join ', ') is running and may hold a fixed speed; set its fans to automatic there"; $st.gpuReset = 'again' }
+    }
     if (-not $st.gpuReset) { $st.gpuReset = $Now.ToString('o') }
 }
 

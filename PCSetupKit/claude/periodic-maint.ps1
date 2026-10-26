@@ -117,6 +117,8 @@ if (-not $game -and (Due 'monthly-cleanup' 30)) {
         if ($gone -gt 50MB) { "Steam: removed $([Math]::Round($gone / 1GB, 1)) GB of abandoned downloads" }
         if ($bin) { "Steam: moved leftover folders of uninstalled games to the Recycle Bin: $($bin -join ', ')" }
     }
+    # shader caches and Workshop mods uninstalled games left behind (storage.ps1 - Steam fetches them again if a game comes back)
+    if (Test-Path "$PSScriptRoot\storage.ps1") { & "$PSScriptRoot\storage.ps1" -Clean }
     # Old driver versions (in-use packages are refused by pnputil without /force, so this only removes stale ones)
     # (Get-WindowsDriver, not pnputil's text: that is translated on non-English Windows)
     $drv = @(Get-WindowsDriver -Online)

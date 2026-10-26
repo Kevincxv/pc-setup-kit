@@ -62,6 +62,8 @@ namespace Messiah.Pages
                 return ch.Count > 0 ? s + $" (changed: {string.Join(", ", ch)})" : s;
             }
             string Rest() => "Latest " + Say(pts.Count - 1);
+            // (not pointing at it: a short hint - the big number above is the latest already; 10/25, every chart repeated it in a long line)
+            string Idle() => click != null ? "Point at a session to read it, click to open it" : "Point at the line to read a day";
 
             void DrawCanvas()
             {
@@ -107,7 +109,7 @@ namespace Messiah.Pages
                 for (int i = 1; i < pts.Count; i++) if (Math.Abs(pts[i].D.Ticks - t) < Math.Abs(pts[best].D.Ticks - t)) best = i;
                 return best;
             }
-            void Hover(int i) { hover = i; readout.Text = i >= 0 ? Say(i) : Rest(); readout.Foreground = i >= 0 ? B("Text") : B("Sub"); DrawCanvas(); }
+            void Hover(int i) { hover = i; readout.Text = i >= 0 ? Say(i) : Idle(); readout.Foreground = i >= 0 ? B("Text") : B("Sub"); DrawCanvas(); }
             void Pick(int i) { if (click == null || i < 0) return; sel?.Set(pts[i].Key); click(pts[i]); }
 
             void Draw()
@@ -153,7 +155,7 @@ namespace Messiah.Pages
                 host.Children.Add(cv);
                 host.SizeChanged += (s, e) => { var w = Math.Max(200, Math.Floor(e.NewSize.Width)); if (Math.Abs(w - W) > 6) { W = w; DrawCanvas(); } };
                 sp.Children.Add(host);
-                readout = new TextBlock { FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Foreground = B("Sub"), Margin = Ui.Th("0,6,0,0"), MinHeight = 32, Text = Rest() };
+                readout = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = B("Sub"), Margin = Ui.Th("0,6,0,0"), MinHeight = 32, Text = Idle() };
                 var axis = new DockPanel { Margin = Ui.Th("0,4,0,0") };
                 var r = Ui.Text(pts[pts.Count - 1].D.ToString("MMM d"), B("Sub"), 11, null, "0"); DockPanel.SetDock(r, Dock.Right); axis.Children.Add(r);
                 axis.Children.Add(Ui.Text($"{pts[0].D:MMM d}   ·   range {Fmt(vals.Min())} - {Fmt(vals.Max())}", B("Sub"), 11, null, "0"));
