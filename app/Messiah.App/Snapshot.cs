@@ -43,7 +43,7 @@ namespace Messiah
             var sb = new StringBuilder();
             foreach (var sec in s.Secs) { sb.Append(sec.Title).Append('\n'); foreach (var l in sec.Lines) sb.Append(l.Level).Append('|').Append(l.Text).Append('\n'); }
             foreach (var r in s.Sm.Rows) sb.Append(r.Level).Append(r.State).Append(r.Detail).Append('\n');
-            foreach (var f in new[] { "health-history.json", "notifications.log", "maint-history", "kit-options.txt", "tweak-status.json", "guard-state.json", "diag-state.json", "whats-new.json", "power-log.json", "ram-test.log", "perf-history.json", "game-saves.json", "gpu-hold.txt", "game-tune.json", "gpu-state.json", "ram-check.json", "game-sessions.log", "fan-state.json", "benchmarks.json", "bench-running.txt", "storage.json", "storage-status.json" })
+            foreach (var f in new[] { "health-history.json", "notifications.log", "maint-history", "kit-options.txt", "tweak-status.json", "guard-state.json", "diag-state.json", "whats-new.json", "power-log.json", "ram-test.log", "perf-history.json", "game-saves.json", "gpu-hold.txt", "game-tune.json", "gpu-state.json", "ram-check.json", "game-sessions.log", "fan-state.json", "benchmarks.json", "bench-running.txt", "storage.json", "storage-status.json", "improve-state.json" })
                 sb.Append(Kit.Stamp(Kit.P(f))?.Ticks).Append(',');
             foreach (var l in s.Since) sb.Append(l.Text).Append('\n');
             sb.Append('\n').Append(s.Playing).Append('\n').Append(Json.B(s.Chat, "busy")).Append(Json.S(s.Chat, "step"));

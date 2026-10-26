@@ -52,7 +52,7 @@ namespace Messiah
             if (Kit.InTests && Names.Mutex.EndsWith(".Next")) Names.Isolate();   // (never --live: the real app's names stay the real app's)
             if (trayTest != null) return Tray.TrayLogic.Test(trayTest, fs);
             AppDomain.CurrentDomain.UnhandledException += (s, e) => Log("crash: " + e.ExceptionObject);
-            if (test) return RunTest(page);
+            if (test) { SelfTesting = true; return RunTest(page); }
             // restarted into an update: the copy before ends first (else this one would only hand over to it)
             if (after > 0) try { using (var old = Process.GetProcessById(after)) old.WaitForExit(20000); } catch { }
 
@@ -173,6 +173,7 @@ namespace Messiah
             try { var f = Kit.P("app-errors.log"); if (File.Exists(f) && new FileInfo(f).Length > 200000) File.Delete(f); File.AppendAllText(f, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {what}\r\n"); } catch { }
         }
         // --test: every page built once and printed as text - what the tests read (the PowerShell app's -Test format)
+        internal static bool SelfTesting;   // (--test / --audit: nothing is started - no chat, no tray command)
         static int RunAudit(string dir, string[] rest)
         {
             Environment.SetEnvironmentVariable("PCKIT_IN_TESTS", "1");   // (the chat is never started, nothing is written to it)

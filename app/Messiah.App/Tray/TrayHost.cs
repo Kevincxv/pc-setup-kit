@@ -56,7 +56,8 @@ namespace Messiah.Tray
             {
                 Every(0.5, Watch); After(3, () => AutoStart(false)); Every(300, SessionCheck); Every(900, RefreshSession);
                 Every(3, ChatDone); Every(600, LiveTest); Every(600, RamCheck);
-                After(20, ResumeChats);   // (10/25: a chat waiting for a usage limit to reset carries on after a restart too)
+                After(20, ResumeChats);
+                After(300, ImproveLoop); Every(900, ImproveLoop);   // (10/25: the improvement rounds - the PC the kit is made on only)   // (10/25: a chat waiting for a usage limit to reset carries on after a restart too)
             }
         }
         public void Stop() { EndBoost(); foreach (var t in timers) t.Stop(); try { icon.Visible = false; icon.Dispose(); } catch { } try { Native.UnregisterHotKey(src.Handle, HotkeyId); } catch { } }
@@ -159,6 +160,9 @@ namespace Messiah.Tray
             var dirs = new[] { Kit.P("chat") }.Concat(Directory.Exists(Kit.P("chats")) ? Directory.GetDirectories(Kit.P("chats")) : new string[0]);
             if (dirs.Any(d => File.Exists(Path.Combine(d, "resume.json")))) Ps("chat-host.ps1", "");
         }
+        // improve-loop.ps1 (only where it exists - not part of the kit): one decision every 15 minutes - a round when the usage
+        // budget allows and the owner isn't playing or using Claude; it paces and locks itself
+        void ImproveLoop() { if (File.Exists(Kit.P("improve-loop.ps1"))) Ps("improve-loop.ps1", "-Once"); }
         void After(double seconds, Action a) { var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(seconds) }; t.Tick += (s, e) => { t.Stop(); timers.Remove(t); Safe(a); }; t.Start(); timers.Add(t); }
 
         void Tip() => SetTip(TrayLogic.Tip(ai));

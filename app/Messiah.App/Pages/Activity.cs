@@ -29,6 +29,14 @@ namespace Messiah.Pages
             if (s.Ai && hidden != null)
             {
                 var hl = hidden.Lines.Select(l => (object)new Line(Regex.Replace(Regex.Replace(Regex.Replace(l.Text, @"\(improve\)", "(looked for improvements)"), @"\(maintain\)", "(maintenance)"), "^Self-improvement:", "Improving Messiah:"), l.Level)).ToList();
+                // (10/25: improve-loop.ps1 - what the improvement rounds are doing, and today's)
+                var im = Kit.ReadJson(Kit.P("improve-state.json"));
+                if (im != null && Kit.Opt("improve", "on") != "off")
+                {
+                    var today = Json.L(im, "rounds").Where(r => Kit.Date(Json.Get(r, "at"))?.Date == DateTime.Today).ToList();
+                    hl.Add(new Line($"Improving Messiah: {Json.S(im, "text")}" + (today.Count > 0 ? $" Today: {today.Count} round{Kit.S(today.Count)}, {today.Count(r => Json.S(r, "result") == "done")} landed." : ""), Json.S(im, "state") == "working" ? "ok" : "info"));
+                    foreach (var r in today.Where(r => Json.S(r, "result") == "done").Reverse().Take(3)) hl.Add(new Line($"{Kit.FormatWhen(Kit.Date(Json.Get(r, "at")).Value)}: {Json.S(r, "item")}", "dim"));
+                }
                 hl.Add(new Line("About 2 minutes after each login, Claude handles anything in the report that needs judgment, then looks for ways to make Messiah better (at most once a day).", "dim"));
                 o.Add(Ui.Card("Claude's own checks", "E90F", hl, new[] { Ui.Btn("E890", "Watch live", Actions.WatchLive), Ui.Btn("E8F1", "Self-improvement journal", Actions.Journal), Ui.Btn("E8B7", "Run logs", Actions.Logs) }));
             }

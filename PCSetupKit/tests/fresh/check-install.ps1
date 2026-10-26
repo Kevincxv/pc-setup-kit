@@ -92,7 +92,13 @@ $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$app.lnk"
 $sc = if (Test-Path $lnk) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk) }
 Check "Start menu and desktop '$app' open the app window (MessiahApp.exe), with the app's icon" ($sc -and $sc.TargetPath -like "*\.claude\app\MessiahApp.exe" -and $sc.Arguments -eq '--live' -and $sc.IconLocation -match 'app\.ico,0$' -and (Test-Path "$env:USERPROFILE\Documents\Messiah Tray\app.ico") -and (Test-Path "$env:USERPROFILE\Desktop\$app.lnk")) "$($sc.TargetPath) $($sc.Arguments) | $($sc.IconLocation)"
 Check '... no separate Status entry' (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\$app Status.lnk")) ''
-$d = & "$cl\app\MessiahApp.exe" --test | Out-String
+# (with a time limit, its output read from a file: 10/26 - a child process holding the output pipe kept this step waiting
+# until GitHub cancelled it after 90 minutes, and no release since 10/21 became the latest)
+$tf = Join-Path $env:TEMP "app-test-$PID.txt"
+$ap = Start-Process "$cl\app\MessiahApp.exe" -ArgumentList '--test' -RedirectStandardOutput $tf -PassThru -WindowStyle Hidden
+$fin = $ap.WaitForExit(300000); if (-not $fin) { Stop-Process -Id $ap.Id -Force -ErrorAction SilentlyContinue }
+$d = Get-Content $tf -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+Check '... the app''s self-test ends by itself (within 5 minutes)' $fin ''
 Check '... the app window builds on this PC, every page' ($d -match "(?m)^WINDOW: $app\s*$" -and $d -match 'CARD: Needs you' -and @([regex]::Matches($d, '(?m)^PAGE: ')).Count -ge 10 -and $d -notmatch 'PAGE ERROR') $d
 Check 'no leftovers of the old name' (-not (Get-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue) -and -not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk")) ''
 Finish

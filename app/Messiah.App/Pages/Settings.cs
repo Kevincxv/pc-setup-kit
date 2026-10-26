@@ -31,7 +31,12 @@ namespace Messiah.Pages
                 Kit.Opt("nightrestart", File.Exists(Kit.P("publish-kit.ps1")) ? "off" : "on") == "on",
                 sw => { Kit.SetOpt("nightrestart", OnOff(sw.IsChecked == true)); Shell.Say("Saved - " + (sw.IsChecked == true ? "pending updates finish with a restart at night while the PC is unused." : "updates finish whenever you restart.")); });
             // (10/22 audit: grouped by what they are about - Claude, start-up and alerts, games, crashes and hardware - not one long list)
-            o.Add(Ui.Card("AI assistant", "E99A", new object[] { aiRow }));
+            // (10/25: improve-loop.ps1 - the PC the kit is made on only; Claude improves the app round by round within the usage budget)
+            var aiRows = new List<object> { aiRow };
+            if (ai && File.Exists(Kit.P("improve-loop.ps1")))
+                aiRows.Add(Ui.SwitchRow("Keep improving Messiah", "Claude works through the improvement checklist one small round at a time - each one tested and installed here - while your Claude usage allows: up to 95% of a session (all of it just before it resets) and 85% of the week. Never while you play or use Claude yourself. Off: no rounds.", Kit.Opt("improve", "on") != "off",
+                    sw => { Kit.SetOpt("improve", OnOff(sw.IsChecked == true)); Shell.Say("Saved - " + (sw.IsChecked == true ? "Claude keeps improving Messiah within your usage." : "no more improvement rounds.")); }));
+            o.Add(Ui.Card("AI assistant", "E99A", aiRows));
             o.Add(Ui.Card("Start-up, alerts and restarts", "E713", new object[] { openRow, noteRow, nightRow }));
             // the Status tab's details: settings in plain words, or by their registry names (for whoever knows them)
             o.Add(Ui.Card("Display", "E7F4", new object[] { Ui.SwitchRow("Show technical names", "In a Status row's details, the settings by their registry names (AllowTelemetry, HwSchMode...) instead of in plain words. Off (default): plain words.", Kit.Opt("technames", "off") == "on",
