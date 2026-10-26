@@ -21,9 +21,13 @@ $ErrorActionPreference = 'SilentlyContinue'
 $out = "$Dir\storage.json"; $statusFile = "$Dir\storage-status.json"
 if (-not $SteamPath) { $SteamPath = "$((Get-ItemProperty 'HKCU:\Software\Valve\Steam').SteamPath)" -replace '/', '\' }
 function GB($b) { [Math]::Round([double]$b / 1GB, 1) }
+# a path in its full long form (10/25: GitHub's test PC hands out short 8.3 names - C:\Users\RUNNER~1 - so one folder read as
+# two, and a moved game stayed "on C:"); paths are compared only in this form
+if (-not ('StorageLongPath' -as [type])) { Add-Type -Namespace '' -Name StorageLongPath -MemberDefinition '[DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern uint GetLongPathName(string s, System.Text.StringBuilder l, uint n);' }
+function Long([string]$p) { if (-not $p) { return $p }; $sb = New-Object Text.StringBuilder 1024; $n = [StorageLongPath]::GetLongPathName($p, $sb, 1024); if ($n -gt 0 -and $n -lt 1024) { $sb.ToString().TrimEnd('\') } else { $p.TrimEnd('\') } }
 # the drive a path is on (tests: -Roots "D=<folder>" stand in for drives)
-$rootMap = [ordered]@{}; foreach ($r in $Roots) { if ($r -match '^([A-Za-z])=(.+)$') { $rootMap[$Matches[1].ToUpper()] = $Matches[2].TrimEnd('\') } }
-function DriveOf([string]$p) { foreach ($k in $rootMap.Keys) { if ($p.StartsWith($rootMap[$k], [StringComparison]::OrdinalIgnoreCase)) { return $k } }; if ($p) { $p.Substring(0, 1).ToUpper() } }
+$rootMap = [ordered]@{}; foreach ($r in $Roots) { if ($r -match '^([A-Za-z])=(.+)$') { $rootMap[$Matches[1].ToUpper()] = Long $Matches[2] } }
+function DriveOf([string]$p) { $p = Long $p; foreach ($k in $rootMap.Keys) { if ($p.StartsWith($rootMap[$k], [StringComparison]::OrdinalIgnoreCase)) { return $k } }; if ($p) { $p.Substring(0, 1).ToUpper() } }
 function Size([string]$p) {   # a folder's size, not following junctions (C:\Games\NBA 2K\16 points into another folder - counted there)
     $t = 0L; $st = New-Object Collections.Stack; $st.Push((Get-Item -LiteralPath $p -Force))
     while ($st.Count) {
@@ -38,7 +42,7 @@ function Status([string]$state, [string]$text, $pct) { [pscustomobject]@{ state 
 function Get-SteamLibs {
     $vdf = @("$SteamPath\steamapps\libraryfolders.vdf", "$SteamPath\config\libraryfolders.vdf") | Where-Object { Test-Path $_ } | Select-Object -First 1
     @(@(if ($vdf) { Select-String -Path $vdf -Pattern '"path"\s+"([^"]+)"' | ForEach-Object { $_.Matches[0].Groups[1].Value -replace '\\\\', '\' } }) + $(if ($SteamPath) { $SteamPath }) |
-        Where-Object { $_ -and (Test-Path "$_\steamapps") } | ForEach-Object { (Get-Item -LiteralPath $_).FullName.TrimEnd('\') } | Sort-Object -Unique)
+        Where-Object { $_ -and (Test-Path "$_\steamapps") } | ForEach-Object { Long (Get-Item -LiteralPath $_).FullName } | Sort-Object -Unique)
 }
 function Read-Acf([string]$f) {
     $t = [IO.File]::ReadAllText($f); $o = @{}
@@ -202,8 +206,8 @@ if ($Request) {
             'clean' { Status 'working' 'Removing leftovers' $null; $m = Invoke-Clean; Status 'done' $(if ($m) { $m } else { 'Nothing to remove.' }) 100 }
             'scan' { Remove-Item $statusFile -Force }   # (the app's "Look now": just the scan below)
             'recycle' {   # a leftover game folder the owner looked at: to the Recycle Bin (only one the scan listed)
-                $known = try { @((Get-Content $out -Raw | ConvertFrom-Json).leftovers | Where-Object { -not $_.safe } | ForEach-Object path) } catch { @() }
-                if ("$($r.path)" -notin $known) { throw 'That folder is not a listed leftover.' }
+                $known = try { @((Get-Content $out -Raw | ConvertFrom-Json).leftovers | Where-Object { -not $_.safe } | ForEach-Object { Long $_.path }) } catch { @() }
+                if ((Long "$($r.path)") -notin $known) { throw 'That folder is not a listed leftover.' }
                 if ($env:PCKIT_IN_TESTS) { $rb = Join-Path $env:TEMP 'pckit-test-recycle'; New-Item $rb -ItemType Directory -Force | Out-Null; Move-Item -LiteralPath "$($r.path)" $rb -Force }   # (tests: never the real Recycle Bin)
                 else { Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory("$($r.path)", 'OnlyErrorDialogs', 'SendToRecycleBin') }
                 Status 'done' "Moved $(Split-Path $r.path -Leaf) to the Recycle Bin." 100

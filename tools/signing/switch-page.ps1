@@ -12,7 +12,7 @@ function Edit-File($name, [hashtable]$pairs) {
 }
 Edit-File 'index.html' @{
     'href="Install%20PC%20Setup%20Kit.cmd" download' = "href=`"$exe`""
-    'This shows up because the file isn''t code-signed yet: the project has applied for free code signing by the <a href="https://signpath.org">SignPath Foundation</a> (<a href="code-signing.html">code signing policy</a>).' = 'It shouldn''t: the installer is code-signed (free code signing provided by SignPath.io, certificate by the <a href="https://signpath.org">SignPath Foundation</a> - <a href="code-signing.html">code signing policy</a>).'
-}
+    # (the page's warning box: once signed, Windows shows no warning - the box says so instead; 10/25 page wording)
+    '<strong>Seeing "Windows protected your PC"?</strong> Click <b>More info</b>, then <b>Run anyway</b>. This shows up because the installer isn''t code-signed yet - everything it runs is the open-source code on <a href="https://github.com/Kevincxv/pc-setup-kit">GitHub</a>.' = '<strong>Signed and safe to run.</strong> The installer is code-signed (free code signing provided by SignPath.io, certificate by the <a href="https://signpath.org">SignPath Foundation</a> - <a href="code-signing.html">code signing policy</a>), so Windows opens it without a warning.'}
 Edit-File 'code-signing.html' @{ ' (applied for; until it is granted the installer is not signed)' = '' }
 if ($changed) { 'changed' } else { 'unchanged' }

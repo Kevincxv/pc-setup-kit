@@ -271,7 +271,7 @@ namespace Messiah.Pages
                 grid.Children.Add(Pad(Charts.Chart("Frame rate, each session", " fps", Points(rows, "fps", tune), 0, 20, marks, p => Open(p.Key), sel)));
                 grid.Children.Add(Pad(Charts.Chart("1% low, each session", " fps", Points(rows, "low1", tune), 0, 20, marks, p => Open(p.Key), sel)));
                 lines.Add(grid);
-                lines.Add(new Line("A dashed mark: something changed there (a driver, Windows, the RAM speed, your settings).", "dim"));
+                if (marks.Count > 0) lines.Add(new Line("A dashed mark: something changed there (a driver, Windows, the RAM speed, your settings).", "dim"));
             }
             lines.Add(detail);
             Open(sel.Key);

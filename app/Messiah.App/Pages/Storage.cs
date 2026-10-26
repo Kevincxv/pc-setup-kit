@@ -84,7 +84,7 @@ namespace Messiah.Pages
                     var size = Ui.Text(Size(gb), B("Sub"), 13, null, "12,0,0,0"); size.VerticalAlignment = VerticalAlignment.Center; size.Width = 70; size.TextAlignment = TextAlignment.Right; DockPanel.SetDock(size, Dock.Right); row.Children.Add(size);
                     var nm = Ui.Text(Json.S(g, "name"), B("Text"), 14, null, "0"); nm.VerticalAlignment = VerticalAlignment.Center;
                     var where = Ui.Text($"{Json.S(g, "store")} - {Json.S(g, "drive")}:", B("Sub"), 12, null, "10,0,0,0"); where.VerticalAlignment = VerticalAlignment.Center;
-                    var left = new WrapPanel(); left.Children.Add(nm); left.Children.Add(where); row.Children.Add(left);
+                    var left = new WrapPanel { VerticalAlignment = VerticalAlignment.Center }; left.Children.Add(nm); left.Children.Add(where); row.Children.Add(left);
                     gl.Add(Ui.Measured(row));
                 }
                 if (drives.Count < 2) gl.Add(new Line("With a second drive, Steam games can be moved here with one click (Steam does the rest).", "dim"));

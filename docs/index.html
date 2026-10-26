@@ -3,113 +3,165 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Messiah - PC Setup Kit</title>
-<meta name="description" content="One click turns a Windows 11 PC into a tuned, debloated gaming PC that maintains itself.">
+<title>Messiah - your gaming PC, tuned and looked after</title>
+<meta name="description" content="Free for Windows 11: one download turns your PC into a tuned, debloated gaming PC that keeps itself fast - updates, drivers, crash checks and cleanup, all automatic.">
+<meta property="og:title" content="Messiah - your gaming PC, tuned and looked after">
+<meta property="og:description" content="One download. A faster, cleaner Windows 11 that keeps itself that way. Free and open source.">
+<meta property="og:image" content="https://kevincxv.github.io/pc-setup-kit/img/app-home.png">
+<link rel="icon" type="image/png" href="img/favicon.png">
 <style>
   :root {
-    --bg: #f5f5f7; --card: #ffffff; --text: #1b1b1f; --sub: #5b5b66; --line: #e3e3e8;
-    --accent: #0a66d8; --accent-text: #ffffff; --accent-2: #eef4fd; --warn: #8a5a00; --code: #f0f0f3;
+    --bg: #0f0f13; --bg2: #16161c; --card: #1c1c23; --text: #f2f2f6; --sub: #a6a6b3; --line: #2c2c36;
+    --accent: #7c5cff; --accent2: #3e8bf2; --ok: #6ccb5f; --warn: #f2c14e; --code: #24242c;
   }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #151518; --card: #202025; --text: #f1f1f4; --sub: #a3a3ad; --line: #33333b;
-      --accent: #4ea1ff; --accent-text: #0b1320; --accent-2: #1d2a3b; --warn: #f2c14e; --code: #2a2a31; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f6f6f9; --bg2: #ffffff; --card: #ffffff; --text: #17171c; --sub: #5a5a66; --line: #e2e2ea; --accent: #5b3fe8; --accent2: #1f6fd6; --ok: #0f7b0f; --warn: #8a5a00; --code: #f0f0f4; }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; }
-  main { max-width: 760px; margin: 0 auto; padding: 48px 16px 64px; }
-  h1 { font-size: clamp(32px, 6vw, 44px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; }
-  .lead { font-size: 19px; color: var(--sub); margin: 0 0 32px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 24px; margin: 0 0 16px; }
-  .btns { display: flex; flex-wrap: wrap; gap: 12px; margin: 4px 0 12px; }
-  .btn { display: inline-flex; flex-direction: column; text-decoration: none; border-radius: 10px; padding: 14px 20px; border: 1px solid var(--line); color: var(--text); background: var(--card); min-width: 240px; }
-  .btn strong { font-size: 17px; }
-  .btn span { font-size: 13px; color: var(--sub); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-  .btn.primary span { color: var(--accent-text); opacity: .85; }
-  .btn:hover { filter: brightness(1.06); }
-  h2 { font-size: 20px; margin: 0 0 12px; }
-  ol, ul { margin: 0; padding-left: 22px; }
-  li { margin: 6px 0; }
-  .note { background: var(--accent-2); border-radius: 10px; padding: 12px 16px; font-size: 14px; margin-top: 16px; }
-  .warn { color: var(--warn); font-weight: 600; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; }
+  a { color: var(--accent2); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+  /* top bar */
+  .top { display: flex; align-items: center; justify-content: space-between; padding: 18px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 18px; color: var(--text); text-decoration: none; }
+  .brand img { border-radius: 9px; }
+  .top nav a { color: var(--sub); text-decoration: none; margin-left: 22px; font-size: 15px; }
+  .top nav a:hover { color: var(--text); }
+  /* hero */
+  .hero { text-align: center; padding: 56px 0 32px; }
+  .hero h1 { font-size: clamp(34px, 6vw, 58px); line-height: 1.08; letter-spacing: -0.025em; margin: 0 auto 18px; max-width: 820px; }
+  .hero h1 span { background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p { font-size: 19px; color: var(--sub); max-width: 640px; margin: 0 auto 30px; }
+  .cta { display: inline-flex; align-items: center; gap: 12px; padding: 16px 30px; border-radius: 12px; background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff; font-size: 18px; font-weight: 600; text-decoration: none; box-shadow: 0 10px 30px rgba(124, 92, 255, .35); }
+  .cta:hover { filter: brightness(1.08); }
+  .cta svg { width: 22px; height: 22px; }
+  .meta { margin-top: 14px; font-size: 14px; color: var(--sub); }
+  .meta b { color: var(--text); font-weight: 600; }
+  .shot-main { margin: 44px auto 0; max-width: 980px; border-radius: 14px; border: 1px solid var(--line); overflow: hidden; box-shadow: 0 30px 80px rgba(0, 0, 0, .45); }
+  .shot-main img { display: block; width: 100%; height: auto; }
+  /* sections */
+  section { padding: 64px 0 8px; }
+  h2 { font-size: clamp(26px, 4vw, 34px); letter-spacing: -0.02em; margin: 0 0 10px; text-align: center; }
+  .sub { color: var(--sub); text-align: center; max-width: 620px; margin: 0 auto 34px; }
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+  .step, .feat, .faq details { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+  .step .n { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; font-weight: 600; margin-bottom: 10px; }
+  .step h3, .feat h3 { margin: 0 0 6px; font-size: 18px; }
+  .step p, .feat p { margin: 0; color: var(--sub); font-size: 15px; }
+  .feats { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .feat .ic { font-size: 22px; width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center; background: rgba(124, 92, 255, .14); margin-bottom: 12px; }
+  .gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+  .gallery figure { margin: 0; }
+  .gallery img { width: 100%; height: auto; display: block; border-radius: 12px; border: 1px solid var(--line); }
+  .gallery figcaption { color: var(--sub); font-size: 14px; margin-top: 8px; text-align: center; }
+  .trust { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .trust div { display: flex; gap: 10px; align-items: flex-start; color: var(--sub); font-size: 15px; }
+  .trust b { color: var(--text); display: block; }
+  .tick { color: var(--ok); font-weight: 700; flex: none; }
+  .note { margin-top: 18px; padding: 14px 18px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg2); color: var(--sub); font-size: 15px; }
+  .note strong { color: var(--warn); }
+  .faq { max-width: 760px; margin: 0 auto; display: grid; gap: 10px; }
+  .faq summary { cursor: pointer; font-weight: 600; list-style: none; }
+  .faq summary::after { content: "+"; float: right; color: var(--sub); }
+  .faq details[open] summary::after { content: "\2212"; }
+  .faq details p, .faq details ol { color: var(--sub); margin: 10px 0 0; font-size: 15px; }
+  .faq li { margin: 4px 0; }
+  .btn2 { display: inline-block; margin-top: 12px; padding: 10px 18px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg2); color: var(--text); text-decoration: none; font-weight: 600; }
   code, pre { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; }
-  pre { background: var(--code); border-radius: 8px; padding: 12px 14px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 8px 0 0; }
-  .copy { float: right; font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 6px; padding: 2px 10px; cursor: pointer; }
-  footer { color: var(--sub); font-size: 14px; margin-top: 32px; }
-  a { color: var(--accent); }
-  .shots { display: grid; gap: 12px; }
-  .shots figure { margin: 0; }
-  .shots img { width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); display: block; }
-  .shots figcaption { font-size: 13px; color: var(--sub); margin-top: 6px; }
+  pre { background: var(--code); border-radius: 8px; padding: 12px 14px; white-space: pre-wrap; word-break: break-all; margin: 10px 0 0; }
+  .copy { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--bg2); color: var(--text); border-radius: 6px; padding: 2px 10px; cursor: pointer; margin-left: 8px; }
+  .final { text-align: center; padding: 72px 0 40px; }
+  footer { border-top: 1px solid var(--line); margin-top: 48px; padding: 26px 0 40px; color: var(--sub); font-size: 14px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+  footer a { color: var(--sub); }
+  @media (max-width: 640px) { .top nav { display: none; } .hero { padding-top: 28px; } }
 </style>
-<link rel="icon" type="image/png" href="img/favicon.png">
 </head>
 <body>
-<main>
-  <h1 style="display:flex;align-items:center;gap:14px"><img src="img/logo.png" alt="" width="56" height="56" style="border-radius:14px">Messiah</h1>
-  <p class="lead">One click turns a Windows 11 PC into a tuned, debloated gaming PC that then looks after itself: drivers, updates, crash checks and cleanup, all automatic. No account needed - an AI assistant (Claude) is an optional switch in the app.</p>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="#"><img src="img/logo.png" alt="" width="34" height="34">Messiah</a>
+    <nav><a href="#how">How it works</a><a href="#features">Features</a><a href="#faq">FAQ</a><a href="https://github.com/Kevincxv/pc-setup-kit">GitHub</a></nav>
+  </header>
 
-  <div class="card">
-    <h2>Install</h2>
-    <div class="btns">
-      <a class="btn primary" href="Install%20PC%20Setup%20Kit.cmd" download>
-        <strong>Download the installer</strong><span>Everything; the AI assistant can be switched on later in the app</span>
-      </a>
+  <div class="hero" id="install">
+    <h1>Your gaming PC, <span>tuned and looked after</span> - automatically.</h1>
+    <p>One download turns Windows 11 into a fast, clean gaming PC - then keeps it that way: drivers, updates, crash checks and cleanup happen by themselves, and never while you play.</p>
+    <a class="cta" href="Install%20PC%20Setup%20Kit.cmd" download>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+      Download for Windows
+    </a>
+    <div class="meta">Free · Windows 11 · open source · <span id="ver">updates itself</span></div>
+    <div class="shot-main"><img src="img/app-home.png" alt="The Messiah app's Home page: All good - nothing needs you, the last session, and this week at a glance" width="1264" height="861"></div>
+  </div>
+
+  <section id="how">
+    <h2>Set up in three steps</h2>
+    <p class="sub">About 20 minutes, most of it without you.</p>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><h3>Download</h3><p>Click the button above and open the file. If your browser asks, choose <b>Keep</b>.</p></div>
+      <div class="step"><div class="n">2</div><h3>Say yes</h3><p>Allow the administrator prompt, read what it will do, and type <code>YES</code>.</p></div>
+      <div class="step"><div class="n">3</div><h3>Play</h3><p>It tunes Windows, installs your apps and optimizes the PC. Messiah opens with a welcome page showing what it did.</p></div>
     </div>
-    <ol>
-      <li>Open the downloaded file. If your browser asks, choose <strong>Keep</strong>.</li>
-      <li>If Windows shows <strong>"Windows protected your PC"</strong>, click <strong>More info</strong>, then <strong>Run anyway</strong>. This shows up because the file isn't code-signed (a certificate costs money every year; this project is free). Everything it runs is the open-source code on <a href="https://github.com/Kevincxv/pc-setup-kit">GitHub</a>.</li>
-      <li>Click <strong>Yes</strong> when it asks for administrator rights, read what it will do, then type <code>YES</code>.</li>
-      <li>Wait 15-30 minutes. It tweaks Windows, installs the apps, optimizes the PC, then the app opens with a welcome page showing what it did.</li>
-    </ol>
-    <div class="note">Afterwards the <strong>Messiah</strong> app (Start menu and desktop, the icon in the hidden tray next to the clock, or Ctrl+Alt+M) shows what the PC is doing and anything that needs you. Every change it makes can be switched off in its Settings, and it can uninstall itself from there. It never restarts while you're using the PC; pending updates can finish with a restart at night (a switch in Settings).</div>
-  </div>
+    <div class="note"><strong>Seeing "Windows protected your PC"?</strong> Click <b>More info</b>, then <b>Run anyway</b>. This shows up because the installer isn't code-signed yet - everything it runs is the open-source code on <a href="https://github.com/Kevincxv/pc-setup-kit">GitHub</a>.</div>
+  </section>
 
-  <div class="card">
-    <h2>Installing Windows from scratch</h2>
-    <p style="margin:0 0 12px">For a new PC, or to wipe and reinstall one: a USB stick (8 GB or bigger) that installs a slimmed-down Windows 11 and sets the PC up by itself. Built like tiny11: no Edge, Teams, Outlook, OneDrive, Xbox app or other preinstalled apps, and a clean Start menu - but Windows can still install every update and repair itself.</p>
-    <div class="btns">
-      <a class="btn" href="Make%20install%20USB.cmd" download>
-        <strong>Make an install USB</strong><span>Slimmed-down Windows 11 + the kit; erases the stick</span>
-      </a>
+  <section id="features">
+    <h2>Everything a gaming PC needs, without the fiddling</h2>
+    <p class="sub">Messiah does it, checks it, and puts it back if Windows changes it.</p>
+    <div class="feats">
+      <div class="feat"><div class="ic">⚡</div><h3>Faster games</h3><p>Bloat, ads and telemetry gone, gaming tweaks on, every monitor at its best refresh rate - and each game's frame rate measured while you play, so you see what an update did.</p></div>
+      <div class="feat"><div class="ic">🛡️</div><h3>Looks after itself</h3><p>Driver and app updates, cleanup and checks run in the background - held while you play, never a restart while you're at the PC.</p></div>
+      <div class="feat"><div class="ic">🩺</div><h3>Crash help</h3><p>Blue screens explained, a memory test at night, and a new graphics driver that crashes or runs slower is rolled back by itself.</p></div>
+      <div class="feat"><div class="ic">📶</div><h3>Lag or PC?</h3><p>Ping, jitter and packet loss measured during your matches - each session says whether lag was the connection or the PC, with tips that fit.</p></div>
+      <div class="feat"><div class="ic">💾</div><h3>Storage</h3><p>Every drive and game at a glance, one click to clean what uninstalled games left behind, and Steam games moved to another drive.</p></div>
+      <div class="feat"><div class="ic">✨</div><h3>An assistant, if you want one</h3><p>Optional: switch on Claude in the app to ask anything about your PC and have it fixed for you. Off by default - no account needed.</p></div>
     </div>
-    <ol>
-      <li>On any Windows PC, open the downloaded file and pick the USB stick. It downloads Windows 11 from Microsoft (about 7 GB), slims it down and puts the kit on the stick: 20-40 minutes. (Already have the kit? The app's <strong>Maintenance</strong> page has the same button, and it can put your settings on the stick too.)</li>
-      <li>Plug the stick into the new PC, turn it on and press the boot-menu key (often <strong>F8</strong>, <strong>F11</strong> or <strong>F12</strong>). Pick the USB.</li>
-      <li>Choose the language, then the drive to install on. That's the one screen to be careful on: delete the old partitions only on the drive you want wiped.</li>
-      <li>After a few restarts, pick a username and password (no Microsoft account needed). At the desktop a <strong>"Setting up this PC"</strong> window shows the progress. Keep the stick in until it says it's finished.</li>
-    </ol>
-  </div>
+  </section>
 
-  <div class="card">
-    <h2>What you'll see</h2>
-    <div class="shots">
-      <figure><img src="img/setup-progress.png" alt="The Setting up this PC window with the steps, a progress bar and the time left" loading="lazy"><figcaption>While it sets up: every step, the progress and about how long is left.</figcaption></figure>
-      <figure><img src="img/app-overview.png" alt="The app's Overview page: All good - nothing needs you" loading="lazy"><figcaption>Afterwards the app says whether anything needs you. Usually nothing does.</figcaption></figure>
-      <figure><img src="img/app-history.png" alt="The app's History page with charts of start-up time, free space and temperatures" loading="lazy"><figcaption>History: start-up time, disk space, temperatures, frame rates and ping over time.</figcaption></figure>
+  <section>
+    <h2>See what your PC is doing</h2>
+    <p class="sub">One app, five tabs. Most days it just says all good.</p>
+    <div class="gallery">
+      <figure><img src="img/app-games.png" alt="Games: frame rate and 1% low for each session, and the connection while playing" loading="lazy" width="1264" height="861"><figcaption>Games - how each one runs, session by session</figcaption></figure>
+      <figure><img src="img/app-storage.png" alt="Storage: drives, games with their sizes, a move button, and leftovers to clean" loading="lazy" width="1264" height="861"><figcaption>Storage - drives, games and leftovers to clean</figcaption></figure>
     </div>
-  </div>
-  <div class="card">
-    <h2>What it does</h2>
-    <ul>
-      <li>Removes Windows bloat and ads (Copilot, Widgets, Teams, OneDrive, old Windows parts and ~50 preinstalled apps), turns off telemetry and the built-in AI features, applies gaming tweaks.</li>
-      <li class="warn">Turns memory integrity (VBS) off for gaming performance, which is a small security trade-off.</li>
-      <li>Installs Git, Steam, Discord, Chrome, WinDbg and AutoHotkey, plus the NVIDIA App on NVIDIA cards.</li>
-      <li>At every login and once a day, in the background: driver and app updates, cleanup, crash checks and a self-test. It holds off while you play.</li>
-      <li>Sets every monitor to its native resolution and highest refresh rate, measures your games' frame rate and temperatures while you play, watches the network, and backs up your settings (wallpaper, dark mode, game settings) so a reinstall brings them back.</li>
-      <li>Updates itself, but only to versions that passed a full test install first.</li>
-    </ul>
+  </section>
+
+  <section>
+    <h2>Safe, and yours to undo</h2>
+    <div class="trust">
+      <div><span class="tick">✓</span><span><b>Every change has a switch</b>Turn any of them off in the app's Optimizations tab.</span></div>
+      <div><span class="tick">✓</span><span><b>Uninstalls cleanly</b>From the app's Settings, with the option to put Windows' settings back.</span></div>
+      <div><span class="tick">✓</span><span><b>Open source</b>Every line it runs is on GitHub, under the MIT license.</span></div>
+      <div><span class="tick">✓</span><span><b>Updates are tested first</b>A new version installs only after it passed a full test install.</span></div>
+    </div>
+    <div class="note"><strong>One trade-off to know:</strong> Messiah turns Windows' memory integrity (VBS) off for gaming performance - a small security trade-off. It's a switch in the app if you'd rather keep it on.</div>
+  </section>
+
+  <section id="faq">
+    <h2>Questions</h2>
+    <div class="faq">
+      <details><summary>Is it free? Do I need an account?</summary><p>Free and open source. No account - you pick a local username during a fresh install, and the optional AI assistant uses your own Claude account only if you switch it on.</p></details>
+      <details><summary>What exactly does it change?</summary><p>It removes Windows bloat and ads (Copilot, Widgets, Teams, OneDrive, ~50 preinstalled apps), turns off telemetry and the built-in AI features, applies gaming tweaks and installs Steam, Discord, Chrome and the NVIDIA App on NVIDIA cards. The app's Optimizations tab lists every change, with a switch for each.</p></details>
+      <details><summary>How does it update?</summary><p>By itself, in the background - your PC gets each new version at its next login, only after that version passed a full test install. Nothing to do.</p></details>
+      <details><summary>Installing Windows from scratch?</summary>
+        <p>A USB stick (8 GB or bigger) that installs a slimmed-down Windows 11 and sets the PC up by itself - no Edge, Teams, Outlook, OneDrive or Xbox app, and Windows can still update and repair itself.</p>
+        <ol><li>On any Windows PC, open the file below and pick the stick (it's erased). It downloads Windows 11 from Microsoft: 20-40 minutes.</li><li>Boot the new PC from the stick (often <b>F8</b>, <b>F11</b> or <b>F12</b>) and pick the drive to install on - careful: delete partitions only on the drive you want wiped.</li><li>Pick a username and password. A "Setting up this PC" window shows the progress - keep the stick in until it's done.</li></ol>
+        <a class="btn2" href="Make%20install%20USB.cmd" download>Make an install USB</a></details>
+      <details><summary>Prefer a command?</summary><p>Open PowerShell and paste:<button class="copy" data-copy="cmd1">Copy</button></p><pre id="cmd1">irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1 | iex</pre></details>
+      <details><summary>How do I remove it?</summary><p>In the app: Settings > Tools > Uninstall Messiah. Or run <code>C:\PCSetupKit\uninstall.ps1</code> (add <code>-RevertTweaks</code> to put Windows' settings back). Your apps, files and games stay.</p></details>
+    </div>
+  </section>
+
+  <div class="final">
+    <h2>Ready when you are</h2>
+    <p class="sub">One download, about 20 minutes, and your PC looks after itself.</p>
+    <a class="cta" href="#install">Get Messiah</a>
   </div>
 
-  <div class="card">
-    <h2>Prefer a command?</h2>
-    <p style="margin:0">Open PowerShell and paste: <button class="copy" data-copy="cmd1">Copy</button></p>
-    <pre id="cmd1">irm https://github.com/Kevincxv/pc-setup-kit/releases/latest/download/install.ps1 | iex</pre>
-    <p style="margin:16px 0 0">Remove it any time with <code>C:\PCSetupKit\uninstall.ps1</code> (add <code>-RevertTweaks</code> to put the Windows settings back).</p>
-  </div>
-
-  <footer>Source, releases and the fresh-Windows USB install: <a href="https://github.com/Kevincxv/pc-setup-kit">github.com/Kevincxv/pc-setup-kit</a> · MIT license</footer>
-</main>
+  <footer><span>Messiah - PC Setup Kit · MIT license</span><span><a href="https://github.com/Kevincxv/pc-setup-kit">Source</a> · <a href="https://github.com/Kevincxv/pc-setup-kit/releases">Releases</a> · <a href="code-signing.html">Code signing policy</a></span></footer>
+</div>
 <script>
   document.querySelectorAll('.copy').forEach(function (b) {
     b.addEventListener('click', function () {
@@ -117,6 +169,12 @@
       try { navigator.clipboard.writeText(t).then(function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1500); }); } catch (e) {}
     });
   });
+  // the newest version and when it came out (GitHub's latest release) - the page always offers that one
+  fetch('https://api.github.com/repos/Kevincxv/pc-setup-kit/releases/latest').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+    if (!j || !j.tag_name) return;
+    var d = new Date(j.published_at), el = document.getElementById('ver');
+    el.innerHTML = 'version <b>' + j.tag_name.replace(/^v/, '') + '</b>, ' + d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }).catch(function () {});
 </script>
 </body>
 </html>

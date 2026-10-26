@@ -69,7 +69,7 @@ $nd = "$D\SteamLibrary\steamapps"
 Check 'moved: every file there (the same count and bytes), said' ((Test-Path "$nd\common\GameOne\data\pak2.bin") -and (Get-Item "$nd\common\GameOne\data\pak1.bin").Length -eq 2MB -and "$o" -match '^Storage: moved Game One .* from C: to D:') "$o"
 Check '... Steam''s record of it and its shader cache went along; the old copy is gone' ((Test-Path "$nd\appmanifest_100.acf") -and (Test-Path "$nd\shadercache\100\cache.bin") -and -not (Test-Path "$steam\steamapps\appmanifest_100.acf") -and -not (Test-Path "$steam\steamapps\common\GameOne")) ''
 $vdf = Get-Content "$steam\steamapps\libraryfolders.vdf" -Raw
-Check '... a new Steam library made on that drive and added to Steam''s list (the old entries kept)' ($vdf -match [regex]::Escape(("$D\SteamLibrary" -replace '\\', '\\')) -and $vdf -match '"1"' -and $vdf.StartsWith($vdf0.Substring(0, 40))) $vdf
+Check '... a new Steam library made on that drive and added to Steam''s list (the old entries kept)' ($vdf -match '"path"\s+"[^"]*\\\\D\\\\SteamLibrary"' -and $vdf -match '"1"' -and $vdf.StartsWith($vdf0.Substring(0, 40))) $vdf
 $j = Scan
 Check '... and the scan finds it on D:' (@($j.games | Where-Object { $_.name -eq 'Game One' -and $_.drive -eq 'D' -and $_.store -eq 'Steam' }).Count -eq 1) ''
 '{"cmd":"move","appid":"100","to":"C"}' | Set-Content "$Work\storage-request.json"
