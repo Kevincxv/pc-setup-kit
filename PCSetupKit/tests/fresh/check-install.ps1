@@ -99,6 +99,6 @@ $ap = Start-Process "$cl\app\MessiahApp.exe" -ArgumentList '--test' -RedirectSta
 $fin = $ap.WaitForExit(300000); if (-not $fin) { Stop-Process -Id $ap.Id -Force -ErrorAction SilentlyContinue }
 $d = Get-Content $tf -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
 Check '... the app''s self-test ends by itself (within 5 minutes)' $fin ''
-Check '... the app window builds on this PC, every page' ($d -match "(?m)^WINDOW: $app\s*$" -and $d -match 'CARD: Needs you' -and @([regex]::Matches($d, '(?m)^PAGE: ')).Count -ge 10 -and $d -notmatch 'PAGE ERROR') $d
+Check '... the app window builds on this PC, every page' ($d -match "(?m)^WINDOW: $app\s*$" -and $d -match '(?m)^PAGE: Home .*\r?\nCARD: -\r?\n  (All good|\d+ (thing|optimization)s? needs?)' -and @([regex]::Matches($d, '(?m)^PAGE: ')).Count -ge 10 -and $d -notmatch 'PAGE ERROR') $d
 Check 'no leftovers of the old name' (-not (Get-ScheduledTask 'Claude Admin Tray' -ErrorAction SilentlyContinue) -and -not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Claude (Admin).lnk")) ''
 Finish
