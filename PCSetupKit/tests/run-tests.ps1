@@ -27,8 +27,11 @@ if ($Only) { $unit = @($unit | Where-Object BaseName -match $Only); $live = @($l
 Write-Host "PC Setup Kit tests ($Suite) - scripts: $Src$(if ($unit.Count -gt 1 -and $Jobs -gt 1) { " - $Jobs at a time" })" -ForegroundColor Cyan
 
 # scratch folders of runs more than 2 days old go (the weekly self-test would otherwise pile them up)
-Get-ChildItem $scratch -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin 'bin2', 'sleeper', 'scripted3', 'dbg' -and $_.LastWriteTime -lt (Get-Date).AddDays(-2) } |
+Get-ChildItem $scratch -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin 'bin2', 'sleeper', 'scripted4', 'dbg' -and $_.LastWriteTime -lt (Get-Date).AddDays(-2) } |
     ForEach-Object { try { [IO.Directory]::Delete($_.FullName, $true) } catch {} }
+# a killed run can leave PowerShell's ModuleAnalysisCache in tests\Microsoft - it holds this PC's paths, which the
+# personal-info scan would then fail on; never part of the kit
+if (Test-Path "$here\Microsoft\Windows\PowerShell") { try { [IO.Directory]::Delete("$here\Microsoft", $true) } catch {} }
 # build the compiled stand-ins once, before tests start side by side (two tests compiling the same file would clash)
 & powershell -NoProfile -ExecutionPolicy Bypass -Command ". '$here\lib.ps1'; [void](Get-FakeClaude); [void](Get-SleeperClaude); [void](Get-ScriptedClaude)" *> $null
 

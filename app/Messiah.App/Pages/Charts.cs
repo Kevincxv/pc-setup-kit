@@ -16,7 +16,7 @@ namespace Messiah.Pages
     // the point picked on a chart, shared by the charts showing the same sessions (a game's frame rate and its 1% low)
     class ChartSel { public string Key; public event Action Changed; public void Set(string k) { Key = k; Changed?.Invoke(); } }
     // what the test mode reaches (the chart canvas's DataContext): hover, click and the range without a mouse
-    class ChartCtl { public Func<int, string> Hover; public Action<int> Click; public Action<string> Range; public int Count; }
+    class ChartCtl { public Func<int, string> Hover; public Action<int> Click; public Action<string> Range; public int Count; public Func<int, double, string> Near; }
 
     // The charts over time (10/22, the owner's request: interactive): point at it - the value, its date and what else was going
     // on then (driver, RAM speed, the setting being tried...) in the line under the chart; arrows keys do the same; a dashed
@@ -28,10 +28,36 @@ namespace Messiah.Pages
         static SolidColorBrush B(string k) => Theme.B[k];
         static readonly string[] RangeNames = { "7 days", "30 days", "All" };
         static readonly Dictionary<string, string> rangeOf = new Dictionary<string, string>();   // (by the chart's title: kept across redraws)
+        // a drift's line beside the big number: how far it went since the range's first point, and when a marked drop is most
+        // of that, its day and why (10/28: the amber mark on Free space on C: said nothing until its 8 px triangle was pointed at)
+        // the dates line's two ends: a game played on one day only (Apex's 4 sessions, 10/28) read 'Oct 25 ... Oct 25' - then the
+        // times say where the line starts and ends
+        internal static (string L, string R) Ends(DateTime a, DateTime b) =>
+            a.Date == b.Date ? (a.ToString("MMM d, h:mm tt"), b.ToString("h:mm tt")) : (a.ToString("MMM d"), b.ToString("MMM d"));
+        internal static string DriftSince(IList<(DateTime D, double V)> p, IEnumerable<(DateTime D, string Text)> marks, Func<double, string> fmt, int decimals)
+        {
+            var d = Math.Round(p[p.Count - 1].V - p[0].V, decimals);
+            var s = (d == 0 ? "same as" : (d < 0 ? "down " : "up ") + fmt(Math.Abs(d)) + " since") + $" {p[0].D:MMM d}";
+            if (d >= 0) return s;
+            int bi = -1; double bd = 0;
+            for (int i = 1; i < p.Count; i++) if (p[i - 1].V - p[i].V > bd) { bd = p[i - 1].V - p[i].V; bi = i; }
+            var m = bi < 0 || bd < -d / 2 ? null : (marks ?? Enumerable.Empty<(DateTime D, string Text)>()).Where(x => x.D > p[bi - 1].D && x.D <= p[bi].D).Select(x => x.Text).FirstOrDefault();
+            if (m == null) return s;   // (no mark there: a slow fill, nothing to point at)
+            var why = m.IndexOf(" - ") is int k && k >= 0 ? m.Substring(k + 3) : null;
+            return s + $", most of it on {p[bi].D:MMM d}" + (why != null ? $" ({why})" : "");
+        }
         static double Median(List<double> v) { var s = v.OrderBy(x => x).ToList(); int m = s.Count / 2; return s.Count % 2 == 1 ? s[m] : (s[m - 1] + s[m]) / 2; }
 
+        // does a built chart show a change mark in its range (its tag says ' | marks: ') - Trends' subtitle names the amber line then (10/28)
+        internal static event Action RangeChanged;   // (after a chart's 7 days / 30 days / All link redrew it)
+        internal static bool ShowsMark(object el)
+        {
+            if (el is StackPanel p && p.Tag is string t && t.StartsWith("CHART:")) return t.Contains(" | marks: ");
+            return el is DependencyObject d && LogicalTreeHelper.GetChildren(d).OfType<object>().Any(ShowsMark);
+        }
+
         public static Border Chart(string title, string unit, IEnumerable<ChartPt> data, int decimals, double minSpan,
-            IEnumerable<(DateTime D, string Text)> marks = null, Action<ChartPt> click = null, ChartSel sel = null)
+            IEnumerable<(DateTime D, string Text)> marks = null, Action<ChartPt> click = null, ChartSel sel = null, bool drift = false, bool hint = true, bool dated = false)
         {
             var all = (data ?? Enumerable.Empty<ChartPt>()).Where(p => p != null).OrderBy(p => p.D).ToList();
             var mk = (marks ?? Enumerable.Empty<(DateTime D, string Text)>()).OrderBy(m => m.D).ToList();
@@ -51,19 +77,26 @@ namespace Messiah.Pages
             if (!ranged) range = "All";
             double W = 330, H = 84;
             List<ChartPt> pts = null; List<(DateTime D, string Text)> shown = null;
-            Canvas cv = null; TextBlock readout = null; int hover = -1;
+            Canvas cv = null; TextBlock readout = null; DockPanel axis = null; int hover = -1, markOn = -1;
 
             // a point in words: when, its value, what else was going on, and what changed since the point before it
             string Say(int i)
             {
-                var p = pts[i]; var s = $"{p.D:ddd MMM d, h:mm tt}: {Fmt(p.V)}" + (string.IsNullOrEmpty(p.More) ? "" : " - " + p.More);
+                var p = pts[i]; var s = $"{Kit.Stamp(p.D)}: {Fmt(p.V)}" + (string.IsNullOrEmpty(p.More) ? "" : " - " + p.More);
                 var prev = i > 0 ? pts[i - 1].D : DateTime.MinValue;
                 var ch = mk.Where(m => m.D > prev && m.D <= p.D).Select(m => m.Text).Where(x => p.More == null || !p.More.Contains(x)).ToList();   // (not what the point says already)
                 return ch.Count > 0 ? s + $" (changed: {string.Join(", ", ch)})" : s;
             }
             string Rest() => "Latest " + Say(pts.Count - 1);
-            // (not pointing at it: a short hint - the big number above is the latest already; 10/25, every chart repeated it in a long line)
-            string Idle() => click != null ? "Point at a session to read it, click to open it" : "Point at the line to read a day";
+            // a drift (C:'s free space only fills up, then a cleanup or a move frees it): how far it went since the range's first
+            // point says more than a median level it is never at (10/27)
+            string Since() => DriftSince(pts.Select(p => (p.D, p.V)).ToList(), shown, Fmt, decimals);
+            // (not pointing at it: a short hint - the big number above is the latest already; 10/25, every chart repeated it in a long line;
+            // 10/27 hint: false - a page of charts (Trends' 6, Performance's) says it once in its subtitle; the line stays empty until pointed at)
+            // a chart of the PC's checks whose newest point is days old (Start-up time is measured only at a cold start, 10/28):
+            // the big number is that day's, so the dates line's last day says so - not today's as the charts beside it
+            string Asof() => dated && (DateTime.Now - last.D).TotalDays > 2 ? $"last measured {last.D:MMM d}" : null;
+            string Idle() => !hint ? "" : click != null ? "Point at a session to read it, click to open it" : "Point at the line to read a day";
 
             void DrawCanvas()
             {
@@ -71,16 +104,14 @@ namespace Messiah.Pages
                 var vals = pts.Select(p => p.V).ToList(); double lo = vals.Min(), hi = vals.Max(), usual = Median(vals);
                 if (hi - lo < minSpan) { var mid = (hi + lo) / 2; hi = mid + minSpan / 2; lo = mid - minSpan / 2; }
                 var pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
-                long t0 = pts[0].D.Ticks, t1 = pts[pts.Count - 1].D.Ticks; if (t1 == t0) t1 = t0 + 1;
-                double X(DateTime d) => (d.Ticks - t0) / (double)(t1 - t0) * (W - 12) + 6; double Y(double v) => H - 4 - (v - lo) / (hi - lo) * (H - 8);
+                double Y(double v) => H - 4 - (v - lo) / (hi - lo) * (H - 8);
                 foreach (var gy in new[] { 4, H - 4 }) cv.Children.Add(new Sh.Line { X1 = 0, X2 = W, Y1 = gy, Y2 = gy, Stroke = B("Border"), StrokeThickness = 1 });   // recessive frame lines
-                var u = Y(usual); cv.Children.Add(new Sh.Line { X1 = 0, X2 = W, Y1 = u, Y2 = u, Stroke = B("Sub"), StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 4, 3 }, Opacity = 0.5 });   // the usual level
-                foreach (var m in shown)   // something changed here: a dashed upright line, its words on hover
+                if (!drift) { var u = Y(usual); cv.Children.Add(new Sh.Line { X1 = 0, X2 = W, Y1 = u, Y2 = u, Stroke = B("Sub"), StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 4, 3 }, Opacity = 0.5 }); }   // the usual level (none for a drift: no level to keep)
+                for (int k = 0; k < shown.Count; k++)   // something changed here: a dashed upright line, its words in the readout when pointed at
                 {
-                    var x = X(m.D);
-                    cv.Children.Add(new Sh.Line { X1 = x, X2 = x, Y1 = 4, Y2 = H - 4, Stroke = B("Warn"), StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 2, 3 }, Opacity = 0.7 });
-                    var tip = new Sh.Polygon { Points = new PointCollection { new Point(x - 4, 0), new Point(x + 4, 0), new Point(x, 5) }, Fill = B("Warn"), ToolTip = $"{m.D:MMM d}: {m.Text}" };
-                    cv.Children.Add(tip);
+                    var x = X(shown[k].D); bool on = k == markOn;
+                    cv.Children.Add(new Sh.Line { X1 = x, X2 = x, Y1 = 4, Y2 = H - 4, Stroke = B("Warn"), StrokeThickness = on ? 2 : 1, StrokeDashArray = new DoubleCollection { 2, 3 }, Opacity = on ? 1 : 0.7, IsHitTestVisible = false });
+                    cv.Children.Add(new Sh.Polygon { Points = new PointCollection { new Point(x - 4, 0), new Point(x + 4, 0), new Point(x, 5) }, Fill = B("Warn"), IsHitTestVisible = false });
                 }
                 var line = new Sh.Polyline { Stroke = B("Chart"), StrokeThickness = 2, StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, IsHitTestVisible = false };
                 foreach (var p in pts) line.Points.Add(new Point(X(p.D), Y(p.V)));
@@ -102,6 +133,16 @@ namespace Messiah.Pages
                     cv.Children.Add(Dot(pts[hover], 9, false));
                 }
             }
+            double X(DateTime d) { long t0 = pts[0].D.Ticks, t1 = Math.Max(pts[pts.Count - 1].D.Ticks, t0 + 1); return (d.Ticks - t0) / (double)(t1 - t0) * (W - 12) + 6; }
+            // a mark is read anywhere along its dashed line, 5 px either side (10/28: only its 8 px triangle had a tooltip, and the
+            // canvas redrawing under the pointer often hid that)
+            int MarkNear(double x)
+            {
+                int best = -1;
+                for (int k = 0; k < shown.Count; k++) if (Math.Abs(X(shown[k].D) - x) <= 5 && (best < 0 || Math.Abs(X(shown[k].D) - x) < Math.Abs(X(shown[best].D) - x))) best = k;
+                return best;
+            }
+            void Move(double x) { var k = MarkNear(x); if (k >= 0) { if (k != markOn) Mark(k); } else { var i = Nearest(x); if (i != hover || markOn >= 0) Hover(i); } }
             int Nearest(double x)
             {
                 long t0 = pts[0].D.Ticks, t1 = Math.Max(pts[pts.Count - 1].D.Ticks, t0 + 1);
@@ -109,12 +150,19 @@ namespace Messiah.Pages
                 for (int i = 1; i < pts.Count; i++) if (Math.Abs(pts[i].D.Ticks - t) < Math.Abs(pts[best].D.Ticks - t)) best = i;
                 return best;
             }
-            void Hover(int i) { hover = i; readout.Text = i >= 0 ? Say(i) : Idle(); readout.Foreground = i >= 0 ? B("Text") : B("Sub"); DrawCanvas(); }
+            void Read(string words)
+            {
+                bool on = words != null; readout.Text = words ?? Idle(); readout.Foreground = on ? B("Text") : B("Sub");
+                if (!hint) { readout.Visibility = on ? Visibility.Visible : Visibility.Hidden; axis.Visibility = on ? Visibility.Hidden : Visibility.Visible; }
+                DrawCanvas();
+            }
+            void Hover(int i) { hover = i; markOn = -1; Read(i >= 0 ? Say(i) : null); }
+            void Mark(int k) { markOn = k; hover = -1; Read($"{Kit.Stamp(shown[k].D, false)}: {shown[k].Text}"); }
             void Pick(int i) { if (click == null || i < 0) return; sel?.Set(pts[i].Key); click(pts[i]); }
 
             void Draw()
             {
-                sp.Children.Clear(); hover = -1;
+                sp.Children.Clear(); hover = -1; markOn = -1;
                 pts = range == "All" ? all : all.Where(p => p.D >= last.D.AddDays(range == "7 days" ? -7 : -30)).ToList();
                 if (pts.Count < 2) pts = all.Skip(all.Count - 2).ToList();
                 shown = mk.Where(m => m.D > pts[0].D && m.D <= pts[pts.Count - 1].D).ToList();
@@ -132,16 +180,17 @@ namespace Messiah.Pages
                     }
                     DockPanel.SetDock(rt, Dock.Right); hero.Children.Add(rt);
                 }
-                var hv = new StackPanel { Orientation = Orientation.Horizontal };
-                hv.Children.Add(Ui.Text(Fmt(last.V), B("Text"), 26, FontWeights.SemiBold, "0"));
-                var us = Ui.Text("   usual " + Fmt(usual), B("Sub"), 12, null, "0,0,0,5"); us.VerticalAlignment = VerticalAlignment.Bottom; hv.Children.Add(us);
+                // (a dock, not a row: in a half-width card 'down 100 GB since Sep 29' wraps beside the number instead of running
+                // under the range links, 10/28)
+                var hv = new DockPanel(); var big = Ui.Text(Fmt(last.V), B("Text"), 26, FontWeights.SemiBold, "0"); DockPanel.SetDock(big, Dock.Left); hv.Children.Add(big);
+                var us = Ui.Text(drift ? Since() : "usual " + Fmt(usual), B("Sub"), 12, null, "12,0,8,5"); us.VerticalAlignment = VerticalAlignment.Bottom; us.TextWrapping = TextWrapping.Wrap; hv.Children.Add(us);
                 hero.Children.Add(hv); sp.Children.Add(hero);
                 // the canvas: as wide as its card (redrawn when that changes); the mouse or the arrow keys read a point
                 var host = new Grid { Margin = Ui.Th("0,10,0,0") };
                 cv = new Canvas { Width = W, Height = H, HorizontalAlignment = HorizontalAlignment.Left, Background = Brushes.Transparent, Focusable = true, FocusVisualStyle = null, ClipToBounds = false };
                 AutomationProperties.SetName(cv, $"{title} chart - the arrow keys read each point{(click != null ? ", Enter opens it" : "")}");
                 if (click != null) cv.Cursor = Cursors.Hand;
-                cv.MouseMove += (s, e) => { var i = Nearest(e.GetPosition(cv).X); if (i != hover) Hover(i); };
+                cv.MouseMove += (s, e) => Move(e.GetPosition(cv).X);
                 cv.MouseLeave += (s, e) => Hover(-1);
                 cv.MouseLeftButtonUp += (s, e) => { cv.Focus(); Pick(Nearest(e.GetPosition(cv).X)); };
                 cv.KeyDown += (s, e) =>
@@ -151,22 +200,27 @@ namespace Messiah.Pages
                     else if ((e.Key == Key.Enter || e.Key == Key.Space) && hover >= 0) { Pick(hover); e.Handled = true; }
                 };
                 cv.LostKeyboardFocus += (s, e) => { if (!cv.IsMouseOver) Hover(-1); };
-                cv.DataContext = new ChartCtl { Hover = i => { Hover(i); return readout.Text; }, Click = Pick, Range = SetRange, Count = pts.Count };
+                cv.DataContext = new ChartCtl { Hover = i => { Hover(i); return readout.Text; }, Click = Pick, Range = SetRange, Count = pts.Count,
+                    Near = (k, dx) => { Move(X(shown[k].D) + dx); return readout.Text; } };
                 host.Children.Add(cv);
                 host.SizeChanged += (s, e) => { var w = Math.Max(200, Math.Floor(e.NewSize.Width)); if (Math.Abs(w - W) > 6) { W = w; DrawCanvas(); } };
                 sp.Children.Add(host);
                 readout = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = B("Sub"), Margin = Ui.Th("0,6,0,0"), MinHeight = 32, Text = Idle() };
-                var axis = new DockPanel { Margin = Ui.Th("0,4,0,0") };
-                var r = Ui.Text(pts[pts.Count - 1].D.ToString("MMM d"), B("Sub"), 11, null, "0"); DockPanel.SetDock(r, Dock.Right); axis.Children.Add(r);
-                axis.Children.Add(Ui.Text($"{pts[0].D:MMM d}   ·   range {Fmt(vals.Min())} - {Fmt(vals.Max())}", B("Sub"), 11, null, "0"));
-                sp.Children.Add(axis); sp.Children.Add(readout);
+                axis = new DockPanel { Margin = Ui.Th("0,4,0,0") };
+                var ends = Ends(pts[0].D, pts[pts.Count - 1].D);
+                var r = Ui.Text(Asof() ?? ends.R, B("Sub"), 11, null, "0"); DockPanel.SetDock(r, Dock.Right); axis.Children.Add(r);
+                axis.Children.Add(Ui.Text($"{ends.L}   ·   range {Fmt(vals.Min())} - {Fmt(vals.Max())}", B("Sub"), 11, null, "0"));
+                // with no hint (10/27) the readout has nothing to say until pointed at: it takes the dates line's place then, in one
+                // cell kept two lines tall (no jump when a long one wraps), instead of a blank row under every chart
+                if (hint) { sp.Children.Add(axis); sp.Children.Add(readout); }
+                else { readout.Margin = Ui.Th("0,4,0,0"); readout.Visibility = Visibility.Hidden; var foot = new Grid(); foot.Children.Add(axis); foot.Children.Add(readout); sp.Children.Add(foot); }
                 DrawCanvas();
-                sp.Tag = $"CHART: {title} | {pts.Count} points, now {Fmt(last.V)}, usual {Fmt(usual)}" +
+                sp.Tag = $"CHART: {title} | {pts.Count} points, now {Fmt(last.V)}, {(drift ? Since() : "usual " + Fmt(usual))}{(Asof() == null ? "" : ", " + Asof())}" +
                     (ranged ? $" | ranges: {string.Join(", ", RangeNames.Select(n => n == range ? n + "*" : n))}" : "") +
                     (shown.Count > 0 ? $" | marks: {string.Join("; ", shown.Select(m => m.Text))}" : "") +
                     (click != null ? " | click opens a session" : "") + $" | {Rest()}";
             }
-            void SetRange(string name) { range = name; rangeOf[title] = name; Draw(); }
+            void SetRange(string name) { range = name; rangeOf[title] = name; Draw(); RangeChanged?.Invoke(); }
             if (sel != null) sel.Changed += () => { if (cv != null) DrawCanvas(); };
             Draw();
             return card;

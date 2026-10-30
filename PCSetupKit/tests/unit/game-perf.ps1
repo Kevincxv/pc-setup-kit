@@ -112,4 +112,14 @@ Check 'the router (the home network) and wired or Wi-Fi' ($s.gwPing -eq 1 -and $
 [void](& $gp -TestCsv $cap -TestGame 'TestGame' -TestGpu @('70, 98, Not Active, Not Active, Not Active') -History $hf -Now $now.AddHours(6) -Force -Tune "$Work\game-tune.json" -GameSettings "$Work\game-settings.json" -TestNet @{ net = @(20, 21); netLost = 0 })
 $s = @(Hist)[-1]
 Check 'too few pings (offline, a firewall): nothing said about the connection' ($s.frames -eq 900 -and [datetime]$s.date -gt $now.AddHours(5.5) -and $null -eq $s.netPing -and $null -eq $s.netLoss) "$($s.netPing)"
+
+Section 'the game''s own name (10/27: a game the app doesn''t know read by its program''s, ''HuntGame'')'
+@{ games = @(@{ name = "Hunt: Showdown 1896$([char]0x2122)"; path = "$Work\lib\Hunt Showdown" }, @{ name = 'Other'; path = "$Work\lib\Hunt" }) } | ConvertTo-Json -Depth 3 | Set-Content "$Work\storage.json"
+function Invoke-Named([string]$exe, [double]$h, [string]$game = 'HuntGame') { [void](& $gp -TestCsv (New-Capture -app "$game.exe") -TestGame $game -TestExe $exe -Storage "$Work\storage.json" -TestGpu @('70, 98, Not Active, Not Active, Not Active') -History $hf -Now $now.AddHours($h) -Force -Tune "$Work\game-tune.json" -GameSettings "$Work\game-settings.json"); @(Hist)[-1] }
+$s = Invoke-Named "$Work\lib\Hunt Showdown\bin\HuntGame.exe" 7
+Check 'the storage scan''s game whose folder holds the program (not one whose name only starts the same, no (TM))' ($s.title -eq 'Hunt: Showdown 1896') "$($s.title)"
+$s = Invoke-Named 'D:\SteamLibrary\steamapps\common\Deep Rock Galactic\FSD\Binaries\Win64\FSD-Win64-Shipping.exe' 8 'FSD-Win64-Shipping'
+Check 'not in the scan: its Steam folder' ($s.title -eq 'Deep Rock Galactic') "$($s.title)"
+$s = Invoke-Named 'E:\Odd\Game.exe' 9 'Game'
+Check 'nowhere known: no title (the app keeps the program''s name)' ($null -eq $s.title) "$($s.title)"
 Finish

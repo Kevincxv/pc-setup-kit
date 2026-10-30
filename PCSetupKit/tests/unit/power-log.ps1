@@ -24,6 +24,11 @@ Check 'kept with the power-off' (@((J).events)[1].answer -eq 'froze') ''
 Check '... and kept through the next check' (@((J).events)[1].answer -eq 'froze') ''
 [void](PL @{ Answer = 'nonsense'; Key = '2026-10-12T19:34:25' })
 Check 'an answer that isn''t one is ignored' (@((J).events)[1].answer -eq 'froze') ''
+$old = @(@{ At = [datetime]'2025-06-01 10:00'; Bugcheck = 0 }, @{ At = [datetime]'2025-07-01 10:00'; Bugcheck = 0 }, @{ At = [datetime]'2025-07-02 10:00'; Bugcheck = 0x109 }, @{ At = [datetime]'2026-10-01 10:00'; Bugcheck = 0 })
+[void](PL @{ Update = $true; Events = $old; Snapshot = $snap })
+[void](PL @{ Answer = 'me'; Old = $true })
+$a = @{}; foreach ($x in (J).events) { $a[$x.key] = "$($x.answer)" }
+Check 'one click for the old ones: every power-off over 30 days old not answered is "me" - not a blue screen, not a recent one, not one already answered' ($a['2025-06-01T10:00:00'] -eq 'me' -and $a['2025-07-01T10:00:00'] -eq 'me' -and $a['2025-07-02T10:00:00'] -eq '' -and $a['2026-10-01T10:00:00'] -eq '' -and $a['2026-10-12T19:34:25'] -eq 'froze') ($a | ConvertTo-Json -Compress)
 
 Section 'what changed'
 $s2 = $snap.Clone(); $s2.ram = '1 x 16 GB at 4800 MT/s in slot A'; $s2.gpu = 'Graphics X 618.10'

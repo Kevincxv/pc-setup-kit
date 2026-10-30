@@ -683,7 +683,9 @@ namespace Messiah
         }
 
         // --- keys for the whole window: the chat's tabs (Ctrl+T new, Ctrl+W close - the first chat: hides the chat,
-        // Ctrl+Tab / Ctrl+Shift+Tab switch), Ctrl+F in the chat: find in the conversation, Ctrl+0: normal text size
+        // Ctrl+Tab / Ctrl+Shift+Tab switch, while it has the keyboard), Ctrl+F in the chat: find in the conversation, Ctrl+0: normal
+        // text size; the pages: Ctrl+1..5 the five tabs, Ctrl+Tab / Ctrl+Shift+Tab the tab's next / previous page (NavKey); Ctrl+/
+        // the list of them all (Settings > General - Pages.Settings.Shortcuts says them)
         void WindowKeys(object s, KeyEventArgs e)
         {
             bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0, shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
@@ -692,8 +694,10 @@ namespace Messiah
             if (ctrl && key == Key.F && chatOn && ChatPanel.IsKeyboardFocusWithin) { ShowFind(true); e.Handled = true; }
             else if (ctrl && key == Key.T && ai) { e.Handled = true; if (!chatOn) ShowChat(true); NewConversation(); }
             else if (ctrl && key == Key.W && chatOn) { e.Handled = true; if (chatDir == ChatData.Main && TabDirs().Count < 2) ShowChat(false); else CloseTab(chatDir); }
-            else if (ctrl && key == Key.Tab && chatOn) { e.Handled = true; var ds = TabDirs(); if (ds.Count > 1) { var i = ds.IndexOf(chatDir); SwitchChat(ds[((i + (shift ? -1 : 1)) + ds.Count) % ds.Count]); } }
+            else if (ctrl && key == Key.Tab && chatOn && ChatPanel.IsKeyboardFocusWithin) { e.Handled = true; var ds = TabDirs(); if (ds.Count > 1) { var i = ds.IndexOf(chatDir); SwitchChat(ds[((i + (shift ? -1 : 1)) + ds.Count) % ds.Count]); } }
             else if (ctrl && (key == Key.D0 || key == Key.NumPad0) && chatOn) { e.Handled = true; SetZoom(1); Say("Chat text size: normal."); }
+            else if (ctrl && (key == Key.Oem2 || key == Key.Divide) && !ChatInput.IsKeyboardFocused) { e.Handled = true; Open("Settings/General#Keyboard shortcuts"); }
+            else if (ctrl && NavKey(key, shift)) e.Handled = true;
         }
         // --test: the chat's messages (selectable documents, links only to what exists, copy buttons, attachments), editing,
         // find and the speed - dashboard.ps1's CHAT lines, with the same sample

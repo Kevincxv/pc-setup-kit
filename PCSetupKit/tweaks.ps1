@@ -729,7 +729,7 @@ Close-Section
 if ($StatusFile) {
     try {
         $sj = @{ at = (Get-Date).ToString('o'); preview = [bool]$Audit; quick = [bool]$Quick; build = "$([Environment]::OSVersion.Version.Build)"
-            cause = $Cause; laptop = $laptop; dualX3D = $dualX3D; off = @($off); on = @($on); optIn = $optIn; keys = $stat } | ConvertTo-Json -Depth 5
+            cause = $Cause; laptop = $laptop; dualX3D = $dualX3D; sysHdd = $sysHdd; off = @($off); on = @($on); optIn = $optIn; keys = $stat } | ConvertTo-Json -Depth 5
         [IO.File]::WriteAllText("$StatusFile.tmp", $sj, (New-Object Text.UTF8Encoding $false))
         if ([IO.File]::Exists($StatusFile)) { [IO.File]::Delete($StatusFile) }; [IO.File]::Move("$StatusFile.tmp", $StatusFile)
     } catch { }

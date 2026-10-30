@@ -123,19 +123,28 @@ function Assert-Mocks([string[]]$Names) {
 # exits with a_b_c.exit; "--version" prints version.txt, and a_b_c.newversion replaces version.txt (an update).
 # Every call is appended to $env:FAKE_DIR\calls.log.
 function Get-ScriptedClaude {
-    $exe = Join-Path $BinRoot 'scripted3\claude.exe'   # scripted3: never crashes (see Get-FakeClaude)
+    $exe = Join-Path $BinRoot 'scripted4\claude.exe'   # scripted3: never crashes (see Get-FakeClaude); 4: two calls at once share calls.log
     if (-not (Test-Path $exe)) {
         New-Item (Split-Path $exe) -ItemType Directory -Force | Out-Null
         Add-Type -OutputType ConsoleApplication -OutputAssembly $exe -TypeDefinition @'
 using System; using System.IO;
 public static class P { public static int Main(string[] a) { try { return Run(a); } catch (Exception e) { Console.Error.WriteLine("fake claude: " + e.Message); return 1; } }
 static int Run(string[] a) {
-  string d = Environment.GetEnvironmentVariable("FAKE_DIR") ?? "."; Directory.CreateDirectory(d); string k = string.Join("_", a).Replace("-", ""); File.AppendAllText(Path.Combine(d, "calls.log"), k + Environment.NewLine);
+  string d = Environment.GetEnvironmentVariable("FAKE_DIR") ?? "."; Directory.CreateDirectory(d); string k = string.Join("_", a).Replace("-", ""); Log(Path.Combine(d, "calls.log"), k + Environment.NewLine);
   if (File.Exists(Path.Combine(d, k + ".sleep"))) System.Threading.Thread.Sleep(int.Parse(File.ReadAllText(Path.Combine(d, k + ".sleep")).Trim()));
   if (k == "version") { Console.WriteLine(File.Exists(Path.Combine(d, "version.txt")) ? File.ReadAllText(Path.Combine(d, "version.txt")).Trim() + " (Claude Code)" : "1.0.0 (Claude Code)"); return 0; }
   if (File.Exists(Path.Combine(d, k + ".newversion"))) File.Copy(Path.Combine(d, k + ".newversion"), Path.Combine(d, "version.txt"), true);
   if (File.Exists(Path.Combine(d, k + ".txt"))) Console.Write(File.ReadAllText(Path.Combine(d, k + ".txt")));
   return File.Exists(Path.Combine(d, k + ".exit")) ? int.Parse(File.ReadAllText(Path.Combine(d, k + ".exit")).Trim()) : 0;
+}
+// (the app can start two calls at once - both append; AppendAllText's lock made one fail now and then, 10/26: one
+// writer at a time - two sharing it lose lines - readers allowed, the other waits)
+static void Log(string f, string line) {
+  var b = System.Text.Encoding.UTF8.GetBytes(line);
+  for (int i = 0; ; i++) {
+    try { using (var s = new FileStream(f, FileMode.Append, FileAccess.Write, FileShare.Read | FileShare.Delete)) s.Write(b, 0, b.Length); return; }
+    catch (IOException) { if (i >= 50) throw; System.Threading.Thread.Sleep(20); }
+  }
 }}
 '@
     }

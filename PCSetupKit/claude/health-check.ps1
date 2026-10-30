@@ -87,6 +87,8 @@ if ($ramTest -and $ramTest -gt (Get-Date).AddDays(-60)) {
 if (Test-Path "$PSScriptRoot\gpu-watch.ps1") { & "$PSScriptRoot\gpu-watch.ps1" -Since $since }
 # the NVIDIA app's driver downloads: unstuck when a crash damaged their status (stuck at 100%), installed ones cleared
 if (Test-Path "$PSScriptRoot\nvidia-app-check.ps1") { & "$PSScriptRoot\nvidia-app-check.ps1" }
+# where the Claude usage goes - by kind, the heaviest conversations and steps (the app's "Claude usage"; only with Claude on)
+if ((Test-Path "$PSScriptRoot\claude-usage.ps1") -and (Test-Path "$PSScriptRoot\ai-enabled.ps1") -and (& "$PSScriptRoot\ai-enabled.ps1")) { & "$PSScriptRoot\claude-usage.ps1" }
 
 # --- Health over time (start-up time, disk space, temperatures, SSD wear vs this PC's own normal) ---
 if (Test-Path "$PSScriptRoot\trends.ps1") { & "$PSScriptRoot\trends.ps1" }

@@ -84,5 +84,10 @@ namespace Messiah
             }, IntPtr.Zero);
             return found;
         }
+        // the main screen's refresh rate now (Performance's game verdicts: a game at its cap just under it is smooth, not capped)
+        [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr h);
+        [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr h, IntPtr dc);
+        [DllImport("gdi32.dll")] static extern int GetDeviceCaps(IntPtr dc, int i);
+        public static int ScreenHz() { try { var dc = GetDC(IntPtr.Zero); try { var hz = GetDeviceCaps(dc, 116); return hz > 1 ? hz : 0; } finally { ReleaseDC(IntPtr.Zero, dc); } } catch { return 0; } }
     }
 }

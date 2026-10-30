@@ -8,7 +8,7 @@
 # Items accepted as stuck (e.g. a Microsoft component that re-queues its own leftover every boot) can be listed in
 # health-ignore.txt: a line matching an item's name or path leaves it out of the check.
 param([switch]$Canary, [datetime]$BootTime, [object[]]$Pending, [string]$Ledger = "$PSScriptRoot\restart-ledger.json",
-    [string]$IgnoreFile = "$env:USERPROFILE\.claude\health-ignore.txt")
+    [string]$IgnoreFile = "$env:USERPROFILE\.claude\health-ignore.txt", [string]$Options = "$PSScriptRoot\kit-options.txt")
 $ErrorActionPreference = 'SilentlyContinue'
 $canaryFile = "$PSScriptRoot\restart-canary.txt"
 
@@ -79,7 +79,10 @@ if ($now) {
     $items = @($now) + @($old.items | Where-Object { $o = $_; $o -and -not (Test-Ignored $o) -and -not ($now | Where-Object { $_.Kind -eq $o.Kind -and $_.Id -eq $o.Id }) })
     [pscustomobject]@{ boot = $bootKey; recorded = (Get-Date).ToString('o'); items = @($items | Select-Object Kind, Id, Name) } | ConvertTo-Json -Depth 4 | Set-Content "$Ledger.tmp" -Encoding utf8
     Move-Item "$Ledger.tmp" $Ledger -Force
-    "Restart check: $($items.Count) item(s) will finish the next time you turn the PC off or restart ($((@($items | ForEach-Object Name) | Select-Object -First 3) -join '; '))"
+    # (when, by Restart at night - kit-options nightrestart, default on except where publish-kit.ps1 is; status-lib.ps1's twin)
+    $night = @(Get-Content $Options) -match '^\s*nightrestart\s*=' | Select-Object -First 1
+    $night = if ($night) { ($night -split '=', 2)[1].Trim() -eq 'on' } else { -not (Test-Path "$(Split-Path $Options)\publish-kit.ps1") }
+    "Restart check: $($items.Count) item(s) will finish $(if ($night) { 'with a restart at night while the PC is unused, or when it is turned off' } else { 'the next time you turn the PC off or restart' }) ($((@($items | ForEach-Object Name) | Select-Object -First 3) -join '; '))"
     $bad = @(Get-QueueProblems); if ($bad) { "WARNING: restart queue problem: $($bad -join '; ')" }
 }
 elseif (Test-Path $Ledger) { [IO.File]::Delete($Ledger) }

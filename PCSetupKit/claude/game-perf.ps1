@@ -10,6 +10,7 @@
 param([int]$Seconds = 60, [string]$History = "$PSScriptRoot\perf-history.json", [datetime]$Now = (Get-Date),
     [string]$TestCsv, [string]$TestGame, [string[]]$TestGpu, [double[]]$TestDpc, [string[]]$TestCpu, [double[]]$TestCpuTemp, [switch]$Force,   # -TestDpc: the busiest core's driver time (%) per reading; -TestCpu: "limit,performance" readings
     [string]$Tune = "$PSScriptRoot\game-tune.json", [string]$GameSettings = "$PSScriptRoot\game-settings.json",
+    [string]$Storage = "$PSScriptRoot\storage.json", [string]$TestExe,   # -TestExe: the game's program file (nothing running is looked at)
     [hashtable]$TestNet)   # -TestNet: the minute's pings @{ net = ms[]; netLost; gw = ms[]; gwLost; wifi } - nothing is pinged
 $ErrorActionPreference = 'SilentlyContinue'
 $mx = New-Object Threading.Mutex($false, "Global\PCSetupKitGamePerf$(if ($TestCsv) { "-test-$PID" })")
@@ -142,6 +143,16 @@ $sorted = @($ms | Sort-Object)
 $avgFps = 1000 / (($ms | Measure-Object -Average).Average)
 $p99 = $sorted[[int][Math]::Min($sorted.Count - 1, [Math]::Ceiling($sorted.Count * 0.99) - 1)]
 $e = [ordered]@{ date = $Now.ToString('o'); game = $game; fps = [Math]::Round($avgFps, 1); low1 = [Math]::Round(1000 / $p99, 1); frames = $ms.Count }
+# the game's own name when its program's says little (10/27: 'HuntGame' read that way in the app): the storage scan's game
+# whose folder holds the program, else its Steam folder ('steamapps\common\Hunt Showdown')
+$exe = if ($TestExe) { $TestExe } elseif (-not $TestGame) { "$((Get-Process -Name $game -ErrorAction SilentlyContinue | Select-Object -First 1).Path)" }
+if ($exe) {
+    $st = try { Get-Content $Storage -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { }
+    $hit = @($st.games) | Where-Object { $_.name -and $_.path -and $exe.StartsWith("$("$($_.path)".TrimEnd('\'))\", [StringComparison]::OrdinalIgnoreCase) } | Sort-Object { "$($_.path)".Length } -Descending | Select-Object -First 1
+    $title = if ($hit) { "$($hit.name)" } elseif ($exe -match '\\steamapps\\common\\([^\\]+)\\') { $Matches[1] }
+    $title = "$title" -replace '[®™]', '' -replace '\s+', ' '
+    if ($title.Trim() -and $title.Trim() -ne $game) { $e.title = $title.Trim() }
+}
 # the connection through the minute (the pings above): the internet's median ping, jitter (the average change between two
 # pings), loss % and spikes (pings 50+ ms over the median - a lag spike you feel); the router's ping and loss (the home
 # network: the cable or Wi-Fi); wifi. The app compares them with the ping at idle and says network or PC.

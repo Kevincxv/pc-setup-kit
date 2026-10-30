@@ -27,10 +27,10 @@ namespace Messiah.Tray
             var head = new DockPanel { Margin = Ui.Th("0,0,0,10") };
             var dot = new System.Windows.Shapes.Ellipse { Width = 10, Height = 10, Fill = todo > 0 ? Theme.B["Warn"] : Theme.B["Ok"], Margin = Ui.Th("0,0,10,0"), VerticalAlignment = VerticalAlignment.Center };
             head.Children.Add(dot);
-            head.Children.Add(Ui.Text(todo > 0 ? $"{todo} thing{Kit.S(todo)} need{(todo == 1 ? "s" : "")} you" : "All good - nothing needs you", Theme.B["Text"], 15, FontWeights.SemiBold, "0"));
+            head.Children.Add(Ui.Text(todo > 0 ? $"{todo} thing{Kit.S(todo)} need{(todo == 1 ? "s" : "")} you" : Pages.Home.AllGood, Theme.B["Text"], 15, FontWeights.SemiBold, "0"));
             body.Children.Add(head);
             var playing = Data.Playing();
-            if (playing != "") body.Children.Add(Ui.Text($"Playing {Data.GameName(playing)} - maintenance waits", Theme.B["Sub"], 12, null, "0,0,0,8"));
+            if (playing != "") body.Children.Add(Ui.Text($"Playing {Data.GameName(playing)}, maintenance waits", Theme.B["Sub"], 12, null, "0,0,0,8"));
             temps = Ui.Text("Processor ...\nGraphics card ...", Theme.B["Sub"], 13, null, "0,0,0,12");
             body.Children.Add(temps);
             // Game Mode: what runs beside a game steps back (kit-options.txt gameboost)
@@ -55,13 +55,16 @@ namespace Messiah.Tray
         void ReadTemps()
         {
             string Run(string exe, string args) { try { using (var p = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })) { var o = p.StandardOutput.ReadToEnd(); p.WaitForExit(15000); return o.Trim(); } } catch { return ""; } }
-            var cpu = Run("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \"{Kit.P("cpu-temp.ps1")}\" -Print");
+            var script = CpuTempScript();
+            var cpu = script == null ? "" : Run("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" -Print");
             var g = Run("nvidia-smi", "--query-gpu=temperature.gpu,fan.speed --format=csv,noheader,nounits").Split('\n').FirstOrDefault()?.Split(',').Select(x => x.Trim()).ToArray() ?? new string[0];
             var parts = new List<string>();
             parts.Add(cpu != "" ? $"Processor {cpu} °C" : "Processor -");
             if (g.Length >= 1 && double.TryParse(g[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var gt)) parts.Add($"Graphics card {Math.Round(gt)} °C" + (g.Length >= 2 && g[1] != "" ? (g[1] == "0" ? ", fans stopped" : $", fans {g[1]}%") : ""));
             Dispatcher.BeginInvoke(new Action(() => { temps.Text = string.Join("\n", parts); Place(); }));
         }
+        // cpu-temp.ps1, or null when it isn't there (a fresh or broken install: 'Processor -', not PowerShell's error) (10/27)
+        public static string CpuTempScript() => System.IO.File.Exists(Kit.P("cpu-temp.ps1")) ? Kit.P("cpu-temp.ps1") : null;
         // the panel's words (--test)
         public IEnumerable<string> Words() => App.Unnamed(this).Select(x => "A11Y: " + x).Concat(new[] { string.Join(" | ", Texts(body)).Replace("\n", " / ") });
         static IEnumerable<string> Texts(object el)

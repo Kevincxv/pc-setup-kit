@@ -5,7 +5,7 @@ $d = "$Work\pm"; New-Item $d -ItemType Directory -Force | Out-Null
 Copy-Item "$Src\periodic-maint.ps1" $d; '' | Set-Content "$d\game-check.ps1"
 $mocked = 'winget', 'DISM', 'Start-Process', 'Stop-Process', 'Checkpoint-Computer', 'Get-ComputerRestorePoint', 'pnputil', 'Get-NetFirewallApplicationFilter',
     'Get-NetFirewallRule', 'Remove-NetFirewallRule', 'Optimize-Volume', 'Set-ItemProperty', 'Remove-ItemProperty', 'Get-PSDrive', 'Get-ScheduledTask',
-    'Get-ScheduledTaskInfo', 'Get-CimInstance', 'Get-WindowsDriver', 'Get-Process', 'Get-ItemProperty'
+    'Get-ScheduledTaskInfo', 'Get-CimInstance', 'Get-WindowsDriver', 'Get-Process', 'Get-ItemProperty', 'Get-Volume'
 if (-not (Test-Tripwire "$d\periodic-maint.ps1" $mocked -Guarded 'Get-ChildItem')) { Finish }   # (Get-ChildItem only reads the Disk Cleanup category list)
 
 Import-MockTargets $mocked   # load their Windows modules BEFORE defining the mocks (see lib.ps1)
@@ -16,6 +16,7 @@ function Reset-M {
         Winget = @('No installed package found matching input criteria.'); WingetOk = @('Vendor.Good'); WinDrivers = @()
         Rps = @(RestorePt 10); RpWorks = $true; Reboot = $false; Free = 100GB; FreeAfter = 102GB; CleanmgrHangs = $false
         Drivers = ''; FwFilters = @(); Services = @(); Tasks = @(); DefragLast = $now.AddDays(-2); SteamPath = $null; SteamRunning = $false
+        Volumes = @(Vol 'C'); Hdd = @()
     }
     $global:PMcalls = New-Object System.Collections.Generic.List[string]
 }
@@ -30,7 +31,9 @@ function pnputil { if ("$args" -match 'delete-driver (\S+)') { $global:PMcalls.A
 function Get-NetFirewallApplicationFilter { $PM.FwFilters }
 function Get-NetFirewallRule { $input | ForEach-Object { [pscustomobject]@{ Name = "rule-$($_.Program)" } } }
 function Remove-NetFirewallRule { $input | ForEach-Object { $global:PMcalls.Add("remove firewall $($_.Name)") } }
-function Optimize-Volume { $global:PMcalls.Add("Optimize-Volume $args") }
+function Optimize-Volume { $global:PMcalls.Add("Optimize-Volume $args"); if ($PM.Hdd -contains "$($args[1])") { throw 'The volume optimization operation requested is not supported by the hardware backing the volume.' } }
+function Vol($l, $type = 'Fixed', $fs = 'NTFS') { [pscustomobject]@{ DriveLetter = [char]$l; DriveType = $type; FileSystemType = $fs } }
+function Get-Volume { $PM.Volumes }
 function Set-ItemProperty { $global:PMcalls.Add("Set-ItemProperty $($args[0] -replace '^.*\\', '') $($args[1]) $($args[2])") }
 function Remove-ItemProperty { $global:PMcalls.Add("Remove-ItemProperty $($args[0] -replace '^.*\\', '')") }
 $global:psdriveCalls = 0
@@ -160,6 +163,10 @@ Check 'no 300 MB test files left behind' (-not (Test-Path $sl)) ''
 Section 'TRIM and the next-run line'
 Reset-M; State @{ 'trim' = $old }; $PM.DefragLast = $now.AddDays(-20); $o = PM
 Check 'Windows has not trimmed the SSD in 2+ weeks: TRIM is run' (($PMcalls -match 'Optimize-Volume.*ReTrim') -and ($o -match 'SSD TRIM run')) ($PMcalls -join ', ')
+Reset-M; State @{ 'trim' = $old }; $PM.DefragLast = $now.AddDays(-20); $PM.Volumes = @((Vol 'D'), (Vol 'C'), (Vol 'E' 'Removable' 'FAT32')); $o = PM
+Check '... every internal drive, not just C: (a USB stick is left alone)' (($PMcalls -match 'DriveLetter D -ReTrim') -and ($PMcalls -match 'DriveLetter C -ReTrim') -and -not ($PMcalls -match 'DriveLetter E') -and ($o -match 'SSD TRIM run on C: D:')) (($PMcalls -join ', ') + ' / ' + ($o -join ' / '))
+Reset-M; State @{ 'trim' = $old }; $PM.DefragLast = $now.AddDays(-20); $PM.Hdd = @('C'); $o = PM
+Check '... a hard drive (refuses TRIM): no "SSD TRIM run" line, still marked done' ((-not ($o -match 'TRIM')) -and ((St).trim -ne $old)) ($o -join ' / ')
 Reset-M; State @{ 'trim' = $old }; $PM.DefragLast = $now.AddDays(-3); [void](PM)
 Check '... not when Windows did it recently' (-not ($PMcalls -match 'Optimize-Volume')) ''
 Reset-M; State @{}; $o = PM

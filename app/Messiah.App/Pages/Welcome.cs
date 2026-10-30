@@ -21,7 +21,7 @@ namespace Messiah.Pages
             var bg = Ui.Glyph("E73E", 26, Theme.B["OnAccent"]); bg.HorizontalAlignment = HorizontalAlignment.Center; badge.Child = bg;
             var txt = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             txt.Children.Add(Ui.Text("This PC is ready", Theme.B["Text"], 22, FontWeights.SemiBold, "0"));
-            txt.Children.Add(Ui.Text("Windows is updated, tuned for games and set up to look after itself - nothing else to do.", Theme.B["Sub"], 13, null, "0,2,0,0"));
+            txt.Children.Add(Ui.Text("Windows is updated, tuned for games and set up to look after itself. Nothing else to do.", Theme.B["Sub"], 13, null, "0,2,0,0"));
             DockPanel.SetDock(badge, Dock.Left); hero.Children.Add(badge); hero.Children.Add(txt);
             var btns = new List<UIElement> { Ui.Btn("E73E", "Got it", () => Shell.W.Welcomed(), accent: true) };
             // Chrome installed, Edge still the browser: Windows' own Chrome page, one "Set default" click (no program may switch it)

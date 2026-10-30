@@ -70,10 +70,14 @@ namespace Messiah.Tray
                 string txt; try { txt = File.ReadAllText(f); } catch { txt = ""; }
                 int n = Regex.Matches(txt, "\"Kind\"").Count; var m = Regex.Match(txt, "\"boot\":\\s*\"([^\"]+)\"");
                 var key = (m.Success ? m.Groups[1].Value : "") + "|" + n;
-                if (n > 0 && key != Ini("restart")) { SetIni("restart", key); return $"{n} update(s)/fix(es) will finish the next time you turn the PC off.\nNo need to restart now - whenever suits you."; }
+                // when, by Restart at night, as Home's card says (10/28: always "the next time you turn the PC off")
+                if (n > 0 && key != Ini("restart")) { SetIni("restart", key); return RestartNote(n, Pages.Settings.NightRestart); }
             }
             return null;
         }
+        internal static string RestartNote(int n, bool night) => $"{n} update(s)/fix(es) will finish "
+            + (night ? "with a restart at night while the PC is unused, or when you turn it off." : "the next time you turn the PC off or restart.")
+            + "\nNo need to restart now.";
         // The owner's rule (10/10): Messiah never pops up by itself - an alert goes to the app (Health > Alerts) and the
         // tooltip, quietly; "Show alerts in the corner" (kit-options.txt cornernotes=on) shows it too. True: show it.
         public static bool Alert(string text) { LogNote(text); return Kit.Opt("cornernotes", "off") == "on"; }

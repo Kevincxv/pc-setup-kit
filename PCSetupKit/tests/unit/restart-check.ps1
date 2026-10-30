@@ -3,7 +3,8 @@
 $rc = "$Src\restart-check.ps1"; $L = "$Work\ledger.json"
 function Item($k, $id, $n) { [pscustomobject]@{ Kind = $k; Id = $id; Name = $n } }
 $IG = "$Work\ignore.txt"; '' | Set-Content $IG
-function RC($boot, $pending) { @(& $rc -Ledger $L -BootTime $boot -Pending $pending -IgnoreFile $IG) }
+$OP = "$Work\opts-default.txt"; '' | Set-Content $OP   # (pinned: no nightrestart line, no publish-kit.ps1 beside it = an installed PC's default, not this PC's own kit-options)
+function RC($boot, $pending) { @(& $rc -Ledger $L -BootTime $boot -Pending $pending -IgnoreFile $IG -Options $OP) }
 $b1 = [datetime]'2026-09-27 09:33:24'; $b2 = [datetime]'2026-09-28 08:00:00'; $b3 = [datetime]'2026-09-29 08:00:00'
 $upd = Item 'update' 'u-1' '2026-09 Cumulative Update for Windows 11 (KB5099999)'
 $drv = Item 'device' 'PCI\VEN_10DE' 'NVIDIA GeForce RTX'
@@ -11,7 +12,9 @@ $pkg = Item 'package' 'Package_for_RollupFix' 'Package_for_RollupFix'
 
 Section 'before a restart'
 $o = RC $b1 @(); Check 'nothing pending: silent, no ledger' ($o.Count -eq 0 -and -not (Test-Path $L)) ($o -join ' / ')
-$o = RC $b1 @($upd, $drv); Check 'pending work recorded, "finishes the next time you turn the PC off"' ((Test-Path $L) -and ($o -match 'will finish the next time')) ($o -join ' / ')
+$o = RC $b1 @($upd, $drv); Check 'pending work recorded, finishing with a restart at night (Restart at night is on by default here; 10/28: always "the next time you turn the PC off")' ((Test-Path $L) -and ($o -match '2 item\(s\) will finish with a restart at night while the PC is unused, or when it is turned off \(')) ($o -join ' / ')
+'nightrestart=off' | Set-Content "$Work\opts.txt"
+$o = @(& $rc -Ledger $L -BootTime $b1 -Pending @($upd, $drv) -IgnoreFile $IG -Options "$Work\opts.txt"); Check '... with Restart at night off: "the next time you turn the PC off or restart"' ($o -match 'will finish the next time you turn the PC off or restart \(') ($o -join ' / ')
 $o = RC $b1 @($upd, $drv, $pkg); Check 'more work queued the same boot: ledger grows to 3' ((Get-Content $L -Raw | ConvertFrom-Json).items.Count -eq 3) ($o -join ' / ')
 $o = RC $b1 @($upd); Check 'an item leaving the live list is kept until a restart proves it' ((Get-Content $L -Raw | ConvertFrom-Json).items.Count -eq 3) ''
 Section 'after a restart'

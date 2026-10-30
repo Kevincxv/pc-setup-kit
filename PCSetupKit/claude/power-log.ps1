@@ -6,17 +6,19 @@
 #            unsure. 10/12: three times "did you turn it off?" was asked in the chat - now the app asks, once.
 #   changes  what changed that matters for crashes: the graphics driver, the BIOS, the RAM (sticks, speed - EXPO), Driver
 #            Verifier, the hardware-monitor driver (PawnIO) - seen at each update, so the timeline shows what was different before and after a crash
-# -Update: health-check.ps1 (at each login - right after a crash). -Answer <key> <me|froze|unsure>: the app's buttons.
+# -Update: health-check.ps1 (at each login - right after a crash). -Answer <me|froze|unsure> -Key <key>: the app's buttons.
+# -Answer <...> -Old: every power-off over 30 days old not answered yet - Health > Stability's one click (10/26: power-offs
+# from 2025 still said "not answered yet"; Home only asks about the last 30 days, nobody remembers older ones).
 # Test overrides: -File, -Events (@{ At; Bugcheck; OffAt }), -Snapshot (@{ gpu; bios; ram; verifier }), -Now.
-param([switch]$Update, [string]$Answer, [string]$Key, [string]$File = "$env:USERPROFILE\.claude\power-log.json", [object[]]$Events, [hashtable]$Snapshot, [datetime]$Now = (Get-Date))
+param([switch]$Update, [string]$Answer, [string]$Key, [switch]$Old, [string]$File = "$env:USERPROFILE\.claude\power-log.json", [object[]]$Events, [hashtable]$Snapshot, [datetime]$Now = (Get-Date))
 $ErrorActionPreference = 'SilentlyContinue'
 $log = try { Get-Content $File -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json } catch { $null }
 $ev = @(if ($log) { $log.events }); $ch = @(if ($log) { $log.changes }); $last = if ($log) { $log.last }
 function Save { $o = [ordered]@{ events = @($ev | Sort-Object at); changes = @($ch | Sort-Object at); last = $last }; [IO.File]::WriteAllText("$File.tmp", ($o | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false)); Move-Item "$File.tmp" $File -Force }
 
 if ($Answer) {
-    if ($Answer -notin 'me', 'froze', 'unsure' -or -not $Key) { return }
-    foreach ($e in $ev) { if ($e.key -eq $Key) { $e.answer = $Answer; $e | Add-Member answeredAt $Now.ToString('o') -Force } }
+    if ($Answer -notin 'me', 'froze', 'unsure' -or -not ($Key -or $Old)) { return }
+    foreach ($e in $ev) { if (($Key -and $e.key -eq $Key) -or ($Old -and $e.kind -eq 'off' -and -not $e.answer -and [datetime]$e.key -lt $Now.AddDays(-30))) { $e.answer = $Answer; $e | Add-Member answeredAt $Now.ToString('o') -Force } }
     Save; return
 }
 if (-not $Update) { return }

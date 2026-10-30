@@ -10,7 +10,7 @@ if ($last -gt $Now.AddDays(-7)) { return }
 $Now.ToString('o') | Set-Content $stamp
 $lines = @(Get-ChildItem "$Dir\maint-history\report-*.txt" | Where-Object { $_.LastWriteTime -gt $Now.AddDays(-7) } | ForEach-Object { Get-Content $_.FullName -Encoding UTF8 } | Select-Object -Unique)
 $n = { param($rx) @($lines -match $rx).Count }
-$kit = & $n '^PC Setup Kit updated'; $apps = & $n '^Updated app'; $drv = & $n '^(Driver|NVIDIA|AMD chipset): .*installed'
+$kit = & $n '^PC Setup Kit updated'; $apps = & $n '^Updated app'; $drv = & $n '^(Driver: .* - installed$|NVIDIA: installed|AMD (Radeon|chipset): installed)'   # (only the install lines - 'NVIDIA: 566.03 installed; no NVIDIA app recommendation...' and '... hidden, not installed' counted too, 10/28)
 $fixed = & $n 'reverted \d+ - re-applied'; $crash = & $n '^WARNING: (blue screen|unexpected shutdown)'
 $slow = & $n 'runs slower since'
 $parts = @(

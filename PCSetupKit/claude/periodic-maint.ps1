@@ -152,7 +152,13 @@ if (-not $game -and (Due 'monthly-cleanup' 30)) {
 
 # --- Checks every run (cheap) ---
 $trim = Get-ScheduledTask -TaskPath '\Microsoft\Windows\Defrag\' -TaskName ScheduledDefrag | Get-ScheduledTaskInfo
-if ($trim.LastRunTime -lt (Get-Date).AddDays(-14) -and (Due 'trim' 7)) { Optimize-Volume -DriveLetter C -ReTrim; 'SSD TRIM run (Windows had not done it in 2+ weeks)'; Done 'trim' }
+if ($trim.LastRunTime -lt (Get-Date).AddDays(-14) -and (Due 'trim' 7)) {
+    # every internal drive (fixed NTFS/ReFS with a letter), not just C:; a hard drive refuses ReTrim and is left out
+    $trimmed = @(Get-Volume | Where-Object { $_.DriveType -eq 'Fixed' -and $_.DriveLetter -and $_.FileSystemType -in 'NTFS', 'ReFS' } | Sort-Object DriveLetter |
+        Where-Object { try { Optimize-Volume -DriveLetter $_.DriveLetter -ReTrim -ErrorAction Stop | Out-Null; $true } catch { $false } } | ForEach-Object { "$($_.DriveLetter):" })
+    if ($trimmed) { "SSD TRIM run on $($trimmed -join ' ') (Windows had not done it in 2+ weeks)" }
+    Done 'trim'
+}
 # Windows version end of support, by edition (Windows 11 lifecycle): Home/Pro/Pro Education/Pro for Workstations/SE get
 # 24 months per yearly release, Enterprise/Education/IoT Enterprise 36 months; LTSC and Server have their own long
 # lifecycles and are not checked. (Test overrides: -TestDisplayVersion -TestEdition -TestInstallType -TestToday.)

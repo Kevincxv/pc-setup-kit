@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -21,6 +22,7 @@ namespace Messiah
         public static DateTime? CheckingSince;
         public static void Say(string t) => W?.Say(t);
         public static void ShowPage(string p, string sub = null) => W?.ShowPage(p, sub);
+        public static void Open(string go) => W?.Open(go);   // "Activity/Performance#Heat and wear": the page, scrolled to that card
         public static void Refresh(bool force) => W?.Refresh(force);
         public static DateTime? SeenBefore;   // when the owner last closed the window (Home's "Since you last looked"; tests: PCKIT_SINCE_TEST)
     }
@@ -39,18 +41,18 @@ namespace Messiah
             ("Settings", "E713", new[] { ("General", "Settings/General"), ("Tools", "Settings/Tools") }) };
         static readonly (string Tab, string Glyph, (string Label, string Key)[] Pages) WelcomeTab = ("Welcome", "E8E1", new[] { ("Welcome", "Welcome") });
         (string Tab, string Glyph, (string Label, string Key)[] Pages)[] AllTabs => (WelcomeShown ? new[] { WelcomeTab } : new (string, string, (string, string)[])[0]).Concat(Tabs).ToArray();
-        static readonly Dictionary<string, string> Subs = new Dictionary<string, string> {
+        internal static readonly Dictionary<string, string> Subs = new Dictionary<string, string> {
             ["Welcome"] = "Your PC is set up. Here is what happened and what happens from now on.",
-            ["Status"] = "Every optimization Messiah keeps in place on this PC - and whether it still is.",
-            ["Activity/Checks"] = "What the maintenance found, what it did, and when it runs next.", ["Activity/Trends"] = "How this PC has been doing over time.",
-            ["Activity/Stability"] = "Every blue screen and power-off, and what changed around them.", ["Activity/Performance"] = "How your games run - each minute measured while you play, and what updates did to them.", ["Activity/Alerts"] = "What Messiah had to say - kept here instead of popping up.", ["Activity/Storage"] = "Your drives, the games on them and what uninstalled games left behind.",
-            ["Settings/General"] = "Everything Messiah does is yours to switch on or off.", ["Settings/Windows"] = "Each change Messiah makes in Windows - keep it or not.",
+            ["Status"] = "Every optimization Messiah keeps in place on this PC, and whether it still is.",
+            ["Activity/Checks"] = "What the maintenance found, what it did, and when it runs next.", ["Activity/Trends"] = "How this PC has been doing over time. Point at a chart to read a day.",
+            ["Activity/Stability"] = "Every blue screen and power-off, and what changed around them.", ["Activity/Performance"] = "How your games run, minute by minute, and what updates did to them. Point at a chart to read it, click a session to open it.", ["Activity/Alerts"] = "What Messiah had to say, kept here instead of popping up.", ["Activity/Storage"] = "Your drives, the games on them and what uninstalled games left behind.",
+            ["Settings/General"] = "Everything Messiah does is yours to switch on or off.", ["Settings/Windows"] = "Each change Messiah makes in Windows. Keep the ones you want.",
             ["Settings/Tools"] = "Updates, repairs, drivers, the BIOS and the install USB." };
         static readonly Dictionary<string, string> OldPages = new Dictionary<string, string> { ["Overview"] = "Home", ["Sessions"] = "Home", ["Maintenance"] = "Activity/Checks", ["Schedule"] = "Activity/Checks", ["History"] = "Activity/Trends", ["Notifications"] = "Activity/Alerts", ["Activity"] = "Activity/Checks" };
         readonly Dictionary<string, string> sub = Tabs.ToDictionary(t => t.Tab, t => t.Pages[0].Key);   // each tab's page now (its key)
         readonly Dictionary<string, (RadioButton Button, TextBlock Count)> nav = new Dictionary<string, (RadioButton, TextBlock)>();
         string onPage = "Home";
-        Snapshot snap; string shownSig; int loading;
+        internal Snapshot snap; string shownSig; int loading; bool again;
         readonly DispatcherTimer noteTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(12) };
         readonly DispatcherTimer timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };   // (the files are watched - MainWindow.Live.cs; this covers what changes with the clock)
         public bool Quit;
@@ -59,6 +61,8 @@ namespace Messiah
         {
             InitializeComponent();
             Shell.W = this;
+            Grid.SetIsSharedSizeScope(this, true);   // (Ui.Rows' align: tables in different cards line up)
+            Pages.Charts.RangeChanged += TrendsSub;   // (7 days can leave the amber line out of range: the subtitle follows, 10/28)
             noteTimer.Tick += (s, e) => { NoteBar.Visibility = Visibility.Collapsed; noteTimer.Stop(); };
             NoteAct.Click += (s, e) => noteAct?.Invoke();
             timer.Tick += (s, e) => Refresh(false);
@@ -66,6 +70,8 @@ namespace Messiah
             SizeChanged += (s, e) => UpdateLayout2();
             Scroll.SizeChanged += (s, e) => UpdateColumns();
             Closing += (s, e) => { SavePlace(); if (!Quit) { e.Cancel = true; HideApp(); } };
+            // (the last time the owner touched the window - a new version restarts the app by itself once he's left it a minute)
+            PreviewMouseMove += (s, e) => LastInput = DateTime.Now; PreviewMouseDown += (s, e) => LastInput = DateTime.Now; PreviewKeyDown += (s, e) => LastInput = DateTime.Now; PreviewMouseWheel += (s, e) => LastInput = DateTime.Now;
             Closed += (s, e) => Application.Current.Shutdown();
             LoadIcon(); RestorePlace(); BuildNav(); InitChat(); InitExtras(); InitLive(); InitDrop();
         }
@@ -139,6 +145,8 @@ namespace Messiah
             }
             catch { return SystemParameters.WorkArea; }
         }
+        internal DateTime LastInput = DateTime.Now;
+        internal bool Drafting => ChatInput.Text.Trim() != "";   // (a chat message being written: never restarted under it)
         internal bool Auditing;   // (--audit: the window sits off the screen, at the sizes asked for)
         void FitToScreen()
         {
@@ -185,7 +193,7 @@ namespace Messiah
             foreach (var (p, g, pp) in AllTabs)
             {
                 if (!sub.ContainsKey(p)) sub[p] = pp[0].Key;
-                var rb = new RadioButton { GroupName = "nav", Tag = p, ToolTip = p, Style = (Style)FindResource("Tab") }; AutomationProperties.SetName(rb, p);
+                var rb = new RadioButton { GroupName = "nav", Tag = p, ToolTip = NavTip(p, pp.Length), Style = (Style)FindResource("Tab") }; AutomationProperties.SetName(rb, p);
                 var row = new StackPanel { Orientation = Orientation.Horizontal };
                 var gl = Ui.Glyph(g, 14); gl.Margin = Ui.Th("0,0,8,0"); row.Children.Add(gl);
                 row.Children.Add(Ui.Text(p, Theme.B["Text"], 14, null, "0"));
@@ -197,6 +205,24 @@ namespace Messiah
                 NavList.Children.Add(rb);
             }
             UpdateLayout2();   // (new tabs have their words: a narrow window takes them off again - 10/25 audit, after the welcome page)
+        }
+        // the keys (WindowKeys): Ctrl+1..5 open the five tabs (Welcome has none - it's first only once), Ctrl+Tab /
+        // Ctrl+Shift+Tab the tab's next / previous page, round; the tabs' tooltips say so
+        static string NavTip(string tab, int pages)
+        {
+            var i = Array.FindIndex(Tabs, t => t.Tab == tab);
+            return i < 0 ? tab : $"{tab} (Ctrl+{i + 1})" + (pages > 1 ? " - Ctrl+Tab for its next page" : "");
+        }
+        internal bool NavKey(Key key, bool shift)
+        {
+            int n = key >= Key.D1 && key <= Key.D9 ? key - Key.D1 : key >= Key.NumPad1 && key <= Key.NumPad9 ? key - Key.NumPad1 : -1;
+            if (n >= 0) { if (n >= Tabs.Length || !nav.ContainsKey(Tabs[n].Tab)) return false; ShowPage(Tabs[n].Tab); return true; }
+            if (key != Key.Tab) return false;
+            var pages = AllTabs.FirstOrDefault(t => t.Tab == onPage).Pages;
+            if (pages == null || pages.Length < 2) return true;   // (one page: nothing to cycle - but the key isn't the focus's either)
+            var k = Array.FindIndex(pages, x => x.Key == PageKey);
+            ShowPage(pages[((k + (shift ? -1 : 1)) % pages.Length + pages.Length) % pages.Length].Key);
+            return true;
         }
         // a page by its key ("Activity/Performance", "Status"), by tab and page ("Games", "Storage"), or a tab ("Health"): the
         // tab it's in, opened on it
@@ -215,6 +241,31 @@ namespace Messiah
             if (page != null) sub[tab] = page;
             if (nav[tab].Button.IsChecked == true) { onPage = tab; UpdateSub(); Draw(true); } else nav[tab].Button.IsChecked = true;
         }
+        // a page and one card on it ("Activity/Performance#Call of Duty" - Home's This week rows): the page, then - once it's
+        // laid out - scrolled so the card is at the top (no card by that name: the page's top)
+        public void Open(string go)
+        {
+            var p = go.Split(new[] { '#' }, 2); var k = p[0].Split(new[] { '/' }, 2);
+            ShowPage(k[0], k.Length > 1 ? k[1] : null);
+            if (p.Length < 2) return;
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                var card = CardOnPage(p[1]); if (card == null || !card.IsVisible) return;
+                try { Scroll.ScrollToVerticalOffset(Math.Max(0, Scroll.VerticalOffset + card.TransformToAncestor(Scroll).Transform(new Point(0, 0)).Y - 8)); } catch (InvalidOperationException) { }
+                Ui.Flash(card);   // (which card it scrolled to: its border flashes the accent)
+            }));
+        }
+        internal Border CardOnPage(string title)
+        {
+            var stack = new Stack<object>(PageContent.Children.Cast<object>());
+            while (stack.Count > 0)
+            {
+                var o = stack.Pop();
+                if (o is Border b && b.Tag is CardInfo ci) { if (ci.Title == title) return b; continue; }
+                if (o is Panel pn) foreach (var c in pn.Children) stack.Push(c);   // (a wide window: the cards are in columns)
+            }
+            return null;
+        }
         void UpdateSub()
         {
             SubNav.Children.Clear();
@@ -227,12 +278,13 @@ namespace Messiah
                 SubNav.Children.Add(rb);
             }
         }
-        string PageKey => sub.TryGetValue(onPage, out var k) ? k : onPage;
+        internal string PageKey => sub.TryGetValue(onPage, out var k) ? k : onPage;
 
         // --- the data: read in the background, drawn when it arrives (and again only when something changed)
         public void Refresh(bool force)
         {
-            if (Interlocked.Exchange(ref loading, 1) == 1) { if (force) shownSig = null; return; }
+            // (asked while a read runs: read again after it - 10/26, else what changed meanwhile waited for the 60 s timer)
+            if (Interlocked.Exchange(ref loading, 1) == 1) { if (force) shownSig = null; again = true; return; }
             var since = Shell.CheckingSince;
             Task.Run(() =>
             {
@@ -240,9 +292,13 @@ namespace Messiah
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     Interlocked.Exchange(ref loading, 0);
-                    if (r == null) return;
-                    snap = r;
-                    if (force || snap.Sig + PageKey != shownSig) Draw(false);
+                    if (r != null)
+                    {
+                        snap = r;
+                        if (force || snap.Sig + PageKey != shownSig) Draw(false);
+                        if (App.Timing != null) { App.TimingNote($"page drawn after {App.Timing.ElapsedMilliseconds} ms (data: {r.Times})"); App.Timing = null; }
+                    }
+                    if (again) { again = false; Refresh(false); }
                 }));
             });
         }
@@ -250,10 +306,11 @@ namespace Messiah
         {
             if (snap == null) { Refresh(true); return; }
             var todo = snap.Sec("Needs you").Lines.Count(l => l.Level == "warn");
+            var pillWas = AiPill.Visibility;
             AiPill.Visibility = snap.Ai ? Visibility.Visible : Visibility.Collapsed; if (!snap.Ai && ChatPanel.Visibility == Visibility.Visible) ShowChat(false);
             var badge = (Border)nav["Home"].Count.Parent; var badgeWas = badge.Visibility;
             nav["Home"].Count.Text = todo > 0 ? todo.ToString() : ""; badge.Visibility = todo > 0 ? Visibility.Visible : Visibility.Collapsed;
-            if (badge.Visibility != badgeWas) UpdateLayout2();   // (the badge makes the tabs wider: the top bar fits again - 10/25 audit)
+            if (badge.Visibility != badgeWas || AiPill.Visibility != pillWas) UpdateLayout2();   // (the badge makes the tabs wider, Ask Claude the right side: the top bar fits again - 10/25, 10/27 audits)
             shownSig = snap.Sig + PageKey;
             if (AppLast.Page != PageKey) { AppLast.Page = PageKey; AppLast.Save(); }   // (where to open next time)
             PageTitle.Text = onPage == "Welcome" ? "Welcome to Messiah" : onPage; Subs.TryGetValue(PageKey, out var st); PageSub.Text = st ?? "";
@@ -266,6 +323,7 @@ namespace Messiah
                 PageError = e.Message;
                 els = new List<UIElement> { Ui.Card("This page couldn't be shown", "E783", new object[] { new Line("Something in its data is damaged. The other pages work; the next maintenance usually repairs it.", "warn"), new Line(e.Message, "dim") }) };
             }
+            TrendsSub();
             Flow(els);
             UpdateColumns();
         }
@@ -339,6 +397,13 @@ namespace Messiah
         }
 
         // --- the layout follows the window's width (less margin, the app's name and the button words go as it narrows)
+        // Trends' subtitle names the amber line only while a chart shows one in its range - after a draw and a range change
+        void TrendsSub()
+        {
+            if (PageKey != "Activity/Trends" || PageError != null) return;
+            Subs.TryGetValue(PageKey, out var st); PageSub.Text = Pages.Activity.TrendsSub(st ?? "");
+        }
+
         void UpdateColumns()
         {
             var g = Pages.Home.TileGrid; if (g == null || Scroll.ActualWidth <= 0) return;
@@ -350,8 +415,9 @@ namespace Messiah
         // room for that, else between the logo and the buttons.
         void FitTopBar(double avail)
         {
-            void Words(bool side, bool name, bool tabs, bool logo = true)
+            void Words(bool side, bool name, bool tabs, bool logo = true, bool tight = false)
             {
+                foreach (var n in nav.Values) n.Button.Padding = tight ? Ui.Th("11,6") : Ui.Th("18,6");   // (last: closer tabs - 480 px with Welcome's sixth tab and Ask Claude didn't fit, 10/27 audit)
                 Logo.Visibility = logo ? Visibility.Visible : Visibility.Collapsed;
                 if (AiPill.Content is StackPanel ap && ap.Children.Count > 1) ap.Children[1].Visibility = side ? Visibility.Visible : Visibility.Collapsed;
                 if (sBtn?.Content is StackPanel sp && sp.Children.Count > 1) { sp.Children[1].Visibility = side ? Visibility.Visible : Visibility.Collapsed; sBtn.Padding = side ? Ui.Th("12,6") : Ui.Th("9,6"); }
@@ -363,9 +429,9 @@ namespace Messiah
             UIElement left = parts.FirstOrDefault(c => Grid.GetColumn(c) == 0), mid = parts.FirstOrDefault(c => Grid.GetColumn(c) == 1), right = parts.FirstOrDefault(c => Grid.GetColumn(c) == 2);
             double Need(bool centered) { double l = left != null ? W(left) : 0, r = right != null ? W(right) : 0, c = mid != null ? W(mid) : 0; return centered ? c + 2 * Math.Max(l, r) + 32 : l + c + r + 32; }
             bool centered = true;
-            foreach (var (side, name, tabs, logo) in new[] { (true, true, true, true), (false, true, true, true), (false, false, true, true), (false, false, false, true), (false, false, false, false) })
+            foreach (var (side, name, tabs, logo, tight) in new[] { (true, true, true, true, false), (false, true, true, true, false), (false, false, true, true, false), (false, false, false, true, false), (false, false, false, false, false), (false, false, false, false, true) })
             {
-                Words(side, name, tabs, logo); TopBar.UpdateLayout();
+                Words(side, name, tabs, logo, tight); TopBar.UpdateLayout();
                 if (Need(true) <= avail) { centered = true; break; }
                 if (Need(false) <= avail) { centered = false; break; }
                 centered = false;

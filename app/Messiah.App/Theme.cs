@@ -24,11 +24,11 @@ namespace Messiah
             C = Light ? new Dictionary<string, string> {
                 ["Bg"] = "#F3F3F3", ["Card"] = "#CCFFFFFF", ["CardHover"] = "#F2FFFFFF", ["Border"] = "#12000000", ["Text"] = "#E4000000", ["Sub"] = "#9E000000", ["Accent"] = "#5B57E8",
                 ["Ok"] = "#0F7B0F", ["Warn"] = "#9D5D00", ["Btn"] = "#CCFFFFFF", ["BtnHover"] = "#F5FFFFFF", ["Seg"] = "#0C000000", ["SegSel"] = "#FFFFFFFF", ["NavHover"] = "#08000000",
-                ["Grad1"] = "#7C5CFF", ["Grad2"] = "#3E8BF2", ["OnAccent"] = "#FFFFFF", ["Chart"] = "#6D5AE6", ["Divider"] = "#0F000000", ["Toast"] = "#FFFBFBFB" }
+                ["Grad1"] = "#6545E8", ["Grad2"] = "#2563C8", ["OnAccent"] = "#FFFFFF", ["Chart"] = "#6D5AE6", ["Divider"] = "#0F000000", ["Toast"] = "#FFFBFBFB" }
             : new Dictionary<string, string> {
                 ["Bg"] = "#202020", ["Card"] = "#0FFFFFFF", ["CardHover"] = "#16FFFFFF", ["Border"] = "#14FFFFFF", ["Text"] = "#FFFFFF", ["Sub"] = "#C5FFFFFF", ["Accent"] = "#A8A6FF",
                 ["Ok"] = "#6CCB5F", ["Warn"] = "#FFC83D", ["Btn"] = "#12FFFFFF", ["BtnHover"] = "#1CFFFFFF", ["Seg"] = "#0CFFFFFF", ["SegSel"] = "#1FFFFFFF", ["NavHover"] = "#0AFFFFFF",
-                ["Grad1"] = "#7C5CFF", ["Grad2"] = "#3E8BF2", ["OnAccent"] = "#FFFFFF", ["Chart"] = "#8F7DFF", ["Divider"] = "#10FFFFFF", ["Toast"] = "#FF2C2C2C" };   // Chart: validated (dataviz) on each surface
+                ["Grad1"] = "#6545E8", ["Grad2"] = "#2563C8", ["OnAccent"] = "#FFFFFF", ["Chart"] = "#8F7DFF", ["Divider"] = "#10FFFFFF", ["Toast"] = "#FF2C2C2C" };   // Chart: validated (dataviz) on each surface; Grad: white text on either end 4.5:1+ (--audit CONTRAST)
             B.Clear();
             foreach (var kv in C) { var b = new SolidColorBrush((Color)ColorConverter.ConvertFromString(kv.Value)); b.Freeze(); B[kv.Key] = b; }
         }

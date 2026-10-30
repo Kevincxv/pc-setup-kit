@@ -36,7 +36,7 @@ $exps = @(
         say = { param($v) if ($v -eq 'Enabled + boost') { 'Reflex Boost on' } else { 'Reflex Boost off' } } }
     @{ id = 'vram'; key = 'VideoMemoryScaleMP@0'; label = 'the video memory budget'
         alt = { param($v) $x = 0.0; if ([double]::TryParse($v, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$x)) { if ($x -ge 0.8) { '0.750000' } else { '0.850000' } } }
-        say = { param($v) $x = 0.0; [void][double]::TryParse($v, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$x); "a $([int][Math]::Round($x * 100))% video memory budget" } }
+        say = { param($v) $x = 0.0; [void][double]::TryParse($v, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$x); $p = [int][Math]::Round($x * 100); "$(if ("$p" -match '^(8|11$|18$)') { 'an' } else { 'a' }) $p% video memory budget" } }
     @{ id = 'workers'; key = 'RendererWorkerCount@0'; label = 'the renderer thread count'
         alt = { param($v) $n = 0; if ($Cores -ge 4 -and [int]::TryParse($v, [ref]$n)) { if ($n -ne $Cores) { "$Cores" } else { "$($Cores - 1)" } } }
         say = { param($v) if ($v -eq '-1') { 'automatic renderer threads' } else { "$v renderer threads" } } }

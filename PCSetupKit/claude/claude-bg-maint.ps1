@@ -126,6 +126,10 @@ if ($Unattended -and $ai) {
             $tests = if ($env:PCKIT_TESTS_DIR) { $env:PCKIT_TESTS_DIR } elseif (-not $env:PCKIT_IN_TESTS) {
                 @("$env:USERPROFILE\Documents\PC Setup Kit\PCSetupKit\tests", 'C:\PCSetupKit\tests') | Where-Object { Test-Path "$_\run-tests.ps1" } | Select-Object -First 1 }
             if ($tests) { Copy-Item $tests "$snap\tests" -Recurse }
+            # the kit's copies of the scripts too (the developer PC: self-improvement edits both - 10/26, a rolled-back change
+            # stayed in the kit, where the next release would have shipped it)
+            $kitCl = "$env:USERPROFILE\Documents\PC Setup Kit\PCSetupKit\claude"
+            if (-not $env:PCKIT_IN_TESTS -and (Test-Path "$kitCl\health-check.ps1")) { New-Item "$snap\kit" -ItemType Directory -Force | Out-Null; Copy-Item "$kitCl\*.ps1" "$snap\kit" } else { $kitCl = $null }
         }
         $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$dir\claude-unattended.ps1`"", '-Mode', $r.Mode)
         if ($r.Mode -eq 'maintain') { $argList += '-Due', "`"$($due -join ', ')`"" }
@@ -159,6 +163,9 @@ if ($Unattended -and $ai) {
                     foreach ($s in 'maintain', 'pc-optimize', 'self-improve') { if (Test-Path "$snap\$s") { Copy-Item "$snap\$s\*" "$dir\skills\$s\" -Recurse -Force } }
                     if (Test-Path "$snap\Messiah Tray.ahk") { Copy-Item "$snap\Messiah Tray.ahk" $tray -Force }
                     if (Test-Path "$snap\tests") { Copy-Item "$snap\tests\*" $tests -Recurse -Force }
+                    if ($kitCl -and (Test-Path "$snap\kit")) {
+                        foreach ($f in Get-ChildItem "$kitCl\*.ps1") { if (Test-Path "$snap\kit\$($f.Name)") { Copy-Item "$snap\kit\$($f.Name)" $f.FullName -Force } else { New-Item "$snap\added-kit" -ItemType Directory -Force | Out-Null; Move-Item $f.FullName "$snap\added-kit\" -Force } }
+                    }
                     Add-Content $log "`nROLLED BACK all self-improvement changes - the test suite failed afterwards: $sum (details: $tlog)"
                     & powershell -NoProfile -ExecutionPolicy Bypass -File "$tests\run-tests.ps1" -Suite unit -Src $dir -TrayFile $tray *> "$tlog.after-rollback.txt"
                     Add-Content $log "Tests after the rollback: $(Get-Content "$tests\last-run.txt" -TotalCount 1 -ErrorAction SilentlyContinue)"

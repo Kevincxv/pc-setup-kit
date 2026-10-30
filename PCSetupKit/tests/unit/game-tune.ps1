@@ -70,13 +70,13 @@ Check 'less delay but the 1% low 3%+ lower: no faster' ("$o" -match 'was no fast
 Section 'the next setting: no better, so the owner''s stays'
 $t = $now.AddDays(-6)
 $o = GT $t
-Check 'the next one starts by itself' ("$o" -match 'trying the video memory budget both ways in your next matches - a 85% video memory budget \(as now\) against a 75% video memory budget' -and (St).active.id -eq 'vram') "$o"
+Check 'the next one starts by itself' ("$o" -match 'trying the video memory budget both ways in your next matches - an 85% video memory budget \(as now\) against a 75% video memory budget' -and (St).active.id -eq 'vram') "$o"
 foreach ($i in 0..1) { Add-Min $t.AddHours($i) 'vram:a' 200 150 }; [void](GT $t.AddHours(2))
 foreach ($i in 3..4) { Add-Min $t.AddHours($i) 'vram:b' 201 151 }; [void](GT $t.AddHours(5))
 foreach ($i in 6..7) { Add-Min $t.AddHours($i) 'vram:a' 199 149 }; [void](GT $t.AddHours(8))
 foreach ($i in 9..10) { Add-Min $t.AddHours($i) 'vram:b' 200 150 }
 $o = GT $t.AddHours(11)
-Check 'about the same: kept as it was, said' ("$o" -match 'a 75% video memory budget was no faster than a 85% video memory budget .+ - kept a 85% video memory budget' -and (Val 'VideoMemoryScaleMP@0') -eq '0.850000' -and (Kept 'VideoMemoryScaleMP@0') -eq '0.850000') "$o"
+Check 'about the same: kept as it was, said' ("$o" -match 'a 75% video memory budget was no faster than an 85% video memory budget .+ - kept an 85% video memory budget' -and (Val 'VideoMemoryScaleMP@0') -eq '0.850000' -and (Kept 'VideoMemoryScaleMP@0') -eq '0.850000') "$o"
 
 Section 'stopped part-way'
 $t = $now.AddDays(-3)

@@ -131,7 +131,7 @@ namespace Messiah
         }
         public static void RestoreFrom()
         {
-            var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Pick a settings backup", Filter = "Settings backup (*.zip)|*.zip", InitialDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "PC Setup Kit Backup") };
+            var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Pick a settings backup", Filter = "Settings backup (*.zip)|*.zip", InitialDirectory = Path.Combine(Kit.Docs, "PC Setup Kit Backup") };
             if (dlg.ShowDialog() != true) return;
             var o = Data.RunPs("settings-backup.ps1", $"-Restore -From {Data.Q(dlg.FileName)}");
             if (o.Contains("made on another PC"))
@@ -210,32 +210,108 @@ namespace Messiah
         public static string Report()
         {
             var sm = StatusModel.Load(details: false);
-            string hw = "";
-            try
-            {
-                string Q1(string q, string p) { using (var s = new System.Management.ManagementObjectSearcher(q)) return string.Join(", ", s.Get().Cast<System.Management.ManagementObject>().Select(o => (o[p] ?? "").ToString().Trim()).Where(x => x != "")); }
-                long ram = 0; using (var s = new System.Management.ManagementObjectSearcher("SELECT Capacity FROM Win32_PhysicalMemory")) foreach (System.Management.ManagementObject o in s.Get()) ram += Convert.ToInt64(o["Capacity"] ?? 0);
-                hw = $"{Q1("SELECT Name FROM Win32_Processor", "Name").Split(',')[0]}; {Q1("SELECT Name FROM Win32_VideoController WHERE Status='OK'", "Name")}; {Math.Round(ram / 1073741824.0)} GB RAM";
-            }
-            catch { }
-            string Reg(string n) => (Microsoft.Win32.Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion", n, "") ?? "").ToString();
-            var L = new List<string> { $"Messiah report - {DateTime.Now:yyyy-MM-dd HH:mm}" };
-            var kv = Kit.FirstLine(Path.Combine(Kit.KitDir, "kit-version.txt"));
-            L.Add($"Messiah {(kv != "" ? kv : "(version unknown)")}; Windows {Reg("DisplayVersion")} build {Reg("CurrentBuild")}.{Reg("UBR")}");
-            L.Add("PC: " + hw); L.Add("");
-            L.Add($"STATUS: {(sm.Warn > 0 ? $"{sm.Warn} need{(sm.Warn == 1 ? "s" : "")} a look" : $"all {sm.Ok} in place")}{(sm.At != null ? $" (checked {sm.At:yyyy-MM-dd HH:mm})" : "")}");
+            var L = new List<string> { $"Messiah report - {DateTime.Now:yyyy-MM-dd HH:mm}", Versions(), "PC: " + Hardware(), "" };
+            L.Add($"STATUS: {(sm.Warn > 0 ? $"{sm.Warn} need{(sm.Warn == 1 ? "s" : "")} a look" : char.ToLower(sm.AllInPlace[0]) + sm.AllInPlace.Substring(1))}{(sm.At != null ? $" (checked {sm.At:yyyy-MM-dd HH:mm})" : "")}");
             foreach (var r in sm.Rows.Where(r => r.Level == "warn" || (r.State ?? "").StartsWith("Put back"))) L.Add($"  [{(r.Level == "warn" ? "!" : "fixed")}] {r.Title}: {r.State}{(string.IsNullOrEmpty(r.Detail) ? "" : " - " + r.Detail)}");
             var offs = sm.Rows.Where(r => r.Level == "dim").Select(r => r.Title).ToList(); if (offs.Count > 0) L.Add("  Off by choice: " + string.Join("; ", offs));
             var keeps = StatusModel.ReadKeeps(); if (keeps.Count > 0) L.Add("  Kept by the owner: " + string.Join("; ", keeps.Keys.Select(PlainNames.Of)));
             var todo = Kit.Lines(Kit.P("maint-todo.txt")).Where(x => x.Trim() != "").ToList();
             L.Add(""); L.Add("NEEDS THE OWNER: " + (todo.Count > 0 ? "" : "nothing")); foreach (var t in todo) L.Add("  - " + t);
             L.Add(""); L.Add("LAST CHECK:"); foreach (var t in Kit.Lines(Kit.P("maint-report.txt"))) L.Add("  " + t);
-            var txt = string.Join("\r\n", L);
+            return Scrub(L);
+        }
+        public static void CopyReport() { Clipboard.SetText(Report()); Shell.Say("Copied - paste it into a message to whoever helps you. No names, paths or e-mail addresses are in it."); }
+
+        // the reports' shared parts: Messiah's and Windows' versions, the hardware (with the memory's speed - an EXPO/XMP
+        // profile is the first thing a forum asks about), and the scrub that takes names, paths and e-mail addresses out
+        static string Versions()
+        {
+            string Reg(string n) => (Microsoft.Win32.Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion", n, "") ?? "").ToString();
+            var kv = Kit.FirstLine(Path.Combine(Kit.KitDir, "kit-version.txt"));
+            return $"Messiah {(kv != "" ? kv : "(version unknown)")}; Windows {Reg("DisplayVersion")} build {Reg("CurrentBuild")}.{Reg("UBR")}";
+        }
+        static string Hardware()
+        {
+            try
+            {
+                string Q1(string q, string p) { using (var s = new System.Management.ManagementObjectSearcher(q)) return string.Join(", ", s.Get().Cast<System.Management.ManagementObject>().Select(o => (o[p] ?? "").ToString().Trim()).Where(x => x != "")); }
+                long ram = 0; int mts = 0;
+                using (var s = new System.Management.ManagementObjectSearcher("SELECT Capacity, ConfiguredClockSpeed FROM Win32_PhysicalMemory"))
+                    foreach (System.Management.ManagementObject o in s.Get()) { ram += Convert.ToInt64(o["Capacity"] ?? 0); mts = Math.Max(mts, Convert.ToInt32(o["ConfiguredClockSpeed"] ?? 0)); }
+                return $"{Q1("SELECT Name FROM Win32_Processor", "Name").Split(',')[0]}; {Q1("SELECT Name FROM Win32_VideoController WHERE Status='OK'", "Name")}; {Math.Round(ram / 1073741824.0)} GB RAM{(mts > 0 ? $" at {mts} MT/s" : "")}";
+            }
+            catch { return ""; }
+        }
+        static string Scrub(IEnumerable<string> lines)
+        {
+            var txt = string.Join("\r\n", lines);
             foreach (var (a, b) in new[] { (Kit.Home, "%USERPROFILE%"), (Environment.UserName, "<user>"), (Environment.MachineName, "<pc>") })
                 if (!string.IsNullOrEmpty(a) && a.Length >= 3) txt = System.Text.RegularExpressions.Regex.Replace(txt, System.Text.RegularExpressions.Regex.Escape(a), b, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             return System.Text.RegularExpressions.Regex.Replace(txt, @"[\w.+-]+@[\w-]+\.[\w.]+", "<email>");
         }
-        public static void CopyReport() { Clipboard.SetText(Report()); Shell.Say("Copied - paste it into a message to whoever helps you. No names, paths or e-mail addresses are in it."); }
+
+        // "Copy a crash report" (Health > Stability, 10/26): the last crash the way a forum post wants it - the blue
+        // screen's code and its name, what the crash dump's analysis said, how often in 90 days, what changed in the two
+        // weeks before it, the memory tests, the PC with its driver and BIOS. Scrubbed like the help report.
+        static readonly Dictionary<string, string> BugNames = new Dictionary<string, string>
+        {
+            ["0xA"] = "IRQL_NOT_LESS_OR_EQUAL", ["0x19"] = "BAD_POOL_HEADER", ["0x1A"] = "MEMORY_MANAGEMENT", ["0x1E"] = "KMODE_EXCEPTION_NOT_HANDLED",
+            ["0x3B"] = "SYSTEM_SERVICE_EXCEPTION", ["0x4E"] = "PFN_LIST_CORRUPT", ["0x50"] = "PAGE_FAULT_IN_NONPAGED_AREA", ["0x7E"] = "SYSTEM_THREAD_EXCEPTION_NOT_HANDLED",
+            ["0x7F"] = "UNEXPECTED_KERNEL_MODE_TRAP", ["0x9F"] = "DRIVER_POWER_STATE_FAILURE", ["0xC2"] = "BAD_POOL_CALLER", ["0xD1"] = "DRIVER_IRQL_NOT_LESS_OR_EQUAL",
+            ["0xEF"] = "CRITICAL_PROCESS_DIED", ["0x101"] = "CLOCK_WATCHDOG_TIMEOUT", ["0x109"] = "CRITICAL_STRUCTURE_CORRUPTION", ["0x116"] = "VIDEO_TDR_FAILURE",
+            ["0x117"] = "VIDEO_TDR_TIMEOUT_DETECTED", ["0x119"] = "VIDEO_SCHEDULER_INTERNAL_ERROR", ["0x124"] = "WHEA_UNCORRECTABLE_ERROR", ["0x133"] = "DPC_WATCHDOG_VIOLATION",
+            ["0x139"] = "KERNEL_SECURITY_CHECK_FAILURE", ["0x13A"] = "KERNEL_MODE_HEAP_CORRUPTION", ["0x154"] = "UNEXPECTED_STORE_EXCEPTION",
+        };
+        public static string BugName(string code)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(code ?? "", @"^(?:0x)?0*([0-9A-Fa-f]+)$"); if (!m.Success) return code ?? "";
+            var k = "0x" + m.Groups[1].Value.ToUpperInvariant();
+            return BugNames.TryGetValue(k, out var n) ? $"{k} {n}" : k;
+        }
+        public static string CrashReport(Snapshot s, bool machine = true)
+        {
+            bool IsCrash(Data.PowerEvent e) => e.Kind == "bsod" || e.Answer != "me";   // (as Stability counts them)
+            string D(DateTime d) => d.ToString("yyyy-MM-dd HH:mm");
+            string Off(Data.PowerEvent e) => e.Answer == "froze" ? "the owner says it froze or went off by itself" : e.Answer == "unsure" ? "the owner isn't sure why" : "not answered";
+            var L = new List<string> { $"Messiah crash report - {DateTime.Now:yyyy-MM-dd HH:mm}" };
+            if (machine) { L.Add(Versions()); L.Add("PC: " + Hardware()); }   // (machine: false in --test - no WMI there)
+            var drv = !string.IsNullOrEmpty(s.Gpu?.Version) ? $"Graphics driver {s.Gpu.Shown}{(s.Gpu.Date != null ? $" ({s.Gpu.Date:yyyy-MM-dd})" : "")}" : null;
+            var bios = !string.IsNullOrEmpty(s.Bios?.Version) ? $"BIOS {s.Bios.Version}{(!string.IsNullOrEmpty(s.Bios.Date) ? $" from {s.Bios.Date}" : "")} ({Pages.Settings.BoardMaker(s.Bios.Maker)} {s.Bios.Model})" : null;
+            if (drv != null || bios != null) L.Add(string.Join("; ", new[] { drv, bios }.Where(x => x != null)));
+            L.Add("");
+            var last = s.Power.Where(IsCrash).OrderBy(e => e.At).LastOrDefault();
+            if (last == null) L.Add("LAST CRASH: none recorded");
+            else if (last.Kind == "bsod")
+            {
+                L.Add($"LAST CRASH: blue screen {BugName(last.Code)} on {D(last.At)}");
+                var v = Data.DumpVerdicts().Where(x => x.Day == last.At.Date).Select(x => x.Text).LastOrDefault();
+                L.Add("  Crash dump analysis: " + (v ?? "none yet (the next background check analyzes it)"));
+            }
+            else L.Add($"LAST CRASH: went off without a blue screen on {D(last.At)} - {Off(last)}");
+            var d90 = DateTime.Now.AddDays(-90);
+            var bs = s.Power.Where(e => e.Kind == "bsod" && e.At > d90).ToList(); var offs = s.Power.Where(e => e.Kind == "off" && e.Answer != "me" && e.At > d90).ToList();
+            L.Add($"LAST 90 DAYS: {bs.Count} blue screen{Kit.S(bs.Count)}{(bs.Count > 0 ? " (" + string.Join(", ", bs.GroupBy(e => BugName(e.Code)).Select(g => g.Count() > 1 ? $"{g.Key} x{g.Count()}" : g.Key)) + ")" : "")}; {offs.Count} power-off{Kit.S(offs.Count)} without one");
+            var all90 = s.Power.Where(IsCrash).Where(e => e.At > d90).OrderByDescending(e => e.At).ToList();
+            if (all90.Count > 10) L.Add($"  (newest 10 of {all90.Count})");
+            foreach (var e in all90.Take(10)) L.Add($"  {D(e.At)}: {(e.Kind == "bsod" ? "blue screen " + BugName(e.Code) : "went off - " + Off(e))}");
+            if (last != null)
+            {
+                var ch = s.Changes.Where(c => c.At <= last.At && c.At > last.At.AddDays(-14)).OrderBy(c => c.At).ToList();
+                L.Add(""); L.Add("CHANGED IN THE 14 DAYS BEFORE IT: " + (ch.Count == 0 ? "nothing recorded (driver, BIOS, RAM)" : ""));
+                foreach (var c in ch) L.Add($"  {c.At:yyyy-MM-dd}{(c.Approx ? " (about)" : "")}: {c.What} {c.From} -> {c.To}");
+            }
+            L.Add(""); L.Add("MEMORY TEST: " + (s.RamChecks.Count == 0 ? "not run yet" : ""));
+            foreach (var r in s.RamChecks.Take(5)) L.Add($"  {r.At:yyyy-MM-dd}: {(r.Kind == "boottest" ? "Windows Memory Diagnostic at start-up" : "in Windows (nightly)")} - {r.Result} ({r.Setup})");
+            return Scrub(L.Select(x => x.TrimEnd()));
+        }
+        // a crash: a blue screen, or a power-off the owner didn't make (Stability's tiles, its button and search's entry)
+        public static bool IsCrash(Data.PowerEvent e) => e.Kind == "bsod" || e.Answer != "me";
+        public static bool HasCrash(Snapshot s) => s?.Power != null && s.Power.Any(IsCrash);
+        public static void CopyCrashReport(Snapshot s)
+        {
+            try { Clipboard.SetText(CrashReport(s)); Shell.Say("Copied - paste it into a forum post or a message. No names, paths or e-mail addresses are in it."); }
+            catch (Exception e) { Shell.Say("Couldn't copy: " + e.Message); }
+        }
 
         // an action id from the status model (StatusRow.Fix, a details button)
         public static void Run(string id)

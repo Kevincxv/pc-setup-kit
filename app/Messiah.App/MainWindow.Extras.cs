@@ -16,10 +16,10 @@ namespace Messiah
     {
         // --- search: pages, every optimization on the Status tab, every switch in Settings and the main actions - type a
         // few letters, Enter (or a click) goes there
-        class Hit_ { public string Title, Sub, Glyph; public Action Go; }
+        internal class Hit_ { public string Title, Sub, Glyph; public Action Go; }
         Grid sOver; TextBox sBox; StackPanel sList; List<Hit_> sIndex = new List<Hit_>(), sHits = new List<Hit_>(); int sSel; Button sBtn; Border tourOver;
 
-        List<Hit_> SearchIndex()
+        internal List<Hit_> SearchIndex()
         {
             var ix = new List<Hit_>();
             void Add(string t, string sub, string g, Action go) => ix.Add(new Hit_ { Title = t, Sub = sub, Glyph = g, Go = go });
@@ -34,6 +34,8 @@ namespace Messiah
             Add("Clean up leftovers of uninstalled games", "Action - shader caches, mods, unfinished downloads", "E74D", () => { ShowPage("Activity", "Storage"); Actions.Storage(new Dictionary<string, object> { ["cmd"] = "clean" }, "Removing the leftovers - a few seconds."); });
             Add("Check every optimization now", "Action", "E72C", () => { ShowPage("Status"); Actions.CheckNow(); });
             Add("Copy a report for help", "Action - a summary to paste to whoever helps you", "E8C8", Actions.CopyReport);
+            // (10/27: Stability's crash report too, once a crash is recorded - Health > Stability opens behind it)
+            if (Actions.HasCrash(snap)) { var cs = snap; Add("Copy a crash report", "Action - the last crash and what changed before it, for a forum post", "E8C8", () => { ShowPage("Activity", "Stability"); Actions.CopyCrashReport(cs); }); }
             Add("Preview what Messiah would change", "Action", "E7B3", Actions.PreviewTweaks);
             Add("Take the tour", "Action - a short walk through the app", "E8F1", () => ShowTour(0));
             if (snap != null && snap.Ai) Add("Chat with Claude", "Action", "E99A", () => ShowChat(true));
@@ -81,7 +83,7 @@ namespace Messiah
                 else if (e.Key == Key.Escape && tourOver.Visibility == Visibility.Visible) { ShowTour(-1); e.Handled = true; }
             };
             // the tour, once: after setup's Welcome is done (not over it), not while a game runs
-            ContentRendered += (s, e) => { if (Kit.Opt("tour", "") != "done" && Kit.Opt("welcome", "") != "pending" && onPage != "Welcome" && !pageAsked && Data.Playing() == "") ShowTour(0); };   // (not over a page the window was opened for - a notification's, the tray's)
+            ContentRendered += (s, e) => { if (!Auditing && Kit.Opt("tour", "") != "done" && Kit.Opt("welcome", "") != "pending" && onPage != "Welcome" && !pageAsked && Data.Playing() == "") ShowTour(0); };   // (not over a page the window was opened for - a notification's, the tray's)
         }
         void UpdateSearch()
         {

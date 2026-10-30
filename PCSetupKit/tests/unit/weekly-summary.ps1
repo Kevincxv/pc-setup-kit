@@ -12,11 +12,11 @@ function News { Get-Content "$D\tray-news.txt" -Raw -ErrorAction SilentlyContinu
 $o = WS
 Check 'a quiet week: nothing said' (-not $o -and -not (News)) ($o -join ' / ')
 Clear-Path "$D\weekly-summary.last"
-Report @('Checked', 'Updated app: Git.Git', 'Updated app: Discord.Discord', 'NVIDIA: 620.01 installed', 'Tweaks: Windows had reverted 2 - re-applied: x', 'PC Setup Kit updated v1 -> v2')
+Report @('Checked', 'Updated app: Git.Git', 'Updated app: Discord.Discord', 'NVIDIA: installed 620.01', 'NVIDIA: 620.01 installed; no NVIDIA app recommendation file to compare against', "Driver: 'Audio' is for a device that is switched off - hidden, not installed",'Tweaks: Windows had reverted 2 - re-applied: x', 'PC Setup Kit updated v1 -> v2')
 Report @('Updated app: Old.App') 12
 ConvertTo-Json -InputObject @(@{ date = $now.AddDays(-2).ToString('o'); game = 'TestGame' }) | Set-Content "$D\perf-history.json"
 $o = WS
-Check 'a busy week: counted from the last 7 days only (older reports left out)' ("$o" -match '^This week: the kit updated itself, 2 app updates, 1 driver installed, settings an update undid put back 1 time\. No crashes\. 1 game played, running as usual\.$') ($o -join ' / ')
+Check 'a busy week: counted from the last 7 days only (older reports left out; a driver only by its install line - 10/28)' ("$o" -match '^This week: the kit updated itself, 2 app updates, 1 driver installed, settings an update undid put back 1 time\. No crashes\. 1 game played, running as usual\.$') ($o -join ' / ')
 Check '... as the tray''s note' ((News) -match '^This week:') (News)
 $o = WS
 Check '... once a week (not at every run)' (-not $o) ($o -join ' / ')

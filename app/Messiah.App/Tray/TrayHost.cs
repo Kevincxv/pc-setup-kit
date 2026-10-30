@@ -246,6 +246,9 @@ namespace Messiah.Tray
                 if ((DateTime.Now - sessStart).TotalMinutes >= 5)
                     try { File.AppendAllText(Kit.P("game-sessions.log"), $"{sessStart:s} | {DateTime.Now:s} | {sessGame}\r\n"); } catch { }
                 sessGame = game != "" ? game : null; sessStart = DateTime.Now;
+                // the game closed: the improvement loop goes on 2 minutes later (it checks again that nothing runs) instead
+                // of at its next 15-minute check (10/26, the owner: "why didn't you start when I turned off the game?")
+                if (game == "" && ai) After(120, () => { if (Data.Playing() == "" && File.Exists(Kit.P("improve-loop.ps1"))) Ps("improve-loop.ps1", "-Once -Force"); });
             }
         }
         public void EndBoost()

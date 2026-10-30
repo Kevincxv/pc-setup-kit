@@ -7,7 +7,7 @@ $log = "$Work\restart-night.log"
 $global:acts = @()
 $rec = { param($w) $global:acts += $w }
 function RN([hashtable]$over = @{}) {
-    $t = @{ Option = $null; Pending = $true; Hour = 4; IdleMin = 120; Game = $null; OnBattery = $false; Busy = $null; DevPc = $false; Restarted = $false }
+    $t = @{ Option = $null; Pending = $true; Hour = 4; IdleMin = 120; Game = $null; OnBattery = $false; Busy = $null; DevPc = $false; Restarted = $false; Improve = $null }
     foreach ($k in $over.Keys) { $t[$k] = $over[$k] }
     $global:acts = @(); @(& $rn -Test $t -Do $rec -Log $log)
 }
@@ -34,5 +34,18 @@ $o = RN @{ DevPc = $true }
 Check 'the PC the kit is made on: off unless its owner turns it on' (-not $acts) ''
 $o = RN @{ DevPc = $true; Option = 'on' }
 Check '... turned on there: works' ($acts -contains 'restart in 5 min') ''
+# (10/27, the owner: "during the night time improvements you are allowed to restart my pc")
+$o = RN @{ DevPc = $true; Pending = $false; Improve = 'new driver service' }
+Check 'an improvement round asked for a restart on that PC: restarts at night, saying why' ($acts -contains 'restart in 5 min' -and "$o" -match 'improvement work' -and (Get-Content $log -Raw) -match 'improvement work: new driver service') ($o -join ' / ')
+$o = RN @{ DevPc = $true; Pending = $true; Improve = $null }
+Check '... updates alone there still wait for its owner' (-not $acts) ''
+$o = RN @{ DevPc = $true; Pending = $false; Improve = 'x'; IdleMin = 10 }
+Check '... but only once nobody used the PC for an hour' (-not $acts) ''
+$o = RN @{ DevPc = $true; Pending = $false; Improve = 'x'; Hour = 22 }
+Check '... and only at night' (-not $acts) ''
+$o = RN @{ DevPc = $true; Pending = $false; Improve = 'x'; Option = 'off' }
+Check '... and never when switched off in Settings' (-not $acts) ''
+$o = RN @{ DevPc = $true; Pending = $false; Improve = 'x'; Busy = 'a Claude round' }
+Check '... and never while a round is still running' (-not $acts) ''
 Check 'the real restart has a 5-minute warning and the way to stop it' ((Get-Content $rn -Raw) -match '/r /t 300' -and (Get-Content $rn -Raw) -match 'Cancel restart') ''
 Finish

@@ -56,10 +56,12 @@ $o = T notify; Check 'a very long item is shortened to fit the alert' ($o -match
 Todo '', '  '; (Get-Item "$C\maint-todo.txt").LastWriteTime = (Get-Date).AddSeconds(15)
 $o = T notify; Check 'a to-do file with only blank lines: no alert' ($o -eq '') $o
 @{ boot = '2026-09-27T09:33:24'; items = @(@{ Kind = 'update'; Id = 'a'; Name = 'A' }, @{ Kind = 'file'; Id = 'b'; Name = 'B' }) } | ConvertTo-Json -Depth 4 | Set-Content "$C\restart-ledger.json"
-$o = T notify; Check 'work waiting for the next shutdown: one alert with the count' ($o -match '^2 update\(s\)/fix\(es\) will finish the next time you turn the PC off') $o
+$o = T notify; Check 'work waiting for the next restart: one alert with the count, finishing at night (Restart at night is on by default here; 10/28: always the next time you turn the PC off)' ($o -match '^2 update\(s\)/fix\(es\) will finish with a restart at night while the PC is unused, or when you turn it off\. \\n No need to restart now\.$') $o
 Check '... shown once' ((T notify) -eq '') ''
 @{ boot = '2026-09-28T08:00:00'; items = @(@{ Kind = 'update'; Id = 'c'; Name = 'C' }) } | ConvertTo-Json -Depth 4 | Set-Content "$C\restart-ledger.json"
-$o = T notify; Check 'a new batch after a restart: alerted again' ($o -match '^1 update\(s\)') $o
+'cornernotes=on', 'nightrestart=off' | Set-Content "$C\kit-options.txt"
+$o = T notify; Check 'a new batch after a restart: alerted again - with Restart at night off, at the next shutdown or restart' ($o -match '^1 update\(s\)/fix\(es\) will finish the next time you turn the PC off or restart\. \\n No need to restart now\.$') $o
+'cornernotes=on' | Set-Content "$C\kit-options.txt"
 # what an older tray recorded (AutoHotkey's tray-notified.ini, UTF-16) still counts: nothing is told twice after the switch
 Clear-Path "$C\restart-ledger.json"; $st = (Get-Item "$C\maint-todo.txt").LastWriteTime.ToString('yyyyMMddHHmmss')
 Todo 'Already told'; $st = (Get-Item "$C\maint-todo.txt").LastWriteTime.ToString('yyyyMMddHHmmss')

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -50,7 +50,7 @@ namespace Messiah.Pages
                 new Line($"While you play: ping {med:0} ms{(idle != null ? $" ({idle:0} at idle)" : "")}, {(bad == 0 ? "no bad minutes" : $"{bad} of {rows.Count} measured minute{Kit.S(rows.Count)} with lag (lost packets or spikes)")} in the last 30 days.", bad > rows.Count / 4 ? "warn" : "info")
             };
             var grid = Ui.Pairs(new System.Windows.Controls.Primitives.UniformGrid { Columns = 2, Margin = Ui.Th("0,8,-14,0") });
-            if (rows.Count >= 2) { var c = Charts.Chart("Ping while playing", " ms", Performance.Points(rows, "netPing", s.Tune, true), 0, 10); ((FrameworkElement)c).Margin = Ui.Th("0,0,14,14"); grid.Children.Add(c); }
+            if (rows.Count >= 2) { var c = Charts.Chart("Ping while playing", " ms", Performance.Points(rows, "netPing", s.Tune, true), 0, 10, hint: false); ((FrameworkElement)c).Margin = Ui.Th("0,0,14,14"); grid.Children.Add(c); }
             var idleRows = s.Net.Where(r => Json.N(r, "ping") != null && Kit.Date(Json.Get(r, "date")) > DateTime.Now.AddDays(-30)).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "ping").Value)).ToList();
             if (idleRows.Count >= 2) { var c = Activity.Chart("Ping at idle (each check)", " ms", idleRows, 0, 10); c.Margin = Ui.Th("0,0,14,14"); grid.Children.Add(c); }
             if (grid.Children.Count > 0) lines.Add(grid);

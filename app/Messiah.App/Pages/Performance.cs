@@ -25,7 +25,7 @@ namespace Messiah.Pages
             var games = s.Perf.Where(r => Json.S(r, "game") != "" && Kit.Date(Json.Get(r, "date")) != null).GroupBy(r => Json.S(r, "game"))
                 .OrderByDescending(g => Kit.Date(Json.Get(g.Last(), "date"))).ToList();
             if (games.Count == 0)
-                o.Add(Ui.Card("Nothing measured yet", "E7FC", new object[] { new Line("While you play, a minute of each game is measured (every 25 minutes; menus and lobbies don't count): its frame rate, the slowest frames, the graphics card's heat. Play a game for a few minutes and it shows here.", "dim") }));
+                o.Add(Ui.Card("Nothing measured yet", "E7FC", new object[] { new Line("While you play, a minute of each game is measured every 25 minutes (menus and lobbies don't count): its frame rate, the slowest frames, the graphics card's heat. Play a few minutes and it shows here.", "dim") }));
             // what's going on first (a test under way, a driver on test), then the games played this month, then the rest in a
             // line each (10/22 audit: a game last played weeks ago led the page)
             if (s.LastSession != null) o.Add(Ui.Card("Last session", "E7FC", Data.SessionLines(s.LastSession).Cast<object>()));
@@ -33,11 +33,13 @@ namespace Messiah.Pages
             var drv = DriverTest(s); if (drv != null) o.Add(drv);
             var cut = DateTime.Now.AddDays(-30);
             var recent = games.Where(g => Kit.Date(Json.Get(g.Last(), "date")) >= cut).Take(6).ToList();
-            foreach (var g in recent) o.Add(Game(Data.GameName(g.Key), g.Key, g.ToList(), s.Tune));
+            NoteKey = SecsNoteKey(recent.Select(g => (g.Key, g.Last())));
+            var hz = Native.ScreenHz();
+            foreach (var g in recent) o.Add(Game(Data.GameName(g.Key), g.Key, g.ToList(), s.Tune, hz));
             var older = games.Except(recent).ToList();
             if (older.Count > 0)
-                o.Add(Ui.Card(recent.Count > 0 ? "Earlier games" : "Games - not played this month", "E7FC", new object[] { Ui.Rows(older.Select(g => { var l = g.Last(); return (Data.GameName(g.Key), $"{Math.Round(Json.N(l, "fps") ?? 0)} fps average, 1% low {Math.Round(Json.N(l, "low1") ?? 0)} fps - last played {Kit.FormatWhen(Kit.Date(Json.Get(l, "date")).Value, dateOnly: true)}", "dim"); })) }));
-            if (games.Count > 0) o.Add(Updates(games));
+                o.Add(Ui.Card(recent.Count > 0 ? "Earlier games" : "Games - not played this month", "E7FC", new object[] { Ui.Rows(older.Select(g => { var l = g.Last(); return (Data.GameName(g.Key), $"{Math.Round(Json.N(l, "fps") ?? 0)} fps average, 1% low {Math.Round(Json.N(l, "low1") ?? 0)} fps, last played {Kit.FormatWhen(Kit.Date(Json.Get(l, "date")).Value, dateOnly: true)}", "dim"); })) }));
+            if (games.Count > 0) o.Add(Updates(games, s.Tune));
             var net = Connection.Card(s); if (net != null) o.Add(net);
             o.Add(Heat(s));
             o.Add(Benchmark(s));
@@ -47,16 +49,37 @@ namespace Messiah.Pages
 
         // --- tuning by measurement (game-tune.ps1): the setting being tried both ways in your matches, and what each test found
         
+        // 'a 75%' but 'an 85%', 'an 8%', 'an 11%', 'an 18%' - the article goes by how the number is read aloud
+        internal static string A(double n) { var s = n.ToString("0", System.Globalization.CultureInfo.InvariantCulture); return (s.StartsWith("8") || s == "11" || s == "18" ? "an " : "a ") + s; }
         internal static string Say(string id, string v)
         {
             switch (id)
             {
                 case "reflex": return v == "Enabled + boost" ? "Reflex Boost on" : "Reflex Boost off";
-                case "vram": return double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x) ? $"a {Math.Round(x * 100)}% video memory budget" : v;
+                case "vram": return double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x) ? $"{A(Math.Round(x * 100))}% video memory budget" : v;
                 case "workers": return v == "-1" ? "automatic renderer threads" : $"{v} renderer threads";
                 case "uploadheaps": return v == "true" ? "GPU upload heaps on" : "GPU upload heaps off";
                 default: return v;
             }
+        }
+        // The setting's name once and its values bare, for the "Trying now" line ('video memory budget 85% against 75%',
+        // not the name three times); null for a setting without a short form - the line then uses Say's whole words
+        internal static string[] Short(string id, string a, string b, string on)
+        {
+            string V(string v)
+            {
+                switch (id)
+                {
+                    case "reflex": return v == "Enabled + boost" ? "on" : "off";
+                    case "vram": return double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x) ? $"{Math.Round(x * 100)}%" : null;
+                    case "workers": return v == "-1" ? "automatic" : v;
+                    case "uploadheaps": return v == "true" ? "on" : "off";
+                    default: return null;
+                }
+            }
+            var name = id == "reflex" ? "Reflex Boost" : id == "vram" ? "video memory budget" : id == "workers" ? "renderer threads" : id == "uploadheaps" ? "GPU upload heaps" : null;
+            string va = V(a), vb = V(b), von = V(on);
+            return name == null || va == null || vb == null || von == null ? null : new[] { name, va, vb, von };
         }
         static UIElement Tuning(Snapshot s)
         {
@@ -68,8 +91,12 @@ namespace Messiah.Pages
                 string id = Json.S(a, "id"), game = Json.S(a, "game"); var since = Kit.Date(Json.Get(a, "started")) ?? DateTime.MinValue;
                 int Count(string arm) => s.Perf.Count(r => Json.S(r, "game") == game && Json.S(r, "tune") == id + ":" + arm && (Kit.Date(Json.Get(r, "date")) ?? DateTime.MinValue) >= since);
                 int na = Count("a"), nb = Count("b"); var on = Json.S(a, "arm") == "b" ? Json.S(a, "b") : Json.S(a, "a");
-                lines.Add(new Line($"Trying now in {Data.GameName(game)}: {Say(id, Json.S(a, "a"))} (as before) against {Say(id, Json.S(a, "b"))} - {Math.Min(na, 4) + Math.Min(nb, 4)} of 8 minutes of play measured. On now: {Say(id, on)}.", "info"));
-                lines.Add(new Line("Switched only while the game is closed, back and forth so one evening doesn't decide it. The other value is kept only if it is clearly faster (for Reflex: a clearly shorter delay to the screen); anything else changing in the middle (a driver, Windows) ends the test with your setting back.", "dim"));
+                var sh = Short(id, Json.S(a, "a"), Json.S(a, "b"), on); var measured = $"{Math.Min(na, 4) + Math.Min(nb, 4)} of 8 minutes of play measured";
+                // Which one is on goes next to its value (10/28: a closing 'On now: 75%.' wrapped its value onto a line of its own)
+                bool onB = Json.S(a, "arm") == "b";
+                string va = sh != null ? sh[1] : Say(id, Json.S(a, "a")), vb = sh != null ? sh[2] : Say(id, Json.S(a, "b"));
+                lines.Add(new Line($"Trying now in {Data.GameName(game)}: {(sh != null ? sh[0] + " " : "")}{va} ({(onB ? "as before" : "as before, on now")}) against {vb}{(onB ? " (on now)" : "")} - {measured}.", "info"));
+                lines.Add(new Line("Switched only while the game is closed, over several evenings. The new value stays only if clearly faster (Reflex: less delay to the screen); a driver or Windows update stops it and puts yours back.", "dim"));
             }
             else if (Json.Get(s.GpuState, "trial") is Dictionary<string, object> tr && Json.S(tr, "verdict") == "")
                 lines.Add(new Line("Waiting: a new graphics driver is being tested first (a setting tried at the same time would muddy both results).", "dim"));
@@ -82,7 +109,7 @@ namespace Messiah.Pages
                 var nums = aL != null && bL != null && aF != null && bF != null ? $" (1% low {Math.Round(aL.Value)} -> {Math.Round(bL.Value)} fps {Pct(bL.Value, aL.Value)}, average {Math.Round(aF.Value)} -> {Math.Round(bF.Value)} fps)" : "";
                 if (Json.N(d, "aLatency") is double aY && Json.N(d, "bLatency") is double bY && nums != "") nums = $" (delay to the screen {aY} -> {bY} ms {Pct(bY, aY)}, " + nums.Substring(2);   // (Reflex: judged on the delay, 10/22)
                 string text, level;
-                if (why == "faster") { text = $"{Say(id, Json.S(d, "b"))} is faster than {Say(id, Json.S(d, "a"))}{nums} - switched to it"; level = "ok"; }
+                if (why == "faster") { text = $"{Say(id, Json.S(d, "b"))} is faster than {Say(id, Json.S(d, "a"))}{nums}, so Messiah uses it now"; level = "ok"; }
                 else if (why == "no faster") { text = $"{Say(id, Json.S(d, "b"))} was no faster{nums} - kept {Say(id, Json.S(d, "a"))}"; level = "info"; }
                 else { text = $"{Json.S(d, "label")}: stopped - {why}{(kept != "" ? $"; {Say(id, kept)} kept" : "")}"; level = "dim"; }
                 rows.Add((at?.ToString("MMM d") ?? "", text, level));
@@ -120,7 +147,7 @@ namespace Messiah.Pages
             if (runs.Count > 0)
                 lines.Add(Ui.Rows(runs.Select(r => (Kit.FormatWhen(Kit.Date(Json.Get(r, "date")).Value, dateOnly: true),
                     $"memory {N(r, "memBandwidthMBs", "MB/s")}" + (Json.N(r, "cpuMulti") != null ? $", processor {N(r, "cpuMulti", "MB/s")} all cores / {N(r, "cpuSingle", "MB/s")} one" : "") + (Json.N(r, "diskReadMBs") != null ? $", SSD {N(r, "diskReadMBs", "MB/s")}" : "") + (Json.S(r, "ram") != "" ? $" - RAM at {Json.S(r, "ram")}" : "") + (Json.S(r, "notes") != "" ? $" ({Json.S(r, "notes")})" : ""), "info"))));
-            lines.Add(new Line("The same short test every time (Windows' own WinSAT): run it before and after a change - EXPO, a BIOS update, a new driver - and the numbers show what it did. The graphics card is measured by your games above.", "dim"));
+            lines.Add(new Line("The same short test every time (Windows' own WinSAT): run it before and after a change - EXPO, a BIOS update, a new driver - to see what it did. Your games above measure the graphics card.", "dim"));
             return Ui.Card("Benchmark", "E9D2", lines.ToArray(), s.BenchRunning ? null : new[] { Ui.Btn("E768", "Run the benchmark", Actions.Bench) });
         }
 
@@ -134,14 +161,14 @@ namespace Messiah.Pages
             {
                 var thr = Json.S(g, "throttle");
                 gpu.Add($"up to {Json.N(g, "gpuTemp")} °C while gaming" + (Json.N(g, "gpuFan") is double gf ? $", fan {gf}%" : "") + (Json.N(g, "gpuPower") is double gp ? $", {gp} W" : "") + (thr != "" ? $" - it slowed itself down ({thr.Replace(",", " and ")} limit)" : ""));
-                if (thr != "" || (Json.N(g, "gpuTemp") ?? 0) >= 85) gl = "warn";
+                if (thr != "" || (Json.N(g, "gpuTemp") ?? 0) >= Week.GpuHot) gl = "warn";
             }
             if (Json.N(h, "gpuIdle") is double gi) gpu.Add($"{gi} °C at idle" + (Json.N(h, "gpuIdleFan") is double fi ? $", fan {fi}%" : ""));
             rows.Add(("Graphics card", gpu.Count > 0 ? string.Join("; ", gpu) : "measured from your next game", gpu.Count > 0 ? gl : "dim"));
             // the processor: its temperature (cpu-temp.ps1's driver) while gaming and at idle, and whether it was held back
             var c = s.Perf.LastOrDefault(r => Json.N(r, "cpuLimit") != null || Json.N(r, "cpuTemp") != null);
             var cpu = new List<string>(); var cl = "ok";
-            if (c != null && Json.N(c, "cpuTemp") is double ctg) { cpu.Add($"up to {ctg} °C while gaming"); if (ctg >= 88) cl = "warn"; }
+            if (c != null && Json.N(c, "cpuTemp") is double ctg) { cpu.Add($"up to {ctg} °C while gaming"); if (ctg >= Week.CpuHot) cl = "warn"; }
             if (Json.N(h, "cpuIdle") is double cti) cpu.Add($"{cti} °C at idle");
             if (c != null && Json.N(c, "cpuLimit") is double lim)
             {
@@ -170,11 +197,11 @@ namespace Messiah.Pages
             var lines = new List<object> { Ui.Rows(rows) };
             var grid = Ui.Pairs(new UniformGrid { Columns = 2, Margin = Ui.Th("0,8,-14,0") });
             var gt = s.Perf.Where(r => Json.N(r, "gpuTemp") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "gpuTemp").Value)).ToList();
-            if (gt.Count >= 2) grid.Children.Add(Pad(Charts.Chart("Graphics card while gaming", " °C", Points(s.Perf, "gpuTemp", s.Tune, true), 0, 10)));
+            if (gt.Count >= 2) grid.Children.Add(Pad(Charts.Chart("Graphics card while gaming", " °C", Points(s.Perf, "gpuTemp", s.Tune, true), 0, 10, hint: false)));
             var it = s.Health.Where(r => Json.N(r, "gpuIdle") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "gpuIdle").Value)).ToList();
             if (it.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Graphics card at idle", " °C", it, 0, 10)));
             var cg = s.Perf.Where(r => Json.N(r, "cpuTemp") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "cpuTemp").Value)).ToList();
-            if (cg.Count >= 2) grid.Children.Add(Pad(Charts.Chart("Processor while gaming", " °C", Points(s.Perf, "cpuTemp", s.Tune, true), 0, 10)));
+            if (cg.Count >= 2) grid.Children.Add(Pad(Charts.Chart("Processor while gaming", " °C", Points(s.Perf, "cpuTemp", s.Tune, true), 0, 10, hint: false)));
             var ci = s.Health.Where(r => Json.N(r, "cpuIdle") != null && Kit.Date(Json.Get(r, "date")) != null).Select(r => (Kit.Date(Json.Get(r, "date")).Value, Json.N(r, "cpuIdle").Value)).ToList();
             if (ci.Count >= 2) grid.Children.Add(Pad(Activity.Chart("Processor at idle", " °C", ci, 0, 10)));
             if (grid.Children.Count > 0) lines.Add(grid);
@@ -185,19 +212,101 @@ namespace Messiah.Pages
         // what holds the frame rate back, the delay to the screen and how frames get there (game-perf.ps1's gpuBusy /
         // latency / presentMode, 10/22) - so "what would make it faster" has an answer: graphics settings only help when the
         // card is the limit; at a frame cap nothing is held back
-        public static Line Limit(Dictionary<string, object> last, List<double> per)
+        // (10/28: the limit comes from the session's own verdict, so the card never says 'Smooth' above 'the processor is the
+        // limit'; at the screen's rate nothing needs raising. The old reading only when the minute is too short for a verdict)
+        // (said: the card's verdict above already names this session's cap or busy %, so only the advice is left - 10/28)
+        public static Line Limit(Dictionary<string, object> last, List<double> per, int hz = 0, bool said = false)
         {
             var gb = Json.N(last, "gpuBusy"); var lat = Json.N(last, "latency"); var pm = Json.S(last, "presentMode");
             if (gb == null && lat == null && pm == "") return null;
+            var kind = Verdict(new List<Dictionary<string, object>> { last }, hz)?.Kind; said = said && (kind == "Capped" || kind == "Processor" || kind == "Graphics" || kind == "Paced");   // (Paced says the % too since 10/28)
+            var busy = gb ?? Json.N(last, "gpuUse"); var of = gb != null ? " of each frame" : "";
             var med = per.Count >= 10 ? per.OrderBy(x => x).ElementAt(per.Count / 2) : 0;
-            bool capped = med > 0 && per.Count(x => Math.Abs(x - med) <= 3) >= per.Count * 0.8;
+            bool capped = kind == null ? med > 0 && per.Count(x => Math.Abs(x - med) <= 3) >= per.Count * 0.8 : kind == "Capped";
             var parts = new List<string>(); var cls = "dim";
-            if (capped) parts.Add($"Steady at its frame cap (about {Math.Round(med)} fps) - nothing is holding it back");
-            else if (gb >= 90) parts.Add($"The graphics card is the limit (busy {gb}% of each frame) - lower graphics settings or DLSS raise the frame rate");
-            else if (gb != null) parts.Add($"The processor or the game is the limit (the graphics card is busy only {gb}% of each frame) - graphics settings won't raise it; faster RAM (EXPO) and fewer background apps do");
+            if (capped) parts.Add(said ? "Nothing else holds it back" : med > 0 ? $"Steady at its frame cap (about {Math.Round(med)} fps) - nothing is holding it back" : "Steady at its frame cap - nothing is holding it back");
+            else if (kind == "Smooth" && hz > 0) { }
+            else if (busy >= 90 && kind != "Processor" && kind != "Paced") parts.Add(said ? "Lower graphics settings or DLSS raise the frame rate" : $"The graphics card is the limit (busy {busy}%{of}) - lower graphics settings or DLSS raise the frame rate");
+            else if (busy != null && busy < 90) parts.Add(said ? "Graphics settings won't raise it; faster RAM (EXPO) and fewer background apps do" : $"The processor or the game is the limit (the graphics card is busy only {busy}%{of}) - graphics settings won't raise it; faster RAM (EXPO) and fewer background apps do");
             if (lat != null) parts.Add($"{lat} ms from the game starting a frame to it on screen");
             if (pm.Contains("Composed: Flip") && !pm.Contains("Independent")) { parts.Add("frames go through the Windows desktop compositor (about a frame of extra delay) - an overlay or a window on top of the game usually causes it"); cls = "warn"; }
             return parts.Count > 0 ? new Line(string.Join("; ", parts) + ".", cls) : null;
+        }
+
+        // a game's latest session in one line - how it ran and what holds it back (Game check-up, 10/28: every game gets a
+        // verdict, not only Call of Duty's tuning). rows: that game's sessions, oldest first; hz: the screen's refresh rate (0 not
+        // known). Kinds: Smooth / Capped / Processor / Graphics / Stuttery; null when the minute was too short to say (under 1000
+        // frames). Hitches count against the game's own usual rate (3+ sessions) and need 5 more than usual, so a game that always
+        // hitches a little isn't flagged
+        internal static (string Kind, string Text)? Verdict(List<Dictionary<string, object>> rows, int hz)
+        {
+            var last = rows?.LastOrDefault(); if (last == null) return null;
+            var frames = Json.N(last, "frames") ?? 0; var fps = Json.N(last, "fps") ?? 0; var low = Json.N(last, "low1") ?? 0;
+            if (frames < 1000 || fps <= 0) return null;
+            double Rate(Dictionary<string, object> r) => (Json.N(r, "stutters") ?? 0) * 10000 / Math.Max(1, Json.N(r, "frames") ?? 0);
+            var st = (int)(Json.N(last, "stutters") ?? 0);
+            var before = rows.Take(rows.Count - 1).Where(r => (Json.N(r, "frames") ?? 0) >= 1000).ToList();
+            if (before.Count >= 2 && st >= 5)
+            {
+                var usualRate = Median(before.Select(Rate).ToList());
+                if (Rate(last) > Math.Max(usualRate * 2, usualRate + 5))
+                {
+                    var usual = (int)Math.Round(usualRate * frames / 10000);
+                    if (st - usual >= 5) return ("Stuttery", $"More hitches than usual: {st} in the last minute measured, usually {(usual == 0 ? "none" : "about " + usual)}");
+                }
+            }
+            var f = Math.Round(fps); var scr = hz > 0 ? $" on a {hz} Hz screen" : "";
+            if (hz > 0 && fps >= hz * 0.95) return ("Smooth", $"Smooth: {f} fps{scr}");
+            // a flat line is a frame cap: second by second within 3% of the middle, or (without the seconds) a common cap
+            var per = Json.L(last, "perSec").Select(Num).ToList();
+            bool flat; var cap = f;   // (said as the common cap it sits at: 58.5 fps is a 60 fps cap)
+            var common = new[] { 30, 60, 120, 144, 165 }.FirstOrDefault(c => Math.Abs(fps - c) <= c * 0.03); if (common > 0) cap = common;
+            if (per.Count >= 10) { var med = Median(per); flat = per.Count(x => Math.Abs(x - med) <= med * 0.03) >= per.Count * 0.8; }
+            else flat = common > 0 && low >= fps * 0.75;
+            if (flat) return ("Capped", hz > 0 ? $"Capped at {cap} fps on a {hz} Hz screen" : $"Steady at a {cap} fps cap");
+            var busy = Json.N(last, "gpuBusy") ?? Json.N(last, "gpuUse");
+            if (busy >= 90) return ("Graphics", $"Held back by the graphics card ({busy}% busy): {f} fps{scr}");
+            if (busy != null && busy < 70) return ("Processor", $"Held back by the processor or the game (graphics card {busy}% busy): {f} fps{scr}");
+            // (10/28: 70-89% busy under the screen's rate runs well, but the card isn't what sets the pace - said so, as Limit does)
+            // (with the busy %, so the limit line under it keeps only the advice - it said the 72% twice, 10/28)
+            if (busy != null) return ("Paced", $"Runs well: {f} fps{scr}, 1% low {Math.Round(low)}, paced by the processor or the game (graphics card {busy}% busy)");
+            return ("Smooth", $"Smooth: {f} fps{scr}, 1% low {Math.Round(low)}");
+        }
+
+        // where a Capped verdict's cap probably comes from and what to change in the game's menu (Game check-up, 10/28) - text
+        // only, Messiah never changes a game's settings. Messiah's own NVIDIA cap (the screen's rate minus 3 with G-SYNC,
+        // nvidia-settings.ps1) runs near the screen's rate and reads as Smooth, so a cap here is the game's or V-Sync's.
+        // gsync: gsync.txt's first line (1 on, 0 off, else not known); null for a verdict that isn't Capped
+        internal static string CapCause((string Kind, string Text)? v, int hz, string gsync)
+        {
+            if (v == null || v.Value.Kind != "Capped") return null;
+            var cap = int.Parse(Regex.Match(v.Value.Text, @"(\d+) fps").Groups[1].Value);
+            if (hz <= 0) return "Usually the game's own frame limit or V-Sync. Both are in the game's video settings.";
+            if (Math.Abs(cap * 2 - hz) <= hz * 0.03)
+                return gsync == "1" ? "Half the screen's rate usually means V-Sync at half rate in the game. Turn V-Sync off in its video settings: G-SYNC keeps it smooth without it."
+                                    : "Half the screen's rate usually means V-Sync at half rate in the game. In its video settings, set V-Sync to full rate.";
+            var mode = new[] { 50, 60, 75, 100, 120, 144, 165 }.Contains(cap) ? $", or the game set to {cap} Hz" : "";   // (a refresh rate a screen offers)
+            return $"Most likely the game's own frame limit{mode}. In its video settings, set the frame rate limit to Unlimited and the refresh rate to {hz} Hz"
+                + (gsync == "1" ? ". Messiah's NVIDIA settings keep it just under the screen's rate." : ".");
+        }
+
+        // G-SYNC on the main screen as nvidia-settings.ps1 last read it (gsync.txt: 1 on, 0 off); "" when not known
+        internal static string Gsync() { try { return System.IO.File.ReadLines(System.IO.Path.Combine(Kit.Cl, "gsync.txt")).FirstOrDefault()?.Trim() ?? ""; } catch { return ""; } }
+
+        // the verdict in a few words, for Home's Last game tile (Game check-up, 10/28: 'NBA 2K20, last session today, capped at 60
+        // fps' - the bare 1% low said nothing about why); null without a verdict, so the tile keeps the 1% low
+        internal static string Brief((string Kind, string Text)? v, double low)
+        {
+            if (v == null) return null;
+            switch (v.Value.Kind)
+            {
+                case "Capped": return $"capped at {Regex.Match(v.Value.Text, @"(\d+) fps").Groups[1].Value} fps";
+                case "Processor": return "held back by the processor";
+                case "Graphics": return "held back by the graphics card";
+                case "Stuttery": return "more hitches than usual";
+                case "Paced": return $"runs well, 1% low {Math.Round(low)}";
+                default: return $"smooth, 1% low {Math.Round(low)}";
+            }
         }
 
         // --- the charts' words (10/22, interactive charts): a session in a line (said on hover), what changed between
@@ -239,24 +348,37 @@ namespace Messiah.Pages
             }
             return o;
         }
+        // the legend under a game's charts names only the kinds of mark it has (10/27: Call of Duty's marks were all Messiah's
+        // own tries, and the legend said a driver, Windows, the RAM speed or your settings)
+        internal static bool IsTry(string mark) => mark.StartsWith("trying ") || mark.StartsWith("a setting being tried");
+        internal static string MarkNote(List<(DateTime D, string Text)> marks)
+        {
+            bool tries = marks.Any(m => IsTry(m.Text)), other = marks.Any(m => !IsTry(m.Text));
+            const string changed = "something changed there (a driver, Windows, the RAM speed, your settings)";
+            if (!tries) return $"A dashed mark: {changed}.";
+            return other ? $"A dashed mark: {changed}, or Messiah switched a setting it's trying (Tuned by measuring, above)."
+                         : "A dashed mark: Messiah switched a setting it's trying there (Tuned by measuring, above).";
+        }
         internal static List<ChartPt> Points(IEnumerable<Dictionary<string, object>> rows, string field, Dictionary<string, object> tune, bool named = false) =>
             rows.Where(r => Json.N(r, field) != null && Kit.Date(Json.Get(r, "date")) != null)
                 .Select(r => new ChartPt { D = Kit.Date(Json.Get(r, "date")).Value, V = Json.N(r, field).Value, Key = Json.S(r, "date"), More = (named ? Data.GameName(Json.S(r, "game")) + ": " : "") + Describe(r, tune, field) }).ToList();
 
         // one game: its sessions over time (point at one to read it, click it to open it), and the session opened - the latest
-        // unless one was picked - its numbers, what limits it, its minute second by second
-        static UIElement Game(string game, string key, List<Dictionary<string, object>> rows, Dictionary<string, object> tune)
+        // unless one was picked - its numbers, what limits it, its minute second by second. It leads with the latest session's
+        // verdict (Game check-up, 10/28): Smooth with a tick, the rest as plain words - a cap or a busy processor isn't an alarm
+        static UIElement Game(string game, string key, List<Dictionary<string, object>> rows, Dictionary<string, object> tune, int hz)
         {
             var usual = Median(rows.Select(r => Json.N(r, "fps") ?? 0).ToList());
             Pick.TryGetValue(key, out var pk);
             var sel = new ChartSel { Key = Json.S(rows.LastOrDefault(r => Json.S(r, "date") == pk) ?? rows.Last(), "date") };
             var detail = new StackPanel();
+            var v = Verdict(rows, hz);   // (the latest session's: its limit line then keeps only the advice, unless it's about hitches)
             void Open(string date)
             {
                 var r = rows.LastOrDefault(x => Json.S(x, "date") == date) ?? rows.Last(); var latest = r == rows.Last();
                 Pick[key] = latest ? null : date;
                 detail.Children.Clear();
-                foreach (var l in Session(r, rows.Count, usual, latest)) detail.Children.Add(l is Line ln ? Ui.LineEl(ln.Text, ln.Level) : (UIElement)l);
+                foreach (var l in Session(r, rows.Count, usual, latest, key == NoteKey, hz, latest && v != null && v.Value.Kind != "Stuttery")) detail.Children.Add(l is Line ln ? Ui.LineEl(ln.Text, ln.Level) : (UIElement)l);
                 if (!latest)
                 {
                     var back = new TextBlock(); var hl = new System.Windows.Documents.Hyperlink(new System.Windows.Documents.Run("Back to the latest session")) { Foreground = B("Accent") };
@@ -264,14 +386,16 @@ namespace Messiah.Pages
                 }
             }
             var lines = new List<object>();
+            if (v != null) lines.Add(new Line(v.Value.Text + ".", v.Value.Kind == "Smooth" ? "ok" : "info"));
+            if (CapCause(v, hz, Gsync()) is string cause) lines.Add(new Line(cause, "dim"));   // (where the cap comes from, 10/28)
             var marks = Marks(rows, tune);
             var grid = Ui.Pairs(new UniformGrid { Columns = 2, Margin = Ui.Th("0,8,-14,0") });
             if (rows.Count >= 2)
             {
-                grid.Children.Add(Pad(Charts.Chart("Frame rate, each session", " fps", Points(rows, "fps", tune), 0, 20, marks, p => Open(p.Key), sel)));
-                grid.Children.Add(Pad(Charts.Chart("1% low, each session", " fps", Points(rows, "low1", tune), 0, 20, marks, p => Open(p.Key), sel)));
+                grid.Children.Add(Pad(Charts.Chart("Frame rate, each session", " fps", Points(rows, "fps", tune), 0, 20, marks, p => Open(p.Key), sel, hint: false)));
+                grid.Children.Add(Pad(Charts.Chart("1% low, each session", " fps", Points(rows, "low1", tune), 0, 20, marks, p => Open(p.Key), sel, hint: false)));
                 lines.Add(grid);
-                if (marks.Count > 0) lines.Add(new Line("A dashed mark: something changed there (a driver, Windows, the RAM speed, your settings).", "dim"));
+                if (marks.Count > 0) lines.Add(new Line(MarkNote(marks), "dim"));
             }
             lines.Add(detail);
             Open(sel.Key);
@@ -283,17 +407,18 @@ namespace Messiah.Pages
             var now = DateTime.Now; var rows = new List<Dictionary<string, object>>();
             for (int i = 0; i < 12; i++)
             {
-                var r = new Dictionary<string, object> { ["date"] = now.AddDays(-40 + i * 3.5).ToString("o"), ["game"] = "cod", ["fps"] = 140 + i, ["low1"] = 100 + i, ["driver"] = i < 6 ? "1.0" : "2.0", ["ram"] = "4800 MT/s", ["gpuBusy"] = 97 };
+                var r = new Dictionary<string, object> { ["date"] = now.AddDays(-40 + i * 3.5).ToString("o"), ["game"] = "cod", ["fps"] = 140 + i, ["low1"] = 100 + i, ["driver"] = i < 6 ? "1.0" : "2.0", ["ram"] = "4800 MT/s", ["gpuBusy"] = 97, ["frames"] = 8000 };
                 if (i == 3) r["perSec"] = new object[] { 120, 121, 119 };
                 if (i >= 9) r["tune"] = "uploadheaps:" + (i == 11 ? "b" : "a");
                 rows.Add(r);
             }
             var tune = new Dictionary<string, object> { ["active"] = new Dictionary<string, object> { ["id"] = "uploadheaps", ["a"] = "true", ["b"] = "false" } };
-            var card = Game("Call of Duty", "cod-selftest", rows, tune);
+            var card = Game("Call of Duty", "cod-selftest", rows, tune, 239);
             IEnumerable<DependencyObject> All(DependencyObject d) { yield return d; foreach (var c in LogicalTreeHelper.GetChildren(d).OfType<DependencyObject>()) foreach (var x in All(c)) yield return x; }
             StackPanel Chart(string title) => All(card).OfType<StackPanel>().FirstOrDefault(x => (x.Tag as string ?? "").StartsWith("CHART: " + title + " |"));
             ChartCtl Ctl(string title) => All(Chart(title)).OfType<Canvas>().Select(c => c.DataContext as ChartCtl).FirstOrDefault(c => c != null);
             string Words() => string.Join(" / ", All(card).OfType<TextBlock>().Select(t => t.Text).Where(t => t.StartsWith("Session opened") || t.EndsWith("second by second")).Concat(All(card).OfType<System.Windows.Documents.Run>().Select(x => x.Text).Where(x => x.StartsWith("Back to"))));
+            yield return "CHARTTEST leads with: " + All(card).OfType<TextBlock>().Select(t => t.Text).FirstOrDefault(t => (t ?? "").Contains(" fps"));
             yield return "CHARTTEST tag: " + Chart("Frame rate, each session").Tag;
             var ctl = Ctl("Frame rate, each session");
             yield return $"CHARTTEST points shown: {ctl.Count}";
@@ -306,10 +431,12 @@ namespace Messiah.Pages
             ctl.Click(3);
             yield return "CHARTTEST clicked: " + Words();
             yield return "CHARTTEST other chart follows: " + (Chart("1% low, each session") != null);
+            yield return "CHARTTEST hints: " + All(card).OfType<TextBlock>().Count(t => (t.Text ?? "").StartsWith("Point at"))
+                + " | subtitle " + (Messiah.MainWindow.Subs.TryGetValue("Activity/Performance", out var sub) && sub.Contains("Point at a chart to read it, click a session to open it") ? "says it" : "doesn't");   // (10/27: the subtitle says it once)
         }
 
         // a session's numbers, what limits it, and its minute second by second (what Game opens)
-        static List<object> Session(Dictionary<string, object> last, int sessions, double usual, bool latest)
+        static List<object> Session(Dictionary<string, object> last, int sessions, double usual, bool latest, bool note = true, int hz = 0, bool said = false)
         {
             var when = Kit.Date(Json.Get(last, "date")).Value;
             var fps = Json.N(last, "fps") ?? 0; var low = Json.N(last, "low1") ?? 0; var st = (int)(Json.N(last, "stutters") ?? 0);
@@ -319,12 +446,12 @@ namespace Messiah.Pages
                     (sessions > 1 ? $" (usual {Math.Round(usual)} fps over {sessions} sessions)" : ""), fps < usual * 0.9 && sessions > 2 ? "warn" : "info")
             };
             var gt = Json.N(last, "gpuTemp"); var thr = Json.S(last, "throttle");
-            if (gt != null) lines.Add(new Line($"Graphics card up to {gt} °C, {Json.N(last, "gpuUse") ?? 0}% busy{(thr != "" ? $" - it slowed itself down ({thr.Replace(",", " and ")} limit)" : "")}", thr != "" ? "warn" : "dim"));
+            if (gt != null) lines.Add(new Line($"Graphics card up to {gt} °C{(Json.N(last, "gpuUse") is double gu ? $", {gu}% busy" : "")}{(thr != "" ? $" - it slowed itself down ({thr.Replace(",", " and ")} limit)" : "")}", thr != "" ? "warn" : "dim"));
             // drivers' time on the busiest core while playing (interrupts and deferred calls): over 15% steals time from the game
             var dpc = Json.N(last, "dpcMax");
             if (dpc != null) lines.Add(new Line(dpc >= 15 ? $"Drivers took up to {dpc}% of a core while you played - enough to cause stutters the frame rate hides (audio, network or USB drivers are the usual ones)" : $"Drivers took up to {dpc}% of a core while you played - fine", dpc >= 15 ? "warn" : "dim"));
             var per = Json.L(last, "perSec").Select(Num).ToList(); var worst = Json.L(last, "worstMs").Select(Num).ToList();
-            var lim = Limit(last, per); if (lim != null) lines.Add(lim);
+            var lim = Limit(last, per, hz, said); if (lim != null) lines.Add(lim);
             var net = Connection.Session(last, sessions > 2 && (fps < usual * 0.9 || st >= 10)); if (net != null) lines.Add(net);
             if (per.Count >= 2)
             {
@@ -333,21 +460,35 @@ namespace Messiah.Pages
                 if (worst.Count >= 2) grid.Children.Add(Pad(Curve("Its slowest frame each second", " ms", worst, true)));
                 lines.Add(grid);
             }
-            else lines.Add(new Line(latest ? "The second-by-second view shows from the next session on (sessions measured before 10/21 kept only the totals)." : "That session's second-by-second view isn't kept (only the newest 30 keep it).", "dim"));
+            else if (!latest) lines.Add(new Line("That session's second-by-second view isn't kept (only the newest 30 keep it).", "dim"));
+            else if (note) lines.Add(new Line(SecsNote(when), "dim"));
             return lines;
         }
+        // a latest session without its second-by-second view says why once, under the first game card it's missing from - not
+        // under every game (10/28: the same note under Call of Duty and Apex); one from Oct 21 on lost it to the newest-30 cap or a
+        // short capture - which one isn't known here, so the note doesn't say
+        internal static string NoteKey;
+        internal static string SecsNoteKey(IEnumerable<(string Key, Dictionary<string, object> Last)> games) =>
+            games.Where(g => Json.L(g.Last, "perSec").Count() < 2).Select(g => g.Key).FirstOrDefault();
+        internal static string SecsNote(DateTime when) => when < new DateTime(2026, 10, 21)
+            ? "The second-by-second view shows from the next session on (sessions measured before Oct 21 kept only the totals)."
+            : "This session kept only its totals - the second-by-second view shows again from the next session on.";
         static UIElement Pad(UIElement e) { ((FrameworkElement)e).Margin = Ui.Th("0,0,14,14"); return e; }
 
         // something that changed between sessions - a graphics driver, Windows, the RAM speed (EXPO), Memory Integrity, the game's
         // own settings: each game's sessions on the one before and on the one after, side by side, and what it came to
         internal static readonly (string Field, string What)[] Changes = { ("driver", "Graphics driver"), ("build", "Windows"), ("ram", "RAM speed"), ("hvci", "Memory Integrity"), ("settings", "Your game settings") };
-        static UIElement Updates(List<IGrouping<string, Dictionary<string, object>>> games)
+        static UIElement Updates(List<IGrouping<string, Dictionary<string, object>>> games, Dictionary<string, object> tune)
         {
             var lines = new List<(string, string, string)>();
             foreach (var g in games) foreach (var v in Verdicts(Data.GameName(g.Key), g.ToList())) lines.Add((v.When, v.Text, v.Level));
-            if (lines.Count == 0) lines.Add(("", "Nothing changed between sessions yet - after the next change (a driver, Windows, EXPO, a setting), each game's sessions before and after show here with what it came to.", "dim"));
+            if (lines.Count == 0) lines.Add(("", NoChanges(games.Any(g => Marks(g.ToList(), tune).Any(m => IsTry(m.Text)))), "dim"));
             return Ui.Card("Before and after changes", "E895", new object[] { Ui.Rows(lines.OrderByDescending(l => l.Item1).ToList()) });
         }
+        // with only Messiah's own tries on the charts, "nothing changed" under their dashed marks read wrong (10/27)
+        internal static string NoChanges(bool tries) => tries
+            ? "Nothing else changed between sessions yet - the dashed marks are Messiah's own tries (Tuned by measuring, above). A driver, Windows or EXPO change shows here."   // (under Ui.Rows' 160-character fold)
+            : "Nothing changed between sessions yet - after the next change (a driver, Windows, EXPO, a setting), each game's sessions before and after show here with what it came to.";
         internal static List<(string When, string Text, string Level, DateTime? Decided)> Verdicts(string game, List<Dictionary<string, object>> rows)
         {
             var o = new List<(string, string, string, DateTime?)>();

@@ -74,7 +74,7 @@
             <WrapPanel x:Name="ChatAttach" DockPanel.Dock="Top" Visibility="Collapsed" Margin="0,2,0,4"/>
             <Button x:Name="ChatSend" AutomationProperties.Name="Send" DockPanel.Dock="Right" VerticalAlignment="Bottom"/>
             <Grid>
-              <TextBlock x:Name="ChatHint" Text="Ask Claude anything - paste or drop screenshots and files" Foreground="{DynamicResource c.Sub}" FontSize="14" Margin="3,6,0,0" IsHitTestVisible="False"/>
+              <TextBlock x:Name="ChatHint" Text="Ask anything - paste or drop screenshots and files" Foreground="{DynamicResource c.Sub}" FontSize="14" Margin="3,6,0,0" TextTrimming="CharacterEllipsis" IsHitTestVisible="False"/>
               <TextBox x:Name="ChatInput" AutomationProperties.Name="Message to Claude" AutomationProperties.HelpText="Enter sends; Shift+Enter for a new line; Up arrow brings back the last message" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="150" MinHeight="30" FontSize="14" Background="Transparent" BorderThickness="0" Foreground="{DynamicResource c.Text}" CaretBrush="{DynamicResource c.Text}" VerticalScrollBarVisibility="Auto" Padding="0,5,0,0"/>
             </Grid>
           </DockPanel>

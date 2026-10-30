@@ -16,6 +16,110 @@ namespace Messiah.Pages
         static SolidColorBrush B(string k) => Theme.B[k];
         public static UniformGrid TileGrid;   // (the window sets its columns to its width)
 
+        // the Claude card's button: "Open chat", or "Close chat" while the chat is open beside the page (10/27: it said
+        // "Open chat" next to the open chat); follows the panel however it opens or closes (Ask Claude, its X, Ctrl+W)
+        public static Button ChatBtn(FrameworkElement panel, Action<bool> show)
+        {
+            Button b = null;
+            void Sync()
+            {
+                bool open = panel.Visibility == Visibility.Visible; var text = open ? "Close chat" : "Open chat";
+                var sp = new StackPanel { Orientation = Orientation.Horizontal };
+                sp.Children.Add(Ui.Glyph(open ? "E711" : "E8BD", 14, open ? B("Text") : B("OnAccent")));
+                sp.Children.Add(new TextBlock { Text = text, Margin = Ui.Th("8,0,0,0"), VerticalAlignment = VerticalAlignment.Center });
+                b.Content = sp; b.ToolTip = text; System.Windows.Automation.AutomationProperties.SetName(b, text);
+                b.Style = (Style)Application.Current.FindResource(open ? "Btn" : "AccentBtn");
+            }
+            b = Ui.Btn("E8BD", "Open chat", () => { show(panel.Visibility != Visibility.Visible); Sync(); }, accent: true);
+            var dpd = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(UIElement.VisibilityProperty, typeof(UIElement));
+            EventHandler h = (s, e) => Sync();
+            b.Loaded += (s, e) => { dpd.RemoveValueChanged(panel, h); dpd.AddValueChanged(panel, h); Sync(); };
+            b.Unloaded += (s, e) => dpd.RemoveValueChanged(panel, h);   // (Home is rebuilt on every refresh - no handler left behind)
+            Sync(); return b;
+        }
+
+        // the Next tile: the soonest scheduled check (10/26: was always the first line - "App updates - due now" even on a
+        // new install before any check ran, next to This week's "Not checked yet"; now the first check says so). The weekly
+        // self-test is left out (10/27: its row is dated now, so the tile could say "Self-test / Nov 2" - it tests
+        // Messiah's own scripts, nothing a gamer waits for; Checks still lists it)
+        internal static (string Value, string Sub) NextCheck(Section sched, bool checkedOnce)
+        {
+            if (!checkedOnce) return ("First check", "In the background after login");
+            var soon = (sched?.Lines ?? new List<Line>()).Select(l => Regex.Match(l.Text, @"^([^:]+):\s+(due now|\w+ \d+, \d{4})"))
+                .Where(m => m.Success && m.Groups[1].Value.Trim() != "Self-check")
+                .Select(m => (Name: m.Groups[1].Value, When: m.Groups[2].Value, At: m.Groups[2].Value == "due now" ? DateTime.MinValue
+                    : DateTime.TryParseExact(m.Groups[2].Value, "MMM d, yyyy", null, System.Globalization.DateTimeStyles.None, out var d) ? d : DateTime.MaxValue))
+                .OrderBy(x => x.At).FirstOrDefault();   // (stable: the first of two due now)
+            if (soon.Name == null) return ("At login", "And every 4 hours");
+            if (soon.At == DateTime.MinValue) return (soon.Name, "Runs at the next check");
+            if (soon.At == DateTime.MaxValue) return (soon.Name, soon.When);
+            var when = Kit.FormatWhen(soon.At, dateOnly: true); return (soon.Name, char.ToUpper(when[0]) + when.Substring(1));   // ("Tomorrow", "Nov 2")
+        }
+
+        // the Guarded tile's sub line - under '27 in place, 1 kept' it says what the last check did, not 'in place' again (10/27)
+        internal static string GuardSub(string warnState, DateTime? at, bool stale, int fixedN, IList<string> kept = null)
+        {
+            if (warnState != null) return warnState + ", see Optimizations";   // (10/28: "see Status" - the tab is Optimizations > In place)
+            if (at == null) return "Checked every 4 hours";
+            var when = Kit.FormatWhen(at.Value, shortForm: true);
+            if (stale) return $"Last checked {when}. It runs again soon";
+            if (fixedN > 0) return $"{fixedN} put back {when}";
+            // (10/28: the value read '27 in place, 1 kept' and nothing said what was kept)
+            if (kept != null && kept.Count > 0) return kept.Count == 1 ? $"{kept[0]} kept on purpose" : $"{kept.Count} kept on purpose, see Optimizations";
+            return $"Checked {when}, nothing undone";
+        }
+
+        // what a kept-on-purpose row keeps, from its title: "Xbox Game Bar removed" -> "Xbox Game Bar"
+        internal static string KeptName(string title)
+        {
+            foreach (var end in new[] { " removed", " off" }) if (title.EndsWith(end)) return title.Substring(0, title.Length - end.Length);
+            return title;
+        }
+
+        // the Free space tile: the last check's number, else the storage scan's system drive, else C: read now (10/27: it
+        // read a bare '-' on a new install until the first check wrote health-history)
+        internal static double? FreeC(Dictionary<string, object> health, Dictionary<string, object> storage, Func<double?> live = null)
+        {
+            var free = Json.N(health, "freeGB"); if (free != null) return free;
+            var sys = Json.L(storage, "drives").OfType<Dictionary<string, object>>().FirstOrDefault(d => Json.B(d, "system"));
+            if ((free = Json.N(sys, "freeGB")) != null) return free;
+            try { return (live ?? (() => new System.IO.DriveInfo("C").AvailableFreeSpace / 1073741824.0))(); } catch { return null; }
+        }
+
+        // the Last game tile: the last session (10/27: it opened Trends, which has no games, and its fps sat beside This
+        // week's for the same game with nothing saying one is a single session - now it says when and opens the game's card;
+        // 10/28: 199 here and 198 on This week a line apart read as two answers - this one says 'last session', that one 'per session')
+        // (Game check-up, 10/28: with that game's sessions it ends with the verdict in a few words, the 1% low without one)
+        internal static (string Value, string Sub, string Go) LastGame(Dictionary<string, object> p, List<Dictionary<string, object>> perf = null, int hz = 0)
+        {
+            if (p == null) return ("Nothing yet", "Measured while you play", "Activity/Performance");
+            var game = Data.GameName(Json.S(p, "game")); var at = Kit.Date(Json.Get(p, "date")); var low = Json.N(p, "low1") ?? 0;
+            var rows = perf?.Where(r => Json.S(r, "game") == Json.S(p, "game")).ToList();
+            var brief = rows != null && rows.LastOrDefault() == p ? Performance.Brief(Performance.Verdict(rows, hz), low) : null;
+            // 10/28: 'last session' and its day sit together ('Call of Duty, last session today, 1% low 149') - the day came last, apart
+            return ($"{Math.Round(Json.N(p, "fps") ?? 0)} fps", $"{game}, last session" + (at != null ? " " + Kit.FormatWhen(at.Value, dateOnly: true) : "") + ", " + (brief ?? $"1% low {Math.Round(low)}"),
+                "Activity/Performance#" + game);
+        }
+
+        // Home's Last session card: the session's numbers, then the verdict of its last measured minute when that minute is the
+        // game's latest (Game check-up, 10/28 - why it ran that way, as the game's card on Performance says it)
+        internal static List<Line> SessionLines(Data.Session ss, List<Dictionary<string, object>> perf, int hz)
+        {
+            var o = Data.SessionLines(ss);
+            var rows = (perf ?? new List<Dictionary<string, object>>()).Where(r => Json.S(r, "game").Equals(ss.Game, StringComparison.OrdinalIgnoreCase)).ToList();
+            var at = Kit.Date(Json.Get(rows.LastOrDefault(), "date"));
+            if (ss.Fps != null && at != null && at >= ss.Start.AddMinutes(-2) && at <= ss.End.AddMinutes(2) && Performance.Verdict(rows, hz) is var v && v != null)
+                o.Insert(1, new Line(v.Value.Text + "."));
+            return o;
+        }
+
+        // the headline's calm states (10/28: no ' - ' joins in a heading; the tray's quick panel says the same)
+        public const string AllGood = "All good, nothing needs you", Handling = "The last check found something, and it's being handled",
+            NoCheckYet = "No check yet. The first one runs a few minutes after login.";
+        // the Claude card's line (10/28: was 'Ready - your conversation...' / '... right here - it can look...')
+        public const string ClaudeReady = "Ready. Your conversation is kept, so you can pick up where you left off",
+            ClaudeNew = "Chat with Claude right here. It can look at this PC and fix things, with admin rights";
+
         public static List<UIElement> Build(Snapshot s)
         {
             var o = new List<UIElement>();
@@ -24,9 +128,9 @@ namespace Messiah.Pages
             var sm = s.Sm;
             (string Lv, string Mid, string Say) st =
                 todo.Count > 0 ? ("warn", todo.Count.ToString(), $"{todo.Count} thing{Kit.S(todo.Count)} need{(todo.Count == 1 ? "s" : "")} you") :
-                warn.Count > 0 ? ("warn", "E9F5", "The last check found something - it is being handled") :
+                warn.Count > 0 ? ("warn", "E9F5", Handling) :
                 sm.Warn > 0 ? ("warn", sm.Warn.ToString(), $"{sm.Warn} optimization{Kit.S(sm.Warn)} need{(sm.Warn == 1 ? "s" : "")} a look") :
-                ("ok", "E73E", "All good - nothing needs you");
+                ("ok", "E73E", AllGood);
             var when = last.Lines.FirstOrDefault(l => Regex.IsMatch(l.Text, "^(Checked|No report)"));
             // the status at one glance: a ring in the status color (the number of things that need the owner, or a check
             // mark), one sentence, when it was last checked - and the main actions under it
@@ -36,7 +140,7 @@ namespace Messiah.Pages
             var txt = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             var ht = Ui.Text(st.Say, B("Text"), 26, FontWeights.SemiBold, "0"); ht.FontFamily = Theme.Display; txt.Children.Add(ht);
             DateTime? whenAt = null; if (when != null) { var m = Regex.Match(when.Text, "^Checked (.+?)( in |$)"); if (m.Success && DateTime.TryParse(m.Groups[1].Value, out var d)) whenAt = d; }
-            var whenTxt = whenAt != null ? "Last check " + Kit.FormatWhen(whenAt.Value) : when != null ? when.Text : "No check yet - the first one runs a few minutes after login";
+            var whenTxt = whenAt != null ? "Last check " + Kit.FormatWhen(whenAt.Value) : when != null ? when.Text : NoCheckYet;
             txt.Children.Add(Ui.Text(whenTxt + (s.KitVersion != "" ? $"  ·  Messiah {s.KitVersion}, updates by itself" : ""), B("Sub"), 13, null, "0,4,0,0"));
             Grid.SetColumn(txt, 1); hero.Children.Add(ring); hero.Children.Add(txt);
             bool statusFirst = sm.Warn > 0 && todo.Count == 0 && warn.Count == 0;
@@ -66,7 +170,7 @@ namespace Messiah.Pages
 
             // the last game session, for 12 hours after it ended: how it ran against that game's usual (10/22)
             if (s.LastSession != null && s.LastSession.End > DateTime.Now.AddHours(-12) && s.Playing == "")
-                o.Add(Ui.Card("Last session", "E7FC", Data.SessionLines(s.LastSession).Cast<object>(), new[] { Ui.Btn("E9D2", "Performance", () => Shell.ShowPage("Activity", "Performance")) }));
+                o.Add(Ui.Card("Last session", "E7FC", SessionLines(s.LastSession, s.Perf, Native.ScreenHz()).Cast<object>(), new[] { Ui.Btn("E9D2", "Performance", () => Shell.ShowPage("Activity", "Performance")) }));
 
             // the PC went off without a blue screen: did the owner do that? - one at a time, newest first, last 30 days
             var ask = s.Power.Where(e => e.Kind == "off" && e.Answer == "" && e.Key > DateTime.Now.AddDays(-30)).OrderByDescending(e => e.Key).ToList();
@@ -87,27 +191,27 @@ namespace Messiah.Pages
             // the tiles: the main facts at a glance, each a way into its page
             var tiles = new UniformGrid { Columns = 4, Margin = Ui.Th("0,0,-12,2") }; TileGrid = tiles;
             var gs = Kit.ReadJson(Kit.P("guard-state.json"));
-            int nAll = sm.Ok + sm.Warn; bool guardOld = sm.At != null && sm.Stale;
-            var guardVal = sm.Warn > 0 ? $"{sm.Warn} need{(sm.Warn == 1 ? "s" : "")} a look" : sm.At != null ? $"{sm.Ok} of {nAll} in place" : "Ready";
+            bool guardOld = sm.At != null && sm.Stale;
+            var guardVal = sm.Warn > 0 ? $"{sm.Warn} need{(sm.Warn == 1 ? "s" : "")} a look" : sm.At != null ? sm.TileInPlace : "Ready";
             var firstWarn = sm.Rows.FirstOrDefault(r => r.Level == "warn");
             var fixedN = (int)(Json.N(gs, "fixed") ?? 0);
-            var guardSub = firstWarn != null ? firstWarn.State + " - see Status" : sm.At == null ? "Checked every 4 hours" : guardOld ? $"Last checked {Kit.FormatWhen(sm.At.Value, shortForm: true)} - it runs again soon"
-                : fixedN > 0 ? $"{fixedN} put back {Kit.FormatWhen(sm.At.Value, shortForm: true)}" : $"Checked {Kit.FormatWhen(sm.At.Value, shortForm: true)} - all in place";
+            var guardSub = GuardSub(firstWarn?.State, sm.At, guardOld, fixedN, sm.Rows.Where(r => r.Level == "ok" && r.State?.StartsWith("Kept - ") == true).Select(r => KeptName(r.Title)).ToList());
             if (sm.Warn > 0) guardOld = true;   // (the tile in the warning color)
-            var next = sched.Lines.Select(l => Regex.Match(l.Text, @"^([^:]+):\s+(.*)$")).FirstOrDefault(m => m.Success);
-            var p = s.PerfLast; var h = s.HealthLast; var free = Json.N(h, "freeGB");
+            var next = NextCheck(sched, Week.FirstReport() != null);
+            var p = s.PerfLast; var free = FreeC(s.HealthLast, s.Storage);
             tiles.Children.Add(Ui.Tile("EA18", "Guarded", guardVal, guardSub, guardOld ? "warn" : "info", "Status"));
-            tiles.Children.Add(Ui.Tile("E7FC", "Last game", p != null ? $"{Math.Round(Json.N(p, "fps") ?? 0)} fps" : "Nothing yet", p != null ? $"{Data.GameName(Json.S(p, "game"))}, 1% low {Math.Round(Json.N(p, "low1") ?? 0)} fps" : "Measured while you play", "info", "Activity/Trends"));
-            tiles.Children.Add(Ui.Tile("EDA2", "Free space on C:", free != null ? $"{Math.Round(free.Value)} GB" : "-", "Cleaned up every week", free != null && free < 30 ? "warn" : "info", "Activity/Storage"));
-            tiles.Children.Add(Ui.Tile("E787", "Next", next != null ? next.Groups[1].Value : "At login", next != null ? Kit.FormatLine(next.Groups[2].Value) : "And every 4 hours", "info", "Activity/Checks"));
+            var lg = LastGame(p, s.Perf, Native.ScreenHz());
+            tiles.Children.Add(Ui.Tile("E7FC", "Last game", lg.Value, lg.Sub, "info", lg.Go));
+            tiles.Children.Add(Ui.Tile("EDA2", "Free space on C:", free != null ? $"{Math.Round(free.Value)} GB" : "-", "Cleaned up every week", free != null && free < 30 ? "warn" : "info", "Activity/Storage#Drives"));
+            tiles.Children.Add(Ui.Tile("E787", "Next", next.Value, next.Sub, "info", "Activity/Checks#Scheduled checks"));
             o.Add(tiles);
             var wk = Week.Card(s); if (wk != null) o.Add(wk);   // (10/25: the week at a glance - games, crashes, what the checks did)
             if (wait.Lines.Any(l => !l.Text.StartsWith("Nothing"))) o.Add(Ui.Card(wait.Title, "E777", wait.Lines.Cast<object>()));
             if (s.Ai)
             {
                 var cs = s.Chat;
-                var line = new Line(cs != null && Json.B(cs, "busy") ? "Working right now" + (Json.S(cs, "step") != "" ? ": " + Json.S(cs, "step") : "") : cs != null ? "Ready - your conversation is kept, so you can pick up where you left off" : "Chat with Claude right here - it can look at this PC and fix things, with admin rights");
-                o.Add(Ui.Card("Claude", "E99A", new object[] { line, new Line("Your Claude account; what it does shows in the chat as it happens. Nothing runs in a terminal.", "dim") }, new[] { Ui.Btn("E8BD", "Open chat", Actions.OpenChat, accent: true) }));
+                var line = new Line(cs != null && Json.B(cs, "busy") ? "Working right now" + (Json.S(cs, "step") != "" ? ": " + Json.S(cs, "step") : "") : cs != null ? ClaudeReady : ClaudeNew);
+                o.Add(Ui.Card("Claude", "E99A", new object[] { line, new Line("Your Claude account; what it does shows in the chat as it happens. Nothing runs in a terminal.", "dim") }, new[] { Shell.W != null ? ChatBtn(Shell.W.ChatPanel, Shell.W.ShowChat) : Ui.Btn("E8BD", "Open chat", Actions.OpenChat, accent: true) }));
             }
             return o;
         }

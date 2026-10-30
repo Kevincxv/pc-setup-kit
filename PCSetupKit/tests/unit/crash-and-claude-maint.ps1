@@ -66,4 +66,10 @@ $t0 = Get-Date; $o = CM 2   # the step limit shortened for the test; the real on
 Check 'doctor hangs: skipped at the step limit, worded so it does not wake /maintain' ((($o -join '|') -match "got no response in 2 s, skipped") -and -not (($o -join '|') -match 'WARNING|FAILED|timed out|DOCTOR ISSUES') -and ((Get-Date) - $t0).TotalSeconds -lt 30) ($o -join ' / ')
 Get-CimInstance Win32_Process -Filter "Name='claude.exe'" | Where-Object ExecutablePath -like "$H*" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Check '... the real limit per step is still 45 s (120 s for the update)' ((Get-Content "$Src\claude-maint.ps1" -Raw) -match '\[int\]\$StepSeconds = 45\)' -and (Get-Content "$Src\claude-maint.ps1" -Raw) -match "Invoke-Claude 'update' 120") ''
+# the stand-in itself: calls at once (the app starts --version and the chat together) all log, none fails (10/26)
+Fake @{}; $env:FAKE_DIR = $fd
+$ps = 1..20 | ForEach-Object { $psi = New-Object Diagnostics.ProcessStartInfo "$H\.local\bin\claude.exe", '--version'; $psi.UseShellExecute = $false; $psi.RedirectStandardError = $true; $psi.RedirectStandardOutput = $true; $psi.CreateNoWindow = $true; [Diagnostics.Process]::Start($psi) }
+$errs = @($ps | ForEach-Object { $_.WaitForExit(); $_.StandardError.ReadToEnd() } | Where-Object { $_ }); Remove-Item Env:FAKE_DIR
+$calls = @(Get-Content "$fd\calls.log")
+Check 'the stand-in claude.exe: 20 calls at once - all 20 logged, no error' (($calls.Count -eq 20) -and -not $errs) "$($calls.Count) logged; $($errs -join ' / ')"
 Finish

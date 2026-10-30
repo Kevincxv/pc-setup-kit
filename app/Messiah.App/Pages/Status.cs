@@ -31,7 +31,7 @@ namespace Messiah.Pages
                 Shell.Say(sm.At != null && sm.At >= Shell.CheckingSince ? $"Check finished - {(sm.Warn > 0 ? $"{sm.Warn} need{(sm.Warn == 1 ? "s" : "")} a look" : "everything is in place")}." : "The check is taking longer than usual - this page updates by itself when it finishes.");
                 Shell.CheckingSince = null;
             }
-            var hl = sm.Checking ? ("info", "E895", "Checking everything now...") : sm.At == null ? ("dim", "E9F5", "Not checked yet") : sm.Warn > 0 ? ("warn", sm.Warn.ToString(), $"{sm.Warn} need{(sm.Warn == 1 ? "s" : "")} a look") : sm.Stale ? ("warn", "E9F5", "Not checked lately") : ("ok", "E73E", $"All {sm.Ok} in place");
+            var hl = sm.Checking ? ("info", "E895", "Checking everything now...") : sm.At == null ? ("dim", "E9F5", "Not checked yet") : sm.Warn > 0 ? ("warn", sm.Warn.ToString(), $"{sm.Warn} need{(sm.Warn == 1 ? "s" : "")} a look") : sm.Stale ? ("warn", "E9F5", "Not checked lately") : ("ok", "E73E", sm.AllInPlace);
             var hero = new Grid();
             hero.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); hero.ColumnDefinitions.Add(new ColumnDefinition());
             var ring = Ui.Ring(64, 4, 24, hl.Item1, hl.Item2, hl.Item1 == "info" ? B("Accent") : null); ring.Margin = Ui.Th("0,0,20,0");
@@ -43,20 +43,24 @@ namespace Messiah.Pages
             var txt = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             var ht = Ui.Text(hl.Item3, B("Text"), 22, FontWeights.SemiBold, "0"); ht.FontFamily = Theme.Display; txt.Children.Add(ht);
             var sub = sm.Checking ? "Settings, services, apps, the power plan, the NVIDIA profile and the monitors - this page updates by itself when it is done (usually under a minute)."
-                : $"{(sm.At != null ? "Checked " + Kit.FormatWhen(sm.At.Value) : "The first check runs a few minutes after login")} · checked again at every login, every 4 hours and 2 minutes after each Windows or driver update - anything an update changes back is put back by itself. Click a row for details.";
+                : $"{(sm.At != null ? "Checked " + Kit.FormatWhen(sm.At.Value) : "The first check runs a few minutes after login")} · checked again at every login, every 4 hours and 2 minutes after each Windows or driver update. Anything an update changes back is put back by itself. Click a row for details.";
             txt.Children.Add(Ui.Text(sub, B("Sub"), 13, null, "0,4,0,0"));
             Grid.SetColumn(txt, 1); hero.Children.Add(ring); hero.Children.Add(txt);
             var chk = Ui.Btn("E72C", sm.Checking ? "Checking..." : "Check now", Actions.CheckNow, accent: true); chk.IsEnabled = !sm.Checking;
             var hc = Ui.Card(null, null, new object[] { hero }, new UIElement[] { chk, Ui.Btn("E7B3", "Preview changes", Actions.PreviewTweaks), Ui.Btn("E713", "Choose what Messiah changes", () => Shell.ShowPage("Settings", "Windows")), Ui.Btn("E8C8", "Copy a report", Actions.CopyReport) });
             hc.Padding = Ui.Th("24,20"); o.Add(Ui.Wide(hc));
 
-            // filters (All / Needs a look / Put back / Off, with counts) and a search box: rows are hidden in place, no redraw
-            var cnt = new Dictionary<string, int> { ["all"] = sm.Rows.Count, ["warn"] = sm.Rows.Count(r => r.Level == "warn"), ["back"] = sm.Rows.Count(r => (r.State ?? "").StartsWith("Put back")), ["off"] = sm.Rows.Count(r => r.Level == "dim") };
+            // filters (All / Needs a look / Put back / Not checked / Off, with counts) and a search box: rows are hidden in
+            // place, no redraw. Not checked only shows before the first check (10/26: those rows counted as "Off 27" then)
+            var cnt = new Dictionary<string, int> { ["all"] = sm.Rows.Count };
+            foreach (var id in new[] { "warn", "back", "new", "off" }) cnt[id] = sm.Rows.Count(r => Shows(id, r));
+            if (Filter == "new" ? cnt["new"] == 0 : Filter == "back" && cnt["new"] > 0) Filter = "all";
             var fbar = new WrapPanel { Margin = Ui.Th("0,0,0,8") };   // (10/25 audit: a narrow window cut the search box off - it goes under the filters)
             var seg = new Border { Background = B("Seg"), CornerRadius = new CornerRadius(8), Padding = new Thickness(3), VerticalAlignment = VerticalAlignment.Center, Margin = Ui.Th("0,0,12,6") };
             var pills = new StackPanel { Orientation = Orientation.Horizontal };
-            foreach (var (id, label) in new[] { ("all", "All"), ("warn", "Needs a look"), ("back", "Put back"), ("off", "Off") })
+            foreach (var (id, label) in new[] { ("all", "All"), ("warn", "Needs a look"), ("back", "Put back"), ("new", "Not checked"), ("off", "Off") })
             {
+                if (id == "new" ? cnt[id] == 0 : id == "back" && cnt["new"] > 0) continue;   // (nothing is put back before the first check - and 5 pills overflow at 480)
                 var rb = new RadioButton { GroupName = "stf", Tag = id, Content = $"{label}  {cnt[id]}", IsChecked = Filter == id, Style = (Style)Application.Current.FindResource("Pill") };
                 AutomationProperties.SetName(rb, $"Show: {label}, {cnt[id]}");
                 rb.Checked += (x, e) => { Filter = id; Apply(); }; pills.Children.Add(rb);
@@ -92,12 +96,19 @@ namespace Messiah.Pages
             var q = (Search ?? "").Trim();
             foreach (var (el, r) in rows)
             {
-                bool show = Filter == "warn" ? r.Level == "warn" : Filter == "back" ? (r.State ?? "").StartsWith("Put back") : Filter == "off" ? r.Level == "dim" : true;
+                bool show = Shows(Filter, r);
                 if (show && q != "") show = r.Words.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0;
                 el.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             }
             foreach (var kv in cards) kv.Value.Visibility = rows.Any(x => x.Row.Card == kv.Key && x.El.Visibility == Visibility.Visible) ? Visibility.Visible : Visibility.Collapsed;
             if (empty != null) empty.Visibility = rows.Any(x => x.El.Visibility == Visibility.Visible) ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        // whether a filter shows a row: Off is what's turned off (by the owner or not opted in), not what wasn't checked yet
+        static bool Shows(string filter, StatusRow r)
+        {
+            bool notYet = r.State == "Not checked yet";
+            return filter == "warn" ? r.Level == "warn" : filter == "back" ? (r.State ?? "").StartsWith("Put back") : filter == "new" ? notYet : filter == "off" ? r.Level == "dim" && !notYet : true;
         }
 
         // one line: a status dot, the optimization, what the last check found on the right (and a line under it); a click
