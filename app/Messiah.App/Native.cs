@@ -88,6 +88,7 @@ namespace Messiah
         [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr h);
         [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr h, IntPtr dc);
         [DllImport("gdi32.dll")] static extern int GetDeviceCaps(IntPtr dc, int i);
-        public static int ScreenHz() { try { var dc = GetDC(IntPtr.Zero); try { var hz = GetDeviceCaps(dc, 116); return hz > 1 ? hz : 0; } finally { ReleaseDC(IntPtr.Zero, dc); } } catch { return 0; } }
+        // (tests: PCKIT_SCREEN_HZ pins it - a verdict read 'Smooth' on GitHub's 60 Hz runner and 'paced by' at 240 Hz, 10/30)
+        public static int ScreenHz() { if (Kit.InTests && int.TryParse(Environment.GetEnvironmentVariable("PCKIT_SCREEN_HZ"), out var t)) return t; try { var dc = GetDC(IntPtr.Zero); try { var hz = GetDeviceCaps(dc, 116); return hz > 1 ? hz : 0; } finally { ReleaseDC(IntPtr.Zero, dc); } } catch { return 0; } }
     }
 }

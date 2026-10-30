@@ -35,7 +35,9 @@ namespace Messiah.Pages
         public const string BackupWhat = "Every week: your wallpaper, dark mode, colors, taskbar, mouse, Start pins, game settings and Messiah's memory. The install USB brings them back after a reinstall; plug it in now and then for a copy.";
         public static string BackupLast(DateTime at, string dir, string docs = null)
         {
-            docs = (docs ?? Kit.Docs).TrimEnd('\\');
+            // (both full paths: a short-name home like C:\Users\RUNNER~1 comes back long from DirectoryInfo - 10/30, GitHub's runner)
+            string Full(string p) { try { return p == null || p == "" ? p : new DirectoryInfo(p).FullName; } catch { return p; } }
+            docs = (Full(docs ?? Kit.Docs) ?? "").TrimEnd('\\'); dir = Full(dir);
             if (docs != "" && dir != null && dir.StartsWith(docs + "\\", StringComparison.OrdinalIgnoreCase)) dir = "Documents" + dir.Substring(docs.Length);
             return $"Last backup {Kit.FormatWhen(at)}, in {dir}";
         }
